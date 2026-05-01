@@ -19,6 +19,36 @@ The supported library surface is the crate root aliases `pi::Error`,
 details for the CLI, examples, and in-repository tests; they are hidden from the
 published API documentation and may change without SemVer guarantees.
 
+The `semver` GitHub Actions workflow runs `cargo-semver-checks` on PRs and
+`main` pushes that touch the SDK/API surface. It compares the current public
+API to the PR target branch or previous push baseline. Removing or changing a
+stable item below requires a major version bump; additive changes remain
+minor-version compatible.
+
+### Stability Annotations
+
+| Item | Stability | Notes |
+| --- | --- | --- |
+| `pi::Error` | Stable | Crate-root error type alias target. |
+| `pi::PiResult` | Stable | Crate-root result alias for `pi::Error`. |
+| `pi::sdk::{Error, Result}` | Stable | SDK error/result exports. |
+| `pi::sdk::{AbortHandle, AbortSignal}` | Stable | Prompt cancellation handles. |
+| `pi::sdk::{Agent, AgentConfig, AgentEvent, AgentSession, QueueMode}` | Stable | In-process agent/session integration exports. |
+| `pi::sdk::{AssistantMessage, ContentBlock, Cost, CustomMessage, ImageContent, Message, StopReason, StreamEvent, TextContent, ThinkingContent, ToolCall, ToolResultMessage, Usage, UserContent, UserMessage}` | Stable | Message, content, streaming, and accounting model types. |
+| `pi::sdk::{Config, ExtensionManager, ExtensionPolicy, ExtensionRegion, Session, ThinkingLevel}` | Stable | Configuration, extension, session, and thinking-control exports. |
+| `pi::sdk::{InputType, Model, ModelCost, Provider, ProviderContext, ProviderThinkingBudgets, StreamOptions, ToolDef}` | Stable | Provider integration exports. |
+| `pi::sdk::{ModelEntry, ModelRegistry}` | Stable | Model registry exports. |
+| `pi::sdk::{Tool, ToolDefinition, ToolOutput, ToolRegistry, ToolUpdate}` | Stable | Tool integration exports. |
+| `pi::sdk::BUILTIN_TOOL_NAMES` | Stable | Canonical built-in tool-name inventory. |
+| `pi::sdk::{create_read_tool, create_bash_tool, create_edit_tool, create_write_tool, create_grep_tool, create_find_tool, create_ls_tool, create_hashline_edit_tool, create_all_tools}` | Stable | Built-in tool constructors. |
+| `pi::sdk::{tool_to_definition, all_tool_definitions}` | Stable | Tool schema helpers. |
+| `pi::sdk::{SubscriptionId, EventListeners, EventSubscriber, OnStreamEvent, OnToolEnd, OnToolStart}` | Stable | Event subscription and hook types. |
+| `pi::sdk::{SessionOptions, ToolFactory, default_tool_registry}` | Stable | In-process session construction and custom tool registry extension points. |
+| `pi::sdk::{AgentSessionHandle, AgentSessionState, create_agent_session}` | Stable | Primary in-process SDK entry point and state handle. |
+| `pi::sdk::{SessionPromptResult, SessionTransport, SessionTransportEvent, SessionTransportState}` | Stable | Unified in-process/RPC transport adapter. |
+| `pi::sdk::{RpcTransportClient, RpcTransportOptions}` | Stable | Subprocess RPC transport client. |
+| `pi::sdk::{RpcBashResult, RpcCancelledResult, RpcCommandInfo, RpcCompactionResult, RpcCycleModelResult, RpcExportHtmlResult, RpcExtensionUiResponse, RpcForkMessage, RpcForkResult, RpcLastAssistantText, RpcModelInfo, RpcSessionState, RpcSessionStats, RpcThinkingLevelResult, RpcTokenStats}` | Stable | RPC request/response payloads. |
+
 ## Migration Map (TypeScript -> Rust)
 
 | TypeScript surface | Rust SDK surface |
