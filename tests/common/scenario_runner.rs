@@ -138,6 +138,13 @@ pub struct VcrConfig {
     pub test_name: String,
 }
 
+/// File to create in the scenario working directory before launching `pi`.
+#[derive(Clone, Debug)]
+pub struct ScenarioFile {
+    pub path: PathBuf,
+    pub content: String,
+}
+
 /// A parameterized CLI scenario definition.
 #[derive(Clone, Debug)]
 pub struct CliScenario {
@@ -147,6 +154,8 @@ pub struct CliScenario {
     pub args: Vec<String>,
     /// Extra environment variables.
     pub env: BTreeMap<String, String>,
+    /// Files created under the scenario workspace before launch.
+    pub files: Vec<ScenarioFile>,
     /// Ordered sequence of steps.
     pub steps: Vec<ScenarioStep>,
     /// VCR configuration for offline testing.
@@ -162,6 +171,7 @@ impl CliScenario {
             name: name.to_string(),
             args: Vec::new(),
             env: BTreeMap::new(),
+            files: Vec::new(),
             steps: Vec::new(),
             vcr: None,
             exit_strategy: ExitStrategy::Graceful,
@@ -184,6 +194,15 @@ impl CliScenario {
     /// Set an environment variable.
     pub fn env(mut self, key: &str, value: &str) -> Self {
         self.env.insert(key.to_string(), value.to_string());
+        self
+    }
+
+    /// Create a workspace file before launching the scenario.
+    pub fn file(mut self, path: &str, content: &str) -> Self {
+        self.files.push(ScenarioFile {
+            path: PathBuf::from(path),
+            content: content.to_string(),
+        });
         self
     }
 
@@ -410,6 +429,12 @@ impl ScenarioRunner {
             session.set_env(key, value);
         }
 
+        for file in &scenario.files {
+            session
+                .harness
+                .create_file(&file.path, file.content.as_bytes());
+        }
+
         // Apply VCR config
         if let Some(vcr) = &scenario.vcr {
             session.set_env("VCR_MODE", "playback");
@@ -505,9 +530,21 @@ impl ScenarioRunner {
             });
 
             if !success {
-                session.harness.log().warn(
+                let mut tail = pane.lines().rev().take(40).collect::<Vec<_>>();
+                tail.reverse();
+                eprintln!(
+                    "Scenario step failed: scenario={} step={} label={}\n{}",
+                    scenario.name,
+                    i,
+                    step.label.as_deref().unwrap_or("<unnamed>"),
+                    tail.join("\n")
+                );
+                session.harness.log().error_ctx(
                     "scenario",
                     format!("Step {i} failed; aborting remaining steps"),
+                    |ctx| {
+                        ctx.push(("pane_tail".into(), tail.join("\n")));
+                    },
                 );
                 break;
             }
@@ -757,6 +794,7 @@ impl ReplayManifest {
             name: format!("{}_replay", self.scenario_name),
             args: self.args.clone(),
             env: self.env.clone(),
+            files: Vec::new(),
             steps: self.steps.iter().map(ReplayStepDef::to_step).collect(),
             vcr,
             exit_strategy,
@@ -1172,13 +1210,30 @@ fn execute_step(session: &TuiSession, step: &ScenarioStep) -> (String, bool) {
         StepAction::Wait => {}
     }
 
-    match session
+    let pane = session
         .tmux
-        .wait_for_pane_contains(&step.expect, step.timeout)
-    {
-        pane if pane.contains(&step.expect) => (pane, true),
-        pane => (pane, false),
+        .wait_for_pane_contains(&step.expect, step.timeout);
+    if !pane.contains(&step.expect) {
+        return (pane, false);
     }
+
+    match step.action {
+        StepAction::SendText(_) => {
+            let idle_pane = session
+                .tmux
+                .wait_for_pane_contains("Ctrl+C: quit", Duration::from_secs(5));
+            if idle_pane.contains("Ctrl+C: quit") {
+                std::thread::sleep(Duration::from_millis(250));
+                return (idle_pane, true);
+            }
+        }
+        StepAction::Wait => {
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        StepAction::SendKey(_) => {}
+    }
+
+    (pane, true)
 }
 
 /// Execute the exit strategy and return the resulting status.
@@ -1214,7 +1269,10 @@ fn execute_exit(session: &TuiSession, strategy: &ExitStrategy, start: &Instant) 
             if session.tmux.session_exists() {
                 let _ = session.tmux.try_send_key("C-d");
             }
-            std::thread::sleep(Duration::from_secs(2));
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while session.tmux.session_exists() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
             if session.tmux.session_exists() {
                 ExitStatus::ForcedExit {
                     method: "ctrl_d".to_string(),

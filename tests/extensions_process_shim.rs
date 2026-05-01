@@ -18,6 +18,7 @@ fn config_with_env(env: Vec<(&str, &str)>) -> PiJsRuntimeConfig {
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
+        deny_env: false,
         ..Default::default()
     }
 }

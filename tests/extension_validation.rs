@@ -522,10 +522,10 @@ fn non_vendored_pool_items_not_promoted() {
         .find(|c| c.canonical_id.contains("unvalidated-ext"))
         .expect("should find unvalidated candidate");
 
-    assert_ne!(
+    assert_eq!(
         candidate.status,
-        ValidationStatus::TrueExtension,
-        "non-vendored items should NOT be promoted"
+        ValidationStatus::MentionOnly,
+        "non-vendored pool items should remain candidate signals without true-extension promotion"
     );
 }
 

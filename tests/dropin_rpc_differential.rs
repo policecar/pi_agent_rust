@@ -2,13 +2,17 @@
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 use tempfile::TempDir;
 
 const SURFACE_DIFF: &str = include_str!("../docs/dropin-rpc-surface-diff.json");
 const SCENARIOS: &str =
     include_str!("dropin_rpc_differential/fixtures/g05_rpc_surface_scenarios.json");
+const RPC_RESPONSE_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn canonicalize(value: &Value) -> Value {
     match value {
@@ -310,32 +314,63 @@ impl RpcDifferentialTester {
 
     fn execute_rust_command(&self, input: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         let mut child = Command::new(&self.rust_pi_path)
-            .args(["--mode", "rpc"])
+            .args(["--mode", "rpc", "--print", "--no-extensions"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let stdin = child.stdin.as_mut().unwrap();
+        let stdout = child.stdout.take().expect("rpc child stdout pipe");
+        let (line_tx, line_rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
+            let mut line = String::new();
+            let result = reader.read_line(&mut line).map(|_| line);
+            let _ = line_tx.send(result);
+        });
+
+        let stdin = child.stdin.as_mut().expect("rpc child stdin pipe");
         writeln!(stdin, "{input}")?;
         drop(child.stdin.take());
 
-        let output = child.wait_with_output()?;
-        let stdout_str = String::from_utf8_lossy(&output.stdout);
-
-        if let Some(first_line) = stdout_str.lines().next() {
-            if let Ok(response) = serde_json::from_str::<Value>(first_line) {
-                return Ok(response);
+        match line_rx.recv_timeout(RPC_RESPONSE_TIMEOUT) {
+            Ok(Ok(first_line)) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                if let Ok(response) = serde_json::from_str::<Value>(first_line.trim_end()) {
+                    Ok(response)
+                } else {
+                    Ok(json!({
+                        "type": "response",
+                        "success": false,
+                        "error": format!("Failed to parse response: {first_line}")
+                    }))
+                }
+            }
+            Ok(Err(error)) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(error.into())
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    format!("RPC response timed out after {RPC_RESPONSE_TIMEOUT:?}"),
+                )
+                .into())
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "RPC response reader disconnected",
+                )
+                .into())
             }
         }
-
-        // Return error response if parsing fails
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Ok(json!({
-            "type": "response",
-            "success": false,
-            "error": format!("Failed to parse response: {stderr}")
-        }))
     }
 
     fn run_command_scenario(&self, scenario: &Value) -> Result<bool, Box<dyn std::error::Error>> {

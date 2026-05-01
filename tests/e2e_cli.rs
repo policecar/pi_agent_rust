@@ -533,6 +533,13 @@ impl TmuxInstance {
         self.run_checked(&["send-keys", "-t", &target, key], "send-keys");
     }
 
+    fn try_send_key(&self, key: &str) -> bool {
+        let target = self.target_pane();
+        self.tmux_output(&["send-keys", "-t", &target, key])
+            .status
+            .success()
+    }
+
     fn capture_pane(&self) -> String {
         let target = self.target_pane();
         // Capture some scrollback so long outputs (like `/help`) include their header.
@@ -2059,7 +2066,7 @@ fn e2e_interactive_smoke_tmux() {
 
     if tmux.session_exists() {
         logger.warn("tmux", "/exit did not terminate; sending Ctrl+D fallback");
-        tmux.send_key("C-d");
+        let _ = tmux.try_send_key("C-d");
         let start = Instant::now();
         while tmux.session_exists() {
             if start.elapsed() > Duration::from_secs(5) {
@@ -2074,9 +2081,11 @@ fn e2e_interactive_smoke_tmux() {
             "tmux",
             "Ctrl+D fallback did not terminate; sending Ctrl+C double-tap fallback",
         );
-        tmux.send_key("C-c");
+        let _ = tmux.try_send_key("C-c");
         std::thread::sleep(Duration::from_millis(100));
-        tmux.send_key("C-c");
+        if tmux.session_exists() {
+            let _ = tmux.try_send_key("C-c");
+        }
         let start = Instant::now();
         while tmux.session_exists() {
             if start.elapsed() > Duration::from_secs(5) {

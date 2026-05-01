@@ -91,7 +91,18 @@ fn artifacts_dir() -> PathBuf {
 }
 
 fn report_dir() -> PathBuf {
-    project_root().join("target/perf")
+    let repo_root = project_root();
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                repo_root.join(path)
+            }
+        })
+        .unwrap_or_else(|| repo_root.join("target"));
+    target_dir.join("perf")
 }
 
 fn collect_safe_extensions(max: usize) -> Vec<PathBuf> {
@@ -421,7 +432,7 @@ fn oco_tuner_heterogeneous_workload_e2e_evidence() {
     };
 
     let output_dir = report_dir();
-    let _ = std::fs::create_dir_all(&output_dir);
+    std::fs::create_dir_all(&output_dir).expect("create OCO heterogeneous report directory");
     let output_path = output_dir.join("oco_heterogeneous_e2e.json");
     std::fs::write(
         &output_path,

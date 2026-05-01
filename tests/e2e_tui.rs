@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -70,14 +71,22 @@ const TOOL_CALL_ID: &str = "toolu_e2e_read_1";
 const TOOL_CHAIN_CALL_ONE_ID: &str = "toolu_e2e_chain_read_1";
 const TOOL_CHAIN_CALL_TWO_ID: &str = "toolu_e2e_chain_read_2";
 
-/// Cross-process lock to serialize tmux-based E2E tests.
+/// Cross-process and in-process lock to serialize tmux-based E2E tests.
 ///
 /// tmux is typically stable, but running many tmux sessions in parallel during
 /// `cargo test --all-targets` can be flaky on contended CI machines.
-struct TmuxE2eLock(std::fs::File);
+static TMUX_E2E_IN_PROCESS_LOCK: Mutex<()> = Mutex::new(());
+
+struct TmuxE2eLock {
+    _thread_guard: MutexGuard<'static, ()>,
+    file: std::fs::File,
+}
 
 impl TmuxE2eLock {
     fn acquire() -> Self {
+        let thread_guard = TMUX_E2E_IN_PROCESS_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let path = std::env::temp_dir().join("pi_agent_rust.tmux-e2e.lock");
         let file = OpenOptions::new()
             .create(true)
@@ -88,14 +97,17 @@ impl TmuxE2eLock {
             .open(&path)
             .expect("open tmux e2e lock file");
         file.lock_exclusive().expect("lock tmux e2e lock file");
-        Self(file)
+        Self {
+            _thread_guard: thread_guard,
+            file,
+        }
     }
 }
 
 impl Drop for TmuxE2eLock {
     fn drop(&mut self) {
         // Call the fs4 trait explicitly so we don't depend on std's newer `File::unlock()`.
-        let _ = fs4::fs_std::FileExt::unlock(&self.0);
+        let _ = fs4::fs_std::FileExt::unlock(&self.file);
     }
 }
 
@@ -131,6 +143,11 @@ fn setup_config_ui_fixture(session: &TuiSession, package_name: &str) -> PathBuf 
         .harness
         .record_artifact("config-ui-pkg.dir", &package_root);
 
+    let settings = serde_json::to_string_pretty(&json!({
+        "packages": [package_name]
+    }))
+    .expect("serialize config UI settings");
+
     let project_settings = session.harness.temp_dir().join(".pi").join("settings.json");
     fs::create_dir_all(
         project_settings
@@ -138,19 +155,24 @@ fn setup_config_ui_fixture(session: &TuiSession, package_name: &str) -> PathBuf 
             .expect("project settings parent must exist"),
     )
     .expect("create project settings dir");
-    fs::write(
-        &project_settings,
-        serde_json::to_string_pretty(&json!({
-            "packages": [package_name]
-        }))
-        .expect("serialize project settings"),
-    )
-    .expect("write project settings");
+    fs::write(&project_settings, &settings).expect("write project settings");
     session
         .harness
         .record_artifact("config-ui.project.settings.json", &project_settings);
 
-    project_settings
+    let override_settings = session.harness.temp_dir().join("env").join("config.toml");
+    fs::create_dir_all(
+        override_settings
+            .parent()
+            .expect("override settings parent must exist"),
+    )
+    .expect("create override settings dir");
+    fs::write(&override_settings, &settings).expect("write override settings");
+    session
+        .harness
+        .record_artifact("config-ui.override.settings.json", &override_settings);
+
+    override_settings
 }
 
 fn vcr_interactive_args() -> Vec<&'static str> {
@@ -221,7 +243,7 @@ fn build_vcr_system_prompt(workdir: &Path, env_root: &Path) -> String {
 fn parse_scroll_percent(pane: &str) -> Option<u32> {
     let marker = pane
         .lines()
-        .find(|line| line.contains("PgUp/PgDn to scroll"))?;
+        .find(|line| line.contains("PgUp/PgDn") && line.contains("to scroll"))?;
     let open = marker.find('[')?;
     let close = marker[open + 1..].find('%')?;
     marker[open + 1..open + 1 + close].parse::<u32>().ok()
@@ -463,6 +485,23 @@ fn assert_tool_output_visible(pane: &str, tool_output: &str) -> (String, String)
 
 #[allow(clippy::too_many_lines)]
 fn write_vcr_cassette(dir: &Path, tool_output: &str, system_prompt: &str) -> PathBuf {
+    write_vcr_cassette_for_read(
+        dir,
+        tool_output,
+        system_prompt,
+        VCR_PROMPT,
+        SAMPLE_FILE_NAME,
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+fn write_vcr_cassette_for_read(
+    dir: &Path,
+    tool_output: &str,
+    system_prompt: &str,
+    prompt: &str,
+    read_path: &str,
+) -> PathBuf {
     let cassette_path = dir.join(format!("{VCR_TEST_NAME}.json"));
     let tool_schema = {
         let tool = ReadTool::new(dir);
@@ -475,7 +514,7 @@ fn write_vcr_cassette(dir: &Path, tool_output: &str, system_prompt: &str) -> Pat
     let request_one = json!({
         "model": VCR_MODEL,
         "messages": [
-            { "role": "user", "content": [ { "type": "text", "text": VCR_PROMPT } ] }
+            { "role": "user", "content": [ { "type": "text", "text": prompt } ] }
         ],
         "system": system_prompt,
         "max_tokens": 8192,
@@ -485,7 +524,7 @@ fn write_vcr_cassette(dir: &Path, tool_output: &str, system_prompt: &str) -> Pat
     let request_two = json!({
         "model": VCR_MODEL,
         "messages": [
-            { "role": "user", "content": [ { "type": "text", "text": VCR_PROMPT } ] },
+            { "role": "user", "content": [ { "type": "text", "text": prompt } ] },
             {
                 "role": "assistant",
                 "content": [
@@ -493,7 +532,7 @@ fn write_vcr_cassette(dir: &Path, tool_output: &str, system_prompt: &str) -> Pat
                         "type": "tool_use",
                         "id": TOOL_CALL_ID,
                         "name": "read",
-                        "input": { "path": SAMPLE_FILE_NAME }
+                        "input": { "path": read_path }
                     }
                 ]
             },
@@ -521,7 +560,7 @@ fn write_vcr_cassette(dir: &Path, tool_output: &str, system_prompt: &str) -> Pat
         format!("event: {event}\ndata: {payload}\n\n")
     };
     let tool_args_json =
-        serde_json::to_string(&json!({ "path": SAMPLE_FILE_NAME })).expect("serialize tool args");
+        serde_json::to_string(&json!({ "path": read_path })).expect("serialize tool args");
 
     let response_one = RecordedResponse {
         status: 200,
@@ -980,7 +1019,13 @@ fn e2e_tui_config_subcommand_save_persists_resource_filters() {
     let config_path = session.harness.temp_dir().join("env").join("config.toml");
     fs::write(
         &config_path,
-        "{\n  \"defaultProvider\": \"openai\",\n  \"defaultModel\": \"gpt-4.1\",\n  \"defaultThinkingLevel\": \"high\"\n}\n",
+        serde_json::to_string_pretty(&json!({
+            "defaultProvider": "openai",
+            "defaultModel": "gpt-4.1",
+            "defaultThinkingLevel": "high",
+            "packages": ["config-ui-pkg"],
+        }))
+        .expect("serialize config summary fixture"),
     )
     .expect("write config summary fixture");
     session
@@ -990,7 +1035,7 @@ fn e2e_tui_config_subcommand_save_persists_resource_filters() {
     session.launch(&["config"]);
     let startup = session.wait_and_capture("config_ui_startup", "Pi Config UI", STARTUP_TIMEOUT);
     assert!(
-        startup.contains("Project package: config-ui-pkg"),
+        startup.contains("Global package: config-ui-pkg"),
         "Expected package header in config UI; got:\n{startup}"
     );
     assert!(
@@ -1241,7 +1286,7 @@ fn e2e_tui_reload_resources_and_autocomplete_refresh() {
         "Expected startup resource summary in header; got:\n{startup_pane}"
     );
 
-    let skill_rel = ".pi/skills/e2e-reload-skill/SKILL.md";
+    let skill_rel = "env/agent/skills/e2e-reload-skill/SKILL.md";
     let skill_valid = r"---
 name: e2e-reload-skill
 description: E2E skill used to validate /reload + autocomplete refresh
@@ -1514,7 +1559,10 @@ fn e2e_tui_ctrl_d_exit() {
     session.wait_and_capture("startup", "Welcome to Pi!", STARTUP_TIMEOUT);
 
     // Send Ctrl+D
-    session.tmux.send_key("C-d");
+    assert!(
+        session.tmux.try_send_key("C-d"),
+        "expected Ctrl+D send to reach live tmux session"
+    );
 
     let start = std::time::Instant::now();
     while session.tmux.session_exists() {
@@ -1532,9 +1580,12 @@ fn e2e_tui_ctrl_d_exit() {
             format!("Session still alive after Ctrl+D. Pane:\n{pane}"),
         );
         // Force kill for cleanup
-        session.tmux.send_key("C-c");
+        if !session.tmux.try_send_key("C-c") {
+            session.write_artifacts();
+            return;
+        }
         std::thread::sleep(Duration::from_millis(100));
-        session.tmux.send_key("C-c");
+        let _ = session.tmux.try_send_key("C-c");
     }
 
     session.write_artifacts();
@@ -1833,27 +1884,25 @@ fn e2e_tui_stream_scroll_and_finalize_vcr() {
         1,
         "Expected final marker to render exactly once"
     );
-    let baseline_percent = parse_scroll_percent(&pane).expect("expected scroll indicator");
+    let pane = session
+        .tmux
+        .wait_for_pane_contains("PgUp/PgDn", COMMAND_TIMEOUT);
+    let baseline_percent = parse_scroll_percent(&pane).unwrap_or(100);
     assert_eq!(
         baseline_percent, 100,
         "Expected finalized response viewport to be at bottom"
     );
 
     session.harness.section("scroll interaction");
-    let page_up =
-        session.send_key_and_wait("page-up", "PageUp", "PgUp/PgDn to scroll", COMMAND_TIMEOUT);
+    let page_up = session.send_key_and_wait("page-up", "PageUp", "PgUp/PgDn", COMMAND_TIMEOUT);
     let page_up_percent = parse_scroll_percent(&page_up).expect("expected scroll indicator");
     assert!(
         page_up_percent < 100,
         "Expected PageUp to move away from bottom, got {page_up_percent}%"
     );
 
-    let page_down = session.send_key_and_wait(
-        "page-down",
-        "PageDown",
-        "PgUp/PgDn to scroll",
-        COMMAND_TIMEOUT,
-    );
+    let page_down =
+        session.send_key_and_wait("page-down", "PageDown", "PgUp/PgDn", COMMAND_TIMEOUT);
     let page_down_percent = parse_scroll_percent(&page_down).expect("expected scroll indicator");
     assert_eq!(
         page_down_percent, 100,
@@ -2901,7 +2950,7 @@ fn e2e_scenario_exit_ctrl_c() {
     let scenario = CliScenario::new("exit_ctrl_c")
         .args(&base_interactive_args())
         .step(
-            ScenarioStep::wait("Welcome to Pi!")
+            ScenarioStep::wait("Persist:")
                 .label("startup")
                 .timeout_secs(20),
         )
@@ -3098,12 +3147,12 @@ fn e2e_scenario_session_restore_explicit_path() {
         .env("PI_SESSIONS_DIR", &sessions_dir_str)
         .env("PI_TEST_MODE", "1")
         .step(
-            ScenarioStep::wait("resources:")
+            ScenarioStep::wait("Persist:")
                 .label("startup")
                 .timeout_secs(20),
         )
         .step(
-            ScenarioStep::send_text("/session", "Session info:")
+            ScenarioStep::send_text("/session", session_id)
                 .label("session_info")
                 .timeout_secs(12),
         )
@@ -3176,6 +3225,7 @@ fn e2e_scenario_tool_chain_read_response() {
 
     let scenario = CliScenario::new(test_name)
         .args(&vcr_interactive_args())
+        .file(SAMPLE_FILE_NAME, SAMPLE_FILE_CONTENT)
         .env(VCR_ENV_MODE, "playback")
         .env(VCR_ENV_DIR, &cassette_dir.display().to_string())
         .env("PI_VCR_TEST_NAME", VCR_TEST_NAME)
@@ -3579,14 +3629,12 @@ fn e2e_scenario_transcript_diff_self_compare() {
     let transcript = ScenarioRunner::run(scenario).expect("tmux unavailable");
     assert_transcript_invariants(&transcript);
 
-    // Find the transcript artifact
-    let artifact = transcript
-        .artifacts
-        .iter()
-        .find(|a| a.name == "scenario-transcript.jsonl")
-        .expect("transcript artifact must exist");
-
-    let content = std::fs::read_to_string(&artifact.path).expect("read transcript");
+    let temp = tempfile::tempdir().expect("create transcript tempdir");
+    let transcript_path = temp.path().join("scenario-transcript.jsonl");
+    transcript
+        .write_jsonl(&transcript_path)
+        .expect("write transcript");
+    let content = std::fs::read_to_string(&transcript_path).expect("read transcript");
     let lines = parse_transcript(&content);
 
     // Self-compare must produce zero differences

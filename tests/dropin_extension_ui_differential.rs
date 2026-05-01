@@ -2,12 +2,51 @@
 
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::io::Write;
-use std::process::{Command, Stdio};
+use std::io::{Read, Write};
+use std::process::{Child, Command, Output, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
 const UI_SCENARIOS: &str =
     include_str!("dropin_extension_ui_differential/fixtures/g05_extension_ui_scenarios.json");
+const UI_SCENARIO_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn wait_for_child_output(
+    mut child: Child,
+    timeout: Duration,
+) -> Result<Output, Box<dyn std::error::Error>> {
+    let started_at = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let mut stdout = Vec::new();
+            if let Some(mut pipe) = child.stdout.take() {
+                pipe.read_to_end(&mut stdout)?;
+            }
+            let mut stderr = Vec::new();
+            if let Some(mut pipe) = child.stderr.take() {
+                pipe.read_to_end(&mut stderr)?;
+            }
+            return Ok(Output {
+                status,
+                stdout,
+                stderr,
+            });
+        }
+
+        if started_at.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("extension UI scenario timed out after {timeout:?}"),
+            )
+            .into());
+        }
+
+        thread::sleep(Duration::from_millis(25));
+    }
+}
 
 /// Extension UI differential test harness for testing request/response round-trip parity
 struct ExtensionUiDifferentialTester {
@@ -33,7 +72,7 @@ impl ExtensionUiDifferentialTester {
     fn execute_ui_scenario(&self, scenario: &Value) -> Result<Value, Box<dyn std::error::Error>> {
         let requests = scenario["requests"].as_array().expect("scenario requests");
         let mut child = Command::new(&self.rust_pi_path)
-            .args(["--mode", "rpc"])
+            .args(["--mode", "rpc", "--print", "--no-extensions"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -47,7 +86,7 @@ impl ExtensionUiDifferentialTester {
         }
         drop(child.stdin.take());
 
-        let output = child.wait_with_output()?;
+        let output = wait_for_child_output(child, UI_SCENARIO_TIMEOUT)?;
         let stdout_str = String::from_utf8_lossy(&output.stdout);
 
         // Parse all JSON responses from stdout

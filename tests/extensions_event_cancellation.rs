@@ -435,11 +435,11 @@ fn session_before_switch_event_serialization() {
         Some("session_before_switch")
     );
     assert_eq!(
-        value.get("current_session").and_then(Value::as_str),
+        value.get("currentSession").and_then(Value::as_str),
         Some("session-1")
     );
     assert_eq!(
-        value.get("target_session").and_then(Value::as_str),
+        value.get("targetSession").and_then(Value::as_str),
         Some("session-2")
     );
 }
@@ -460,9 +460,9 @@ fn session_before_fork_event_serialization() {
         value.get("type").and_then(Value::as_str),
         Some("session_before_fork")
     );
-    assert!(value.get("current_session").unwrap().is_null());
+    assert!(value.get("currentSession").unwrap().is_null());
     assert_eq!(
-        value.get("fork_entry_id").and_then(Value::as_str),
+        value.get("forkEntryId").and_then(Value::as_str),
         Some("entry-42")
     );
 }

@@ -90,7 +90,18 @@ fn artifacts_dir() -> PathBuf {
 }
 
 fn output_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("target/perf")
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .map(|path| {
+            if path.is_absolute() {
+                path
+            } else {
+                repo_root.join(path)
+            }
+        })
+        .unwrap_or_else(|| repo_root.join("target"));
+    target_dir.join("perf")
 }
 
 fn load_manifest() -> &'static Vec<ManifestEntry> {
@@ -464,7 +475,7 @@ struct VerdictData {
 
 fn write_report(outcome: &StressOutcome, vd: &VerdictData, ext_names: &[String], max_ext: usize) {
     let out_dir = output_dir();
-    let _ = std::fs::create_dir_all(&out_dir);
+    std::fs::create_dir_all(&out_dir).expect("create memory stress output directory");
 
     // CSV timeline
     let csv_path = out_dir.join("ext_memory_stress.csv");

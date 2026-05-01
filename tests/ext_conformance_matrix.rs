@@ -867,12 +867,35 @@ fn generate_runtime_api_matrix_report() {
         .and_then(|bun| bun.get("fail"))
         .and_then(Value::as_u64)
         .expect("summary.bun.fail");
+    let bun_pass = summary
+        .get("bun")
+        .and_then(|bun| bun.get("pass"))
+        .and_then(Value::as_u64)
+        .expect("summary.bun.pass");
 
     assert_eq!(pass + fail, total, "summary pass+fail should equal total");
     assert!(pass > 0, "runtime matrix must contain passing entries");
+    let entries = report
+        .get("entries")
+        .and_then(Value::as_array)
+        .expect("entries");
+    let bun_entries = entries
+        .iter()
+        .filter(|entry| {
+            entry
+                .get("surface")
+                .and_then(Value::as_str)
+                .is_some_and(|surface| surface == "bun")
+        })
+        .count() as u64;
+    assert_eq!(
+        bun_pass + bun_fail,
+        bun_entries,
+        "runtime matrix Bun summary should match Bun entry coverage"
+    );
     assert!(
-        bun_fail > 0,
-        "runtime matrix should currently surface Bun API gaps explicitly"
+        bun_entries > 0,
+        "runtime matrix should explicitly surface tracked Bun API coverage"
     );
 
     let linked_outcomes = report.get("linked_outcomes").expect("linked_outcomes");

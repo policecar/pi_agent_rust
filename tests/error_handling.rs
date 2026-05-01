@@ -155,9 +155,9 @@ fn openai_body(prompt: &str) -> serde_json::Value {
     })
 }
 
-fn gemini_url(model: &str, api_key: &str) -> String {
+fn gemini_url(model: &str) -> String {
     format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={api_key}"
+        "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
     )
 }
 
@@ -396,7 +396,7 @@ mod provider_http_errors {
 
     #[test]
     fn gemini_http_401_reports_auth_error() {
-        let url = gemini_url("gemini-test", "bad-key");
+        let url = gemini_url("gemini-test");
         let (client, _dir) = vcr_client(
             "gemini_http_401",
             &url,
@@ -422,7 +422,7 @@ mod provider_http_errors {
 
     #[test]
     fn gemini_http_429_reports_rate_limit() {
-        let url = gemini_url("gemini-test", "test-key");
+        let url = gemini_url("gemini-test");
         let (client, _dir) = vcr_client(
             "gemini_http_429",
             &url,
@@ -563,7 +563,7 @@ mod provider_http_errors {
 
     #[test]
     fn gemini_http_400_reports_bad_request() {
-        let url = gemini_url("gemini-test", "test-key");
+        let url = gemini_url("gemini-test");
         let body = json!({
             "error": { "code": 400, "message": "Invalid value at 'contents'", "status": "INVALID_ARGUMENT" }
         });
@@ -652,7 +652,7 @@ mod provider_http_errors {
 
     #[test]
     fn gemini_http_403_reports_forbidden() {
-        let url = gemini_url("gemini-test", "test-key");
+        let url = gemini_url("gemini-test");
         let body = json!({
             "error": { "code": 403, "message": "Permission denied", "status": "PERMISSION_DENIED" }
         });
@@ -708,7 +708,7 @@ mod provider_http_errors {
 
     #[test]
     fn gemini_http_500_reports_server_error() {
-        let url = gemini_url("gemini-test", "test-key");
+        let url = gemini_url("gemini-test");
         let body = json!({
             "error": { "code": 500, "message": "Internal error", "status": "INTERNAL" }
         });
@@ -844,7 +844,7 @@ mod malformed_responses {
 
     #[test]
     fn gemini_invalid_json_in_sse_fails_stream() {
-        let url = gemini_url("gemini-test", "test-key");
+        let url = gemini_url("gemini-test");
         let (client, _dir) = vcr_client(
             "gemini_invalid_json_sse",
             &url,
