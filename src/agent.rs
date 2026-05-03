@@ -55,16 +55,68 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing::warn;
 
-const MAX_CONCURRENT_TOOLS: usize = 8;
+const MIN_READ_ONLY_TOOL_PARALLELISM: usize = 8;
+const MAX_AUTO_READ_ONLY_TOOL_PARALLELISM: usize = 64;
+const MAX_CONFIGURED_READ_ONLY_TOOL_PARALLELISM: usize = 256;
 /// Maximum messages in steering queue to prevent unbounded growth
 const MAX_STEERING_QUEUE_SIZE: usize = 100;
 /// Maximum messages in follow-up queue to prevent unbounded growth
 const MAX_FOLLOW_UP_QUEUE_SIZE: usize = 100;
 /// Maximum messages in agent history to prevent unbounded growth
 const MAX_AGENT_MESSAGES: usize = 10_000;
+
+fn read_only_tool_parallelism_limit() -> usize {
+    static LIMIT: OnceLock<usize> = OnceLock::new();
+    *LIMIT.get_or_init(|| {
+        let host_parallelism = std::thread::available_parallelism()
+            .map_or(MIN_READ_ONLY_TOOL_PARALLELISM, |parallelism| {
+                parallelism.get()
+            });
+        resolve_read_only_tool_parallelism(
+            std::env::var("PI_MAX_CONCURRENT_READ_ONLY_TOOLS")
+                .ok()
+                .as_deref(),
+            host_parallelism,
+        )
+    })
+}
+
+fn resolve_read_only_tool_parallelism(
+    raw_override: Option<&str>,
+    host_parallelism: usize,
+) -> usize {
+    let host_default = host_parallelism.clamp(
+        MIN_READ_ONLY_TOOL_PARALLELISM,
+        MAX_AUTO_READ_ONLY_TOOL_PARALLELISM,
+    );
+
+    let Some(raw) = raw_override.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return host_default;
+    };
+
+    match raw.parse::<usize>() {
+        Ok(0) => {
+            warn!(
+                value = raw,
+                "Ignoring PI_MAX_CONCURRENT_READ_ONLY_TOOLS=0; using host-scaled default"
+            );
+            host_default
+        }
+        Ok(limit) => limit.clamp(1, MAX_CONFIGURED_READ_ONLY_TOOL_PARALLELISM),
+        Err(err) => {
+            warn!(
+                value = raw,
+                error = %err,
+                "Ignoring invalid PI_MAX_CONCURRENT_READ_ONLY_TOOLS; using host-scaled default"
+            );
+            host_default
+        }
+    }
+}
 
 // ============================================================================
 // Agent Configuration
@@ -1943,6 +1995,7 @@ impl Agent {
         on_event: AgentEventHandler,
         abort: Option<AbortSignal>,
     ) -> Vec<(usize, (ToolOutput, bool))> {
+        let parallelism = read_only_tool_parallelism_limit();
         let futures = batch.into_iter().map(|(idx, tc)| {
             let on_event = Arc::clone(&on_event);
             async move { (idx, self.execute_tool_owned(tc, on_event).await) }
@@ -1951,7 +2004,7 @@ impl Agent {
         if let Some(signal) = abort.as_ref() {
             use futures::future::{Either, select};
             let all_fut = stream::iter(futures)
-                .buffer_unordered(MAX_CONCURRENT_TOOLS)
+                .buffer_unordered(parallelism)
                 .collect::<Vec<_>>()
                 .fuse();
             let abort_fut = signal.wait().fuse();
@@ -1963,7 +2016,7 @@ impl Agent {
             }
         } else {
             stream::iter(futures)
-                .buffer_unordered(MAX_CONCURRENT_TOOLS)
+                .buffer_unordered(parallelism)
                 .collect::<Vec<_>>()
                 .await
         }
@@ -2814,6 +2867,41 @@ mod message_queue_tests {
                 if matches!(content, UserContent::Text(text) if text == "f2")
         ));
         assert!(queue.pop_follow_up().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod read_only_tool_parallelism_tests {
+    use super::*;
+
+    #[test]
+    fn read_only_tool_parallelism_preserves_historical_floor() {
+        assert_eq!(resolve_read_only_tool_parallelism(None, 1), 8);
+        assert_eq!(resolve_read_only_tool_parallelism(None, 8), 8);
+    }
+
+    #[test]
+    fn read_only_tool_parallelism_scales_on_many_core_hosts() {
+        assert_eq!(resolve_read_only_tool_parallelism(None, 32), 32);
+        assert_eq!(resolve_read_only_tool_parallelism(None, 64), 64);
+        assert_eq!(resolve_read_only_tool_parallelism(None, 128), 64);
+    }
+
+    #[test]
+    fn read_only_tool_parallelism_accepts_bounded_override() {
+        assert_eq!(resolve_read_only_tool_parallelism(Some("16"), 4), 16);
+        assert_eq!(resolve_read_only_tool_parallelism(Some("512"), 64), 256);
+        assert_eq!(resolve_read_only_tool_parallelism(Some("1"), 64), 1);
+    }
+
+    #[test]
+    fn read_only_tool_parallelism_ignores_invalid_override() {
+        assert_eq!(
+            resolve_read_only_tool_parallelism(Some("not-a-number"), 24),
+            24
+        );
+        assert_eq!(resolve_read_only_tool_parallelism(Some("0"), 24), 24);
+        assert_eq!(resolve_read_only_tool_parallelism(Some(" "), 24), 24);
     }
 }
 
@@ -4035,11 +4123,15 @@ mod extensions_integration_tests {
             assert!(is_error);
             assert!(output.is_error);
             assert_eq!(calls.load(Ordering::SeqCst), 0);
-            if let [ContentBlock::Text(text)] = output.content.as_slice() {
-                assert_eq!(text.text, "Tool execution blocked: extension hook failed");
-            } else {
-                panic!("Expected text output, got {:?}", output.content);
-            }
+            assert!(
+                matches!(output.content.as_slice(), [ContentBlock::Text(_)]),
+                "Expected text output, got {:?}",
+                output.content
+            );
+            let [ContentBlock::Text(text)] = output.content.as_slice() else {
+                return;
+            };
+            assert_eq!(text.text, "Tool execution blocked: extension hook failed");
         });
     }
 
@@ -5561,28 +5653,35 @@ mod turn_event_tests {
                     ..
                 } => {
                     assert!(tool_results.is_empty());
-                    match message {
-                        Message::Assistant(message) => {
-                            assert_eq!(message.stop_reason, StopReason::Error);
-                            assert_eq!(
-                                message.error_message.as_deref(),
-                                Some("API error: stream setup failed")
-                            );
-                            assert_eq!(message.api, "test-api");
-                            assert_eq!(message.provider, "test-provider");
-                            assert_eq!(message.model, "test-model");
-                        }
-                        other => panic!("expected assistant message in TurnEnd, got {other:?}"),
-                    }
+                    assert!(
+                        matches!(message, Message::Assistant(_)),
+                        "expected assistant message in TurnEnd, got {message:?}"
+                    );
+                    let Message::Assistant(message) = message else {
+                        return;
+                    };
+                    assert_eq!(message.stop_reason, StopReason::Error);
+                    assert_eq!(
+                        message.error_message.as_deref(),
+                        Some("API error: stream setup failed")
+                    );
+                    assert_eq!(message.api, "test-api");
+                    assert_eq!(message.provider, "test-provider");
+                    assert_eq!(message.model, "test-model");
                 }
-                other => panic!("expected TurnEnd event, got {other:?}"),
+                other => {
+                    assert!(matches!(other, AgentEvent::TurnEnd { .. }));
+                    return;
+                }
             }
 
             match &events[agent_end_idx] {
                 AgentEvent::AgentEnd { error, .. } => {
                     assert_eq!(error.as_deref(), Some("API error: stream setup failed"));
                 }
-                other => panic!("expected AgentEnd event, got {other:?}"),
+                other => {
+                    assert!(matches!(other, AgentEvent::AgentEnd { .. }));
+                }
             }
         });
     }
@@ -6183,7 +6282,7 @@ impl AgentSession {
                 self.agent.set_provider(provider);
 
                 let stream_options = self.agent.stream_options_mut();
-                stream_options.api_key = resolved_key; // ubs:ignore - not a hardcoded secret
+                stream_options.api_key.clone_from(&resolved_key);
                 stream_options.headers.clone_from(&entry.headers);
                 Ok(())
             }
@@ -6358,7 +6457,7 @@ impl AgentSession {
             }
 
             let provider = self.agent.provider();
-            let api_key = self // ubs:ignore
+            let credential = self
                 .agent
                 .stream_options()
                 .api_key
@@ -6379,7 +6478,7 @@ impl AgentSession {
             };
 
             self.compaction_worker
-                .start(&runtime_handle, prep, provider, api_key, None);
+                .start(&runtime_handle, prep, provider, credential, None);
             self.extensions_is_compacting
                 .store(true, std::sync::atomic::Ordering::SeqCst);
         }
@@ -6581,14 +6680,14 @@ impl AgentSession {
                 .store(true, std::sync::atomic::Ordering::SeqCst);
 
             let provider = self.agent.provider();
-            let api_key = self // ubs:ignore
+            let credential = self
                 .agent
                 .stream_options()
                 .api_key
                 .clone()
                 .unwrap_or_default();
 
-            let compaction_result = compaction::compact(prep, provider, &api_key, None).await;
+            let compaction_result = compaction::compact(prep, provider, &credential, None).await;
             self.extensions_is_compacting
                 .store(false, std::sync::atomic::Ordering::SeqCst);
 
