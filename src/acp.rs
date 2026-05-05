@@ -7,17 +7,20 @@
 //!
 //! ## Protocol methods
 //!
-//! - `initialize` — exchange capabilities and protocol version
+//! - `initialize` — exchange capabilities and protocol version (integer)
 //! - `session/new` — create a new agent session
-//! - `prompt` — send a prompt and stream back results
-//! - `cancel` — cancel an in-progress prompt
-//! - `session/list` — list existing sessions
+//! - `session/prompt` — send a prompt; the response (with `stopReason`) is
+//!   delivered only after the turn completes
+//! - `session/cancel` — abort the current prompt turn for a session
+//! - `session/list`, `session/load`, `session/resume` — session management
 //!
 //! ## Streaming
 //!
-//! Prompt results are streamed as `prompt/progress` JSON-RPC notifications.
-//! Each notification carries incremental content (text deltas, tool calls,
-//! tool results) so the client can render in real time.
+//! Incremental output is streamed via `session/update` notifications, whose
+//! `params.update.sessionUpdate` discriminator identifies the kind of update
+//! (`agent_message_chunk`, `agent_thought_chunk`, `tool_call`,
+//! `tool_call_update`). Clients render in real time and the in-flight
+//! `session/prompt` request stays open until the turn produces a `stopReason`.
 
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::significant_drop_tightening)]
@@ -28,7 +31,7 @@ use crate::auth::AuthStorage;
 use crate::compaction::ResolvedCompactionSettings;
 use crate::config::Config;
 use crate::error::{Error, Result};
-use crate::model::{AssistantMessage, AssistantMessageEvent, ContentBlock};
+use crate::model::{AssistantMessageEvent, ContentBlock};
 use crate::models::ModelEntry;
 use crate::provider::StreamOptions;
 use crate::provider_metadata::provider_ids_match;
@@ -158,22 +161,6 @@ struct AcpMode {
     slug: String,
     name: String,
     description: String,
-}
-
-/// Content item in ACP prompt progress.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-enum AcpContentItem {
-    #[serde(rename = "text")]
-    Text { text: String },
-    #[serde(rename = "thinking")]
-    Thinking { text: String },
-    #[serde(rename = "tool_use")]
-    ToolUse {
-        id: String,
-        name: String,
-        input: Value,
-    },
 }
 
 // Permission callback support is not yet implemented; tool_approval
@@ -387,7 +374,7 @@ async fn run(
                 }
             }
 
-            "prompt" => {
+            "session/prompt" => {
                 if !initialized.load(Ordering::SeqCst) {
                     let _ = out_tx.send(json_rpc_error(
                         id,
@@ -402,11 +389,6 @@ async fn run(
                     .get("sessionId")
                     .and_then(Value::as_str)
                     .map(String::from);
-                let message_text = request
-                    .params
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .map(String::from);
 
                 let Some(session_id) = session_id else {
                     let _ = out_tx.send(json_rpc_error(
@@ -417,13 +399,25 @@ async fn run(
                     continue;
                 };
 
-                let Some(message_text) = message_text else {
+                // ACP wire shape: `prompt` is a ContentBlock[]. Concatenate text
+                // blocks; anything we don't yet support (image/audio/resource)
+                // surfaces a clear capability error rather than silently dropping.
+                let prompt_blocks = request.params.get("prompt").and_then(Value::as_array);
+                let Some(prompt_blocks) = prompt_blocks else {
                     let _ = out_tx.send(json_rpc_error(
                         id,
                         INVALID_PARAMS,
-                        "Missing required parameter: message",
+                        "Missing required parameter: prompt (expected array of ContentBlock)",
                     ));
                     continue;
+                };
+
+                let message_text = match extract_prompt_text(prompt_blocks) {
+                    Ok(text) => text,
+                    Err(err) => {
+                        let _ = out_tx.send(json_rpc_error(id, INVALID_PARAMS, err));
+                        continue;
+                    }
                 };
 
                 let session_state = {
@@ -442,13 +436,12 @@ async fn run(
                     continue;
                 };
 
-                // Check if this session already has an active prompt.
+                // Per spec, only one prompt turn may be active per session.
                 {
-                    let has_active = active_prompts.lock(&cx).await.is_ok_and(|guard| {
-                        guard
-                            .keys()
-                            .any(|k| k.starts_with(&format!("{session_id}:")))
-                    });
+                    let has_active = active_prompts
+                        .lock(&cx)
+                        .await
+                        .is_ok_and(|guard| guard.contains_key(&session_id));
                     if has_active {
                         let _ = out_tx.send(json_rpc_error(
                             id,
@@ -459,81 +452,76 @@ async fn run(
                     }
                 }
 
-                // Generate a prompt ID for tracking.
-                let prompt_seq = prompt_counter.fetch_add(1, Ordering::SeqCst);
-                let prompt_id = format!("{session_id}:prompt-{prompt_seq}");
+                // Bump the counter so prompt-turn diagnostics stay unique even
+                // across the same session_id.
+                let _ = prompt_counter.fetch_add(1, Ordering::SeqCst);
 
-                // Create an abort handle for this prompt.
                 let (abort_handle, abort_signal) = AbortHandle::new();
                 if let Ok(mut guard) = active_prompts.lock(&cx).await {
-                    guard.insert(prompt_id.clone(), abort_handle);
+                    guard.insert(session_id.clone(), abort_handle);
                 }
 
-                // Acknowledge the prompt immediately.
-                let _ = out_tx.send(json_rpc_ok(
-                    id,
-                    json!({
-                        "promptId": prompt_id,
-                    }),
-                ));
-
-                // Spawn the prompt execution.
+                // Per ACP, the server replies to session/prompt only after the
+                // turn completes — with a stopReason. Spawn the work and have
+                // the spawned task own the response (carrying the original `id`).
                 let out_tx_prompt = out_tx.clone();
                 let active_prompts_cleanup = Arc::clone(&active_prompts);
-                let prompt_id_cleanup = prompt_id.clone();
                 let prompt_cx = cx.clone();
                 let prompt_session_id = session_id.clone();
+                let response_id = id.clone();
 
                 options.runtime_handle.spawn(async move {
-                    run_prompt(
+                    let stop_reason = run_prompt(
                         session_state,
                         message_text,
                         abort_signal,
-                        out_tx_prompt,
-                        prompt_id.clone(),
-                        prompt_session_id,
+                        out_tx_prompt.clone(),
+                        prompt_session_id.clone(),
                         prompt_cx.clone(),
                     )
                     .await;
 
-                    // Clean up the active prompt.
                     if let Ok(mut guard) = active_prompts_cleanup.lock(&prompt_cx).await {
-                        guard.remove(&prompt_id_cleanup);
+                        guard.remove(&prompt_session_id);
                     }
+
+                    let _ = out_tx_prompt.send(json_rpc_ok(
+                        response_id,
+                        json!({ "stopReason": stop_reason }),
+                    ));
                 });
             }
 
-            "cancel" => {
-                let prompt_id = request
+            // ACP defines session/cancel as a notification that aborts the
+            // current prompt turn for `sessionId`. We accept the request form
+            // too (some clients still send it as a request) and respond with
+            // an empty result so they don't error on a missing reply.
+            "session/cancel" => {
+                let session_id_opt = request
                     .params
-                    .get("promptId")
+                    .get("sessionId")
                     .and_then(Value::as_str)
                     .map(String::from);
 
-                let Some(prompt_id) = prompt_id else {
-                    let _ = out_tx.send(json_rpc_error(
-                        id,
-                        INVALID_PARAMS,
-                        "Missing required parameter: promptId",
-                    ));
+                let Some(session_id) = session_id_opt else {
+                    if request.id.is_some() {
+                        let _ = out_tx.send(json_rpc_error(
+                            id,
+                            INVALID_PARAMS,
+                            "Missing required parameter: sessionId",
+                        ));
+                    }
                     continue;
                 };
 
-                let aborted = active_prompts.lock(&cx).await.is_ok_and(|guard| {
-                    guard.get(&prompt_id).is_some_and(|handle| {
+                if let Ok(guard) = active_prompts.lock(&cx).await {
+                    if let Some(handle) = guard.get(&session_id) {
                         handle.abort();
-                        true
-                    })
-                });
+                    }
+                }
 
-                if aborted {
-                    let _ = out_tx.send(json_rpc_ok(id, json!({ "cancelled": true })));
-                } else {
-                    let _ = out_tx.send(json_rpc_error(
-                        id,
-                        PROMPT_NOT_FOUND,
-                        format!("No active prompt with id: {prompt_id}"),
-                    ));
+                if request.id.is_some() {
+                    let _ = out_tx.send(json_rpc_ok(id, json!({})));
                 }
             }
 
@@ -833,15 +821,26 @@ async fn validate_file_path(
 fn handle_initialize() -> Value {
     let version = env!("CARGO_PKG_VERSION");
     json!({
-        "protocolVersion": "2025-01-01",
-        "serverInfo": {
+        "protocolVersion": 1,
+        "agentInfo": {
             "name": "pi-agent",
             "version": version,
         },
-        "capabilities": {
-            "streaming": true,
-            "toolApproval": false,
+        "agentCapabilities": {
+            // Sessions live only in-process; we do not rehydrate persisted history.
+            "loadSession": false,
+            "mcpCapabilities": {
+                "http": false,
+                "sse": false,
+            },
+            "promptCapabilities": {
+                "audio": false,
+                "embeddedContext": false,
+                "image": false,
+            },
+            "sessionCapabilities": {},
         },
+        "authMethods": [],
     })
 }
 
@@ -1021,53 +1020,31 @@ async fn handle_session_new(
     ))
 }
 
-/// Execute a prompt and stream progress notifications.
+/// Execute a prompt for a session and stream `session/update` notifications.
+///
+/// Returns the ACP `stopReason` string so the dispatcher can attach it to the
+/// `session/prompt` response (which only completes when the turn does).
 async fn run_prompt(
     session_state: Arc<Mutex<AcpSessionState>>,
     message: String,
     abort_signal: AbortSignal,
     out_tx: std::sync::mpsc::SyncSender<String>,
-    prompt_id: String,
     session_id: String,
     cx: AgentCx,
-) {
-    let out_tx_events = out_tx.clone();
-    let prompt_id_events = prompt_id.clone();
-    let session_id_events = session_id.clone();
-
-    // Build the event handler that translates AgentEvents into ACP notifications.
-    let event_handler = build_acp_event_handler(out_tx_events, prompt_id_events, session_id_events);
+) -> &'static str {
+    let event_handler = build_acp_event_handler(out_tx.clone(), session_id.clone());
 
     // Take the agent_session out of the lock, run the prompt, then put it back.
-    // This avoids holding the session mutex across the entire prompt execution,
-    // which could block other operations (session/list, cancel, etc.) for minutes.
-    // Safety: the concurrent-prompt guard in the dispatcher prevents a second
-    // prompt on the same session, so no one will see the None state.
+    // Holding the session mutex across the whole turn would block session/cancel
+    // and session/list. The concurrent-prompt guard upstream guarantees only one
+    // task is in here per session at a time, so the Option swap is safe.
     let mut agent_session = {
         let mut guard = match session_state.lock(&cx).await {
             Ok(guard) => guard,
-            Err(err) => {
-                let _ = out_tx.send(json_rpc_notification(
-                    "prompt/end",
-                    json!({
-                        "promptId": prompt_id,
-                        "sessionId": session_id,
-                        "error": format!("Session lock failed: {err}"),
-                    }),
-                ));
-                return;
-            }
+            Err(_) => return ACP_STOP_REASON_ERROR,
         };
         let Some(agent) = guard.agent_session.take() else {
-            let _ = out_tx.send(json_rpc_notification(
-                "prompt/end",
-                json!({
-                    "promptId": prompt_id,
-                    "sessionId": session_id,
-                    "error": "Session is busy (agent_session unavailable)",
-                }),
-            ));
-            return;
+            return ACP_STOP_REASON_ERROR;
         };
         agent
     };
@@ -1076,103 +1053,118 @@ async fn run_prompt(
         .run_text_with_abort(message, Some(abort_signal), event_handler)
         .await;
 
-    // Put the agent_session back.
     if let Ok(mut guard) = session_state.lock(&cx).await {
         guard.agent_session = Some(agent_session);
     }
 
-    // Send prompt/end notification.
     match result {
-        Ok(ref msg) => {
-            let content = assistant_message_to_acp_content(msg);
-            let _ = out_tx.send(json_rpc_notification(
-                "prompt/end",
-                json!({
-                    "promptId": prompt_id,
-                    "sessionId": session_id,
-                    "content": content,
-                    "stopReason": serde_json::to_value(msg.stop_reason)
-                        .unwrap_or_else(|_| json!("unknown")),
-                }),
-            ));
-        }
-        Err(ref err) => {
-            let _ = out_tx.send(json_rpc_notification(
-                "prompt/end",
-                json!({
-                    "promptId": prompt_id,
-                    "sessionId": session_id,
-                    "error": err.to_string(),
-                }),
-            ));
-        }
+        Ok(msg) => map_stop_reason(msg.stop_reason),
+        Err(_) => ACP_STOP_REASON_ERROR,
     }
 }
 
-/// Build an event handler that translates `AgentEvent`s into ACP `prompt/progress` notifications.
+// ACP stopReason values per the protocol spec.
+const ACP_STOP_REASON_END_TURN: &str = "end_turn";
+const ACP_STOP_REASON_MAX_TOKENS: &str = "max_tokens";
+const ACP_STOP_REASON_CANCELLED: &str = "cancelled";
+// Spec lists: end_turn | max_tokens | max_turn_requests | refusal | cancelled.
+// We collapse provider/local errors into end_turn so the response stays well-formed;
+// the error text has already been streamed via session/update.
+const ACP_STOP_REASON_ERROR: &str = "end_turn";
+
+fn map_stop_reason(reason: crate::model::StopReason) -> &'static str {
+    use crate::model::StopReason;
+    match reason {
+        StopReason::Stop | StopReason::ToolUse => ACP_STOP_REASON_END_TURN,
+        StopReason::Length => ACP_STOP_REASON_MAX_TOKENS,
+        StopReason::Aborted => ACP_STOP_REASON_CANCELLED,
+        StopReason::Error => ACP_STOP_REASON_ERROR,
+    }
+}
+
+/// Extract a single text string from an ACP `prompt: ContentBlock[]`.
+///
+/// Per the spec, baseline support is `text` and `resource_link` blocks. We accept
+/// either, concatenate text and link URIs in order, and reject any block whose
+/// type we did not advertise as supported in `agentCapabilities.promptCapabilities`.
+fn extract_prompt_text(blocks: &[Value]) -> std::result::Result<String, String> {
+    let mut out = String::new();
+    for block in blocks {
+        let block_type = block.get("type").and_then(Value::as_str).unwrap_or("");
+        match block_type {
+            "text" => {
+                let Some(text) = block.get("text").and_then(Value::as_str) else {
+                    return Err(
+                        "Prompt block of type \"text\" missing required field \"text\""
+                            .to_string(),
+                    );
+                };
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(text);
+            }
+            "resource_link" => {
+                // Surface the URI inline. Clients that want richer handling can
+                // upgrade once we advertise embeddedContext: true.
+                let Some(uri) = block.get("uri").and_then(Value::as_str) else {
+                    return Err(
+                        "Prompt block of type \"resource_link\" missing required field \"uri\""
+                            .to_string(),
+                    );
+                };
+                if !out.is_empty() {
+                    out.push('\n');
+                }
+                out.push_str(uri);
+            }
+            "" => {
+                return Err(
+                    "Prompt block missing required discriminator field \"type\"".to_string(),
+                );
+            }
+            other => {
+                return Err(format!(
+                    "Prompt block type \"{other}\" is not supported by this agent (advertised capabilities only allow text and resource_link)"
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Build an event handler that translates `AgentEvent`s into ACP `session/update`
+/// notifications. The wire shape is:
+///
+/// ```text
+/// { "jsonrpc": "2.0", "method": "session/update",
+///   "params": { "sessionId": ..., "update": { "sessionUpdate": <kind>, ... } } }
+/// ```
 fn build_acp_event_handler(
     out_tx: std::sync::mpsc::SyncSender<String>,
-    prompt_id: String,
     session_id: String,
 ) -> impl Fn(AgentEvent) + Send + Sync + 'static {
     move |event: AgentEvent| {
-        let notification = match &event {
+        let update = match &event {
             AgentEvent::MessageUpdate {
                 assistant_message_event,
                 ..
             } => match assistant_message_event {
-                AssistantMessageEvent::TextDelta { delta, .. } => Some(json_rpc_notification(
-                    "prompt/progress",
-                    json!({
-                        "promptId": prompt_id,
-                        "sessionId": session_id,
-                        "kind": "textDelta",
-                        "content": [{
-                            "type": "text",
-                            "text": delta,
-                        }],
-                    }),
-                )),
-                AssistantMessageEvent::TextEnd { content, .. } => Some(json_rpc_notification(
-                    "prompt/progress",
-                    json!({
-                        "promptId": prompt_id,
-                        "sessionId": session_id,
-                        "kind": "textEnd",
-                        "content": [{
-                            "type": "text",
-                            "text": content,
-                        }],
-                    }),
-                )),
-                AssistantMessageEvent::ThinkingDelta { delta, .. } => Some(json_rpc_notification(
-                    "prompt/progress",
-                    json!({
-                        "promptId": prompt_id,
-                        "sessionId": session_id,
-                        "kind": "thinkingDelta",
-                        "content": [{
-                            "type": "thinking",
-                            "text": delta,
-                        }],
-                    }),
-                )),
-                AssistantMessageEvent::ToolCallEnd { tool_call, .. } => {
-                    Some(json_rpc_notification(
-                        "prompt/progress",
-                        json!({
-                            "promptId": prompt_id,
-                            "sessionId": session_id,
-                            "kind": "toolUse",
-                            "content": [{
-                                "type": "tool_use",
-                                "id": tool_call.id,
-                                "name": tool_call.name,
-                                "input": tool_call.arguments,
-                            }],
-                        }),
-                    ))
-                }
+                AssistantMessageEvent::TextDelta { delta, .. } => Some(json!({
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": { "type": "text", "text": delta },
+                })),
+                // TextEnd carries the same text already delivered via TextDelta;
+                // emitting it again would double the user-visible message. Skip.
+                AssistantMessageEvent::TextEnd { .. } => None,
+                AssistantMessageEvent::ThinkingDelta { delta, .. } => Some(json!({
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": { "type": "text", "text": delta },
+                })),
+                // The tool_call announcement is sent on ToolExecutionStart so the
+                // status transitions (pending -> in_progress -> completed) line up
+                // with what the client renders. ToolCallEnd in the model stream is
+                // metadata-only and would duplicate the announcement.
                 _ => None,
             },
 
@@ -1180,21 +1172,18 @@ fn build_acp_event_handler(
                 tool_call_id,
                 tool_name,
                 args,
-            } => Some(json_rpc_notification(
-                "prompt/progress",
-                json!({
-                    "promptId": prompt_id,
-                    "sessionId": session_id,
-                    "kind": "toolExecutionStart",
-                    "toolCallId": tool_call_id,
-                    "toolName": tool_name,
-                    "args": args,
-                }),
-            )),
+            } => Some(json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": tool_call_id,
+                "title": tool_name,
+                "kind": classify_tool_kind(tool_name),
+                "status": "in_progress",
+                "rawInput": args,
+            })),
 
             AgentEvent::ToolExecutionEnd {
                 tool_call_id,
-                tool_name,
+                tool_name: _,
                 result,
                 is_error,
             } => {
@@ -1208,100 +1197,64 @@ fn build_acp_event_handler(
                     .collect::<Vec<_>>()
                     .join("\n");
 
-                Some(json_rpc_notification(
-                    "prompt/progress",
-                    json!({
-                        "promptId": prompt_id,
-                        "sessionId": session_id,
-                        "kind": "toolResult",
-                        "toolName": tool_name,
-                        "content": [{
-                            "type": "tool_result",
-                            "toolUseId": tool_call_id,
-                            "content": content_text,
-                            "isError": is_error,
-                        }],
-                    }),
-                ))
+                Some(json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": tool_call_id,
+                    "status": if *is_error { "failed" } else { "completed" },
+                    "content": [{
+                        "type": "content",
+                        "content": { "type": "text", "text": content_text },
+                    }],
+                }))
             }
 
-            AgentEvent::TurnStart { turn_index, .. } => Some(json_rpc_notification(
-                "prompt/progress",
-                json!({
-                    "promptId": prompt_id,
-                    "sessionId": session_id,
-                    "kind": "turnStart",
-                    "turnIndex": turn_index,
-                }),
-            )),
-
-            AgentEvent::TurnEnd { turn_index, .. } => Some(json_rpc_notification(
-                "prompt/progress",
-                json!({
-                    "promptId": prompt_id,
-                    "sessionId": session_id,
-                    "kind": "turnEnd",
-                    "turnIndex": turn_index,
-                }),
-            )),
-
-            AgentEvent::AgentStart { .. } => Some(json_rpc_notification(
-                "prompt/progress",
-                json!({
-                    "promptId": prompt_id,
-                    "sessionId": session_id,
-                    "kind": "agentStart",
-                }),
-            )),
-
-            AgentEvent::AgentEnd { error, .. } => Some(json_rpc_notification(
-                "prompt/progress",
-                json!({
-                    "promptId": prompt_id,
-                    "sessionId": session_id,
-                    "kind": "agentEnd",
-                    "error": error,
-                }),
-            )),
-
-            // Other events are not surfaced as ACP notifications.
+            // Turn-/agent-level events have no direct ACP equivalent. They were
+            // useful for pi's own debug stream but ACP clients render the chunks
+            // and tool_call updates above without needing them.
             _ => None,
         };
 
-        if let Some(notif) = notification {
-            let _ = out_tx.send(notif);
+        if let Some(update) = update {
+            let _ = out_tx.send(json_rpc_notification(
+                "session/update",
+                json!({
+                    "sessionId": session_id,
+                    "update": update,
+                }),
+            ));
         }
     }
 }
 
-/// Convert an `AssistantMessage` to a list of ACP content items.
-fn assistant_message_to_acp_content(msg: &AssistantMessage) -> Vec<AcpContentItem> {
-    let mut items = Vec::new();
-    for block in &msg.content {
-        match block {
-            ContentBlock::Text(t) => {
-                items.push(AcpContentItem::Text {
-                    text: t.text.clone(),
-                });
-            }
-            ContentBlock::Thinking(t) => {
-                items.push(AcpContentItem::Thinking {
-                    text: t.thinking.clone(),
-                });
-            }
-            ContentBlock::ToolCall(tc) => {
-                items.push(AcpContentItem::ToolUse {
-                    id: tc.id.clone(),
-                    name: tc.name.clone(),
-                    input: tc.arguments.clone(),
-                });
-            }
-            ContentBlock::Image(_) => {
-                // Images are not surfaced through ACP text protocol.
-            }
-        }
+/// Map a pi tool name to one of ACP's `kind` values. The enum is small and
+/// drives client-side icons; "other" is the documented fallback.
+fn classify_tool_kind(tool_name: &str) -> &'static str {
+    let lower = tool_name.to_ascii_lowercase();
+    if matches!(lower.as_str(), "read" | "read_text_file" | "view" | "cat") {
+        "read"
+    } else if matches!(
+        lower.as_str(),
+        "edit" | "write" | "write_text_file" | "patch" | "apply_patch" | "create"
+    ) {
+        "edit"
+    } else if matches!(lower.as_str(), "delete" | "rm" | "remove") {
+        "delete"
+    } else if matches!(lower.as_str(), "move" | "mv" | "rename") {
+        "move"
+    } else if matches!(
+        lower.as_str(),
+        "search" | "grep" | "ripgrep" | "rg" | "find" | "glob"
+    ) {
+        "search"
+    } else if matches!(lower.as_str(), "execute" | "bash" | "shell" | "run" | "exec") {
+        "execute"
+    } else if matches!(lower.as_str(), "fetch" | "http" | "curl" | "web_fetch") {
+        "fetch"
+    } else if matches!(lower.as_str(), "think" | "thinking") {
+        "think"
+    } else {
+        "other"
     }
-    items
 }
 
 // ============================================================================
@@ -1366,13 +1319,23 @@ mod tests {
     #[test]
     fn json_rpc_notification_format() {
         let notif = json_rpc_notification(
-            "prompt/progress",
-            json!({"promptId": "p1", "kind": "textDelta"}),
+            "session/update",
+            json!({
+                "sessionId": "sess-1",
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": { "type": "text", "text": "hi" },
+                },
+            }),
         );
         let parsed: Value = serde_json::from_str(&notif).expect("valid json");
         assert_eq!(parsed["jsonrpc"], "2.0");
-        assert_eq!(parsed["method"], "prompt/progress");
-        assert_eq!(parsed["params"]["promptId"], "p1");
+        assert_eq!(parsed["method"], "session/update");
+        assert_eq!(parsed["params"]["sessionId"], "sess-1");
+        assert_eq!(
+            parsed["params"]["update"]["sessionUpdate"],
+            "agent_message_chunk"
+        );
         assert!(parsed.get("id").is_none());
     }
 
@@ -1380,11 +1343,24 @@ mod tests {
     fn handle_initialize_returns_correct_shape() {
         let result = handle_initialize();
 
-        assert_eq!(result["protocolVersion"], "2025-01-01");
-        assert_eq!(result["serverInfo"]["name"], "pi-agent");
-        assert_eq!(result["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
-        assert!(result["capabilities"]["streaming"].as_bool().unwrap());
-        assert!(!result["capabilities"]["toolApproval"].as_bool().unwrap());
+        // ACP requires protocolVersion as an integer, not a string.
+        assert_eq!(result["protocolVersion"], 1);
+        assert_eq!(result["agentInfo"]["name"], "pi-agent");
+        assert_eq!(result["agentInfo"]["version"], env!("CARGO_PKG_VERSION"));
+        // Sessions are in-process only — we never advertise loadSession.
+        assert_eq!(result["agentCapabilities"]["loadSession"], false);
+        // promptCapabilities advertise text/resource_link baseline only.
+        assert_eq!(result["agentCapabilities"]["promptCapabilities"]["audio"], false);
+        assert_eq!(result["agentCapabilities"]["promptCapabilities"]["image"], false);
+        // mcpCapabilities advertised explicitly so the client knows transports.
+        assert_eq!(result["agentCapabilities"]["mcpCapabilities"]["http"], false);
+        assert_eq!(result["agentCapabilities"]["mcpCapabilities"]["sse"], false);
+        // authMethods is required even when empty.
+        assert!(result["authMethods"].is_array());
+        assert_eq!(result["authMethods"].as_array().unwrap().len(), 0);
+        // Old fields must be gone — old clients that read them will fail loudly.
+        assert!(result.get("serverInfo").is_none());
+        assert!(result.get("capabilities").is_none());
     }
 
     #[test]
@@ -1493,37 +1469,80 @@ mod tests {
     }
 
     #[test]
-    fn assistant_message_to_acp_content_converts_blocks() {
-        use crate::model::{TextContent, ToolCall};
+    fn extract_prompt_text_concatenates_text_blocks() {
+        let blocks = vec![
+            json!({ "type": "text", "text": "first line" }),
+            json!({ "type": "text", "text": "second line" }),
+        ];
+        let result = extract_prompt_text(&blocks).expect("extracts text");
+        assert_eq!(result, "first line\nsecond line");
+    }
 
-        let msg = AssistantMessage {
-            content: vec![
-                ContentBlock::Text(TextContent::new("Hello")),
-                ContentBlock::ToolCall(ToolCall {
-                    id: "tc1".into(),
-                    name: "read".into(),
-                    arguments: json!({"path": "/tmp/test.txt"}),
-                    thought_signature: None,
-                }),
-            ],
-            ..Default::default()
-        };
+    #[test]
+    fn extract_prompt_text_appends_resource_link_uri() {
+        let blocks = vec![
+            json!({ "type": "text", "text": "see also" }),
+            json!({
+                "type": "resource_link",
+                "uri": "file:///tmp/notes.md",
+                "name": "notes.md",
+            }),
+        ];
+        let result = extract_prompt_text(&blocks).expect("extracts text");
+        assert_eq!(result, "see also\nfile:///tmp/notes.md");
+    }
 
-        let items = assistant_message_to_acp_content(&msg);
-        assert_eq!(items.len(), 2);
+    #[test]
+    fn extract_prompt_text_rejects_unsupported_block_type() {
+        // We advertise audio: false / image: false in agentCapabilities, so
+        // the only honest behavior on those blocks is a clear capability error.
+        let blocks = vec![json!({ "type": "image", "data": "base64..." })];
+        let err = extract_prompt_text(&blocks).expect_err("should reject");
+        assert!(err.contains("not supported"), "got: {err}");
+    }
 
-        match &items[0] {
-            AcpContentItem::Text { text } => assert_eq!(text, "Hello"),
-            _ => panic!("Expected Text item"),
-        }
+    #[test]
+    fn extract_prompt_text_rejects_text_block_without_text_field() {
+        let blocks = vec![json!({ "type": "text" })];
+        let err = extract_prompt_text(&blocks).expect_err("should reject");
+        assert!(
+            err.contains("missing required field \"text\""),
+            "got: {err}"
+        );
+    }
 
-        match &items[1] {
-            AcpContentItem::ToolUse { id, name, input } => {
-                assert_eq!(id, "tc1");
-                assert_eq!(name, "read");
-                assert_eq!(input["path"], "/tmp/test.txt");
-            }
-            _ => panic!("Expected ToolUse item"),
-        }
+    #[test]
+    fn extract_prompt_text_rejects_block_without_type_discriminator() {
+        let blocks = vec![json!({ "text": "no type" })];
+        let err = extract_prompt_text(&blocks).expect_err("should reject");
+        assert!(err.contains("missing required discriminator"), "got: {err}");
+    }
+
+    #[test]
+    fn map_stop_reason_covers_acp_values() {
+        use crate::model::StopReason;
+        assert_eq!(map_stop_reason(StopReason::Stop), "end_turn");
+        assert_eq!(map_stop_reason(StopReason::ToolUse), "end_turn");
+        assert_eq!(map_stop_reason(StopReason::Length), "max_tokens");
+        assert_eq!(map_stop_reason(StopReason::Aborted), "cancelled");
+        // Errors collapse to end_turn — the failure has already been streamed
+        // via session/update; the response only carries a stopReason string.
+        assert_eq!(map_stop_reason(StopReason::Error), "end_turn");
+    }
+
+    #[test]
+    fn classify_tool_kind_maps_common_names() {
+        assert_eq!(classify_tool_kind("read"), "read");
+        assert_eq!(classify_tool_kind("read_text_file"), "read");
+        assert_eq!(classify_tool_kind("EDIT"), "edit");
+        assert_eq!(classify_tool_kind("apply_patch"), "edit");
+        assert_eq!(classify_tool_kind("rg"), "search");
+        assert_eq!(classify_tool_kind("bash"), "execute");
+        assert_eq!(classify_tool_kind("curl"), "fetch");
+        assert_eq!(classify_tool_kind("rm"), "delete");
+        assert_eq!(classify_tool_kind("mv"), "move");
+        assert_eq!(classify_tool_kind("think"), "think");
+        // Unrecognised tool names fall through to the documented default.
+        assert_eq!(classify_tool_kind("playwright_screenshot"), "other");
     }
 }
