@@ -8352,9 +8352,15 @@ mod tests {
         // (saturated) usize::MAX / 5, so the warning effectively never
         // fires for absurd caps — which is the safer default.
         assert!(!should_warn_at_iteration_threshold(1_000_000, usize::MAX));
-        assert!(!should_warn_at_iteration_threshold(usize::MAX / 6, usize::MAX));
+        assert!(!should_warn_at_iteration_threshold(
+            usize::MAX / 6,
+            usize::MAX
+        ));
         // Conversely, a current at the saturated threshold should fire.
-        assert!(should_warn_at_iteration_threshold(usize::MAX / 5, usize::MAX));
+        assert!(should_warn_at_iteration_threshold(
+            usize::MAX / 5,
+            usize::MAX
+        ));
     }
 
     #[test]
