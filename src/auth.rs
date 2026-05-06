@@ -2130,29 +2130,38 @@ static SSO_PORTAL_BASE_URL_OVERRIDE: std::sync::OnceLock<std::sync::Mutex<Option
 
 /// Override for the SSO Portal base URL (test-only; production uses the
 /// canonical `https://portal.sso.<region>.amazonaws.com`).
+///
+/// On lock poisoning (a previous holder panicked), we recover the inner
+/// guard via `PoisonError::into_inner` and read the stored value. Silently
+/// returning `None` on poison would mask the override state and produce
+/// confusing test failures where the resolver hits the real AWS endpoint
+/// instead of the mock — recovering preserves the test's intent.
 #[cfg(test)]
 fn sso_portal_base_url_override() -> Option<String> {
-    SSO_PORTAL_BASE_URL_OVERRIDE
-        .get_or_init(|| std::sync::Mutex::new(None))
+    let mutex = SSO_PORTAL_BASE_URL_OVERRIDE.get_or_init(|| std::sync::Mutex::new(None));
+    let guard = mutex
         .lock()
-        .ok()
-        .and_then(|guard| guard.clone())
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    guard.clone()
 }
 
 /// Test-only setter for `sso_portal_base_url_override`.
 ///
 /// Pass `Some(url)` to install an override (typically a localhost URL pointing
 /// at a test HTTP server) and `None` to clear the override at end of test.
-/// Tests that share state across the same process should be `#[serial]`-annotated
-/// or explicitly clear the override on tear-down to avoid cross-test pollution.
+/// Callers MUST hold `sso_portal_override_lock()` for the entire scope where
+/// the override is observable, otherwise concurrently-running tests can race
+/// on this static and route GetRoleCredentials at the wrong mock server.
+///
+/// Recovers from lock poisoning rather than silently dropping the write —
+/// see `sso_portal_base_url_override` for the rationale.
 #[cfg(test)]
 fn set_sso_portal_base_url_override(value: Option<String>) {
-    if let Ok(mut guard) = SSO_PORTAL_BASE_URL_OVERRIDE
-        .get_or_init(|| std::sync::Mutex::new(None))
+    let mutex = SSO_PORTAL_BASE_URL_OVERRIDE.get_or_init(|| std::sync::Mutex::new(None));
+    let mut guard = mutex
         .lock()
-    {
-        *guard = value;
-    }
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    *guard = value;
 }
 
 #[cfg(not(test))]
