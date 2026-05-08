@@ -282,6 +282,10 @@ pub const TAIL_LATENCY_REGIME_SCHEMA: &str = "pi.resource_governor.tail_latency_
 /// Stable schema for swarm capacity recommendations.
 pub const SWARM_CAPACITY_PLAN_SCHEMA: &str = "pi.resource_governor.capacity_plan.v1";
 
+/// Stable schema for live swarm admission-controller decisions.
+pub const SWARM_ADMISSION_CONTROLLER_SCHEMA: &str =
+    "pi.resource_governor.swarm_admission_controller.v1";
+
 /// Current tail-latency regime selected by the guard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -808,6 +812,230 @@ impl SwarmCapacityPlan {
     }
 }
 
+/// Live swarm load counts compared against a capacity plan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SwarmLiveLoad {
+    /// Currently active agent loops.
+    pub active_agents: u64,
+    /// Currently active tool/hostcall work items.
+    pub active_tool_calls: u64,
+    /// Currently configured extension hostcall lanes.
+    pub extension_hostcall_lanes: u64,
+    /// Currently active RCH verification jobs.
+    pub active_rch_jobs: u64,
+}
+
+impl SwarmLiveLoad {
+    /// Create an empty live-load snapshot.
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            active_agents: 0,
+            active_tool_calls: 0,
+            extension_hostcall_lanes: 0,
+            active_rch_jobs: 0,
+        }
+    }
+
+    /// Attach the current active agent count.
+    #[must_use]
+    pub const fn with_active_agents(mut self, active_agents: u64) -> Self {
+        self.active_agents = active_agents;
+        self
+    }
+
+    /// Attach the current active tool/hostcall count.
+    #[must_use]
+    pub const fn with_active_tool_calls(mut self, active_tool_calls: u64) -> Self {
+        self.active_tool_calls = active_tool_calls;
+        self
+    }
+
+    /// Attach the current extension hostcall lane count.
+    #[must_use]
+    pub const fn with_extension_hostcall_lanes(mut self, extension_hostcall_lanes: u64) -> Self {
+        self.extension_hostcall_lanes = extension_hostcall_lanes;
+        self
+    }
+
+    /// Attach the current active RCH verification job count.
+    #[must_use]
+    pub const fn with_active_rch_jobs(mut self, active_rch_jobs: u64) -> Self {
+        self.active_rch_jobs = active_rch_jobs;
+        self
+    }
+}
+
+impl Default for SwarmLiveLoad {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
+/// Capacity-plan dimension that dominated a live swarm decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SwarmCapacityDimension {
+    /// Active agent loops.
+    ActiveAgents,
+    /// Active tool/hostcall work.
+    ActiveToolCalls,
+    /// Extension hostcall lanes.
+    ExtensionHostcallLanes,
+    /// Active RCH verification jobs.
+    RchVerificationFanout,
+    /// No capacity dimension is currently pressurized.
+    None,
+}
+
+/// Capacity pressure selected from live swarm load counts.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct SwarmCapacityPressure {
+    /// Capacity-plan dimension with the highest observed ratio.
+    pub dimension: SwarmCapacityDimension,
+    /// Observed live count for the dimension.
+    pub observed: u64,
+    /// Planned budget for the dimension.
+    pub budget: u64,
+    /// Observed divided by planned budget.
+    pub ratio: f64,
+}
+
+impl SwarmCapacityPressure {
+    const fn none() -> Self {
+        Self {
+            dimension: SwarmCapacityDimension::None,
+            observed: 0,
+            budget: 0,
+            ratio: 0.0,
+        }
+    }
+}
+
+/// Stateful live admission controller built from a swarm capacity plan.
+#[derive(Debug, Clone)]
+pub struct SwarmAdmissionController {
+    plan: SwarmCapacityPlan,
+    governor: ResourceGovernor,
+    tail_latency_guard: TailLatencyRegimeGuard,
+}
+
+impl SwarmAdmissionController {
+    /// Build a live controller from a pre-validated capacity plan.
+    #[must_use]
+    pub fn from_plan(plan: SwarmCapacityPlan) -> Self {
+        Self {
+            governor: ResourceGovernor::with_budgets(plan.resource_budgets.clone()),
+            tail_latency_guard: TailLatencyRegimeGuard::new(plan.tail_latency_config),
+            plan,
+        }
+    }
+
+    /// Return the capacity plan that owns this controller's budgets.
+    #[must_use]
+    pub const fn plan(&self) -> &SwarmCapacityPlan {
+        &self.plan
+    }
+
+    /// Return the controller's current tail-latency regime.
+    #[must_use]
+    pub const fn tail_latency_regime(&self) -> TailLatencyRegime {
+        self.tail_latency_guard.regime()
+    }
+
+    /// Evaluate one request against live resource, latency, and capacity state.
+    pub fn decide(
+        &mut self,
+        request: &ResourceRequest,
+        sample: HostResourceSample,
+        tail_latency_sample: TailLatencyRegimeSample,
+        live_load: SwarmLiveLoad,
+    ) -> SwarmAdmissionControllerDecision {
+        let (resource_decision, tail_latency_decision) =
+            self.governor.admit_sample_with_tail_latency_guard(
+                request,
+                sample,
+                &mut self.tail_latency_guard,
+                tail_latency_sample,
+            );
+        let capacity_pressure = live_capacity_pressure(&live_load, &self.plan);
+        let capacity_action = capacity_action(
+            capacity_pressure.ratio,
+            self.plan.resource_budgets.backpressure_ratio,
+            self.plan.resource_budgets.deny_ratio,
+        );
+        let action = most_restrictive_action(resource_decision.action, capacity_action);
+        let retry_after_ms = controller_retry_after_ms(
+            action,
+            resource_decision.retry_after_ms,
+            capacity_action,
+            capacity_pressure.ratio,
+            &self.plan,
+        );
+        let reason = controller_reason(
+            action,
+            capacity_action,
+            capacity_pressure,
+            &resource_decision,
+        );
+
+        SwarmAdmissionControllerDecision {
+            schema: SWARM_ADMISSION_CONTROLLER_SCHEMA,
+            action,
+            reason,
+            retry_after_ms,
+            capacity_pressure,
+            live_load,
+            resource_decision,
+            tail_latency_decision,
+            plan_confidence: self.plan.confidence,
+            recommended_agent_concurrency: self.plan.recommended_agent_concurrency,
+            recommended_tool_concurrency: self.plan.recommended_tool_concurrency,
+            recommended_extension_hostcall_lanes: self.plan.recommended_extension_hostcall_lanes,
+            recommended_rch_verification_fanout: self.plan.recommended_rch_verification_fanout,
+        }
+    }
+}
+
+/// Result of one live swarm admission-controller evaluation.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SwarmAdmissionControllerDecision {
+    /// Stable schema identifier.
+    pub schema: &'static str,
+    /// Final selected action after resource and capacity checks.
+    pub action: AdmissionAction,
+    /// Human-readable reason for the final action.
+    pub reason: String,
+    /// Delay to apply for [`AdmissionAction::Backpressure`].
+    pub retry_after_ms: u64,
+    /// Capacity dimension with the highest live pressure.
+    pub capacity_pressure: SwarmCapacityPressure,
+    /// Live load input used by the controller.
+    pub live_load: SwarmLiveLoad,
+    /// Underlying host-resource admission decision.
+    pub resource_decision: AdmissionDecision,
+    /// Tail-latency regime decision used for fallback budgets.
+    pub tail_latency_decision: TailLatencyRegimeDecision,
+    /// Planner confidence attached to the active budget.
+    pub plan_confidence: SwarmCapacityConfidence,
+    /// Active-agent budget copied from the plan for telemetry consumers.
+    pub recommended_agent_concurrency: u64,
+    /// Tool-concurrency budget copied from the plan for telemetry consumers.
+    pub recommended_tool_concurrency: u64,
+    /// Extension-hostcall lane budget copied from the plan for telemetry consumers.
+    pub recommended_extension_hostcall_lanes: u64,
+    /// RCH fanout budget copied from the plan for telemetry consumers.
+    pub recommended_rch_verification_fanout: u64,
+}
+
+impl SwarmAdmissionControllerDecision {
+    /// Render stable JSON telemetry for the live controller decision.
+    #[must_use]
+    pub fn telemetry(&self) -> Value {
+        json!(self)
+    }
+}
+
 /// Error returned when capacity evidence cannot safely produce recommendations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SwarmCapacityPlanError {
@@ -1144,6 +1372,157 @@ impl Default for ResourceGovernor {
     fn default() -> Self {
         Self::from_host()
     }
+}
+
+fn live_capacity_pressure(
+    live_load: &SwarmLiveLoad,
+    plan: &SwarmCapacityPlan,
+) -> SwarmCapacityPressure {
+    let mut pressure = SwarmCapacityPressure::none();
+    consider_capacity_pressure(
+        &mut pressure,
+        SwarmCapacityDimension::ActiveAgents,
+        live_load.active_agents,
+        plan.recommended_agent_concurrency,
+    );
+    consider_capacity_pressure(
+        &mut pressure,
+        SwarmCapacityDimension::ActiveToolCalls,
+        live_load.active_tool_calls,
+        plan.recommended_tool_concurrency,
+    );
+    consider_capacity_pressure(
+        &mut pressure,
+        SwarmCapacityDimension::ExtensionHostcallLanes,
+        live_load.extension_hostcall_lanes,
+        plan.recommended_extension_hostcall_lanes,
+    );
+    consider_capacity_pressure(
+        &mut pressure,
+        SwarmCapacityDimension::RchVerificationFanout,
+        live_load.active_rch_jobs,
+        plan.recommended_rch_verification_fanout,
+    );
+    pressure
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn consider_capacity_pressure(
+    pressure: &mut SwarmCapacityPressure,
+    dimension: SwarmCapacityDimension,
+    observed: u64,
+    budget: u64,
+) {
+    if budget == 0 {
+        return;
+    }
+    let ratio = (observed as f64) / (budget as f64);
+    if ratio > pressure.ratio {
+        *pressure = SwarmCapacityPressure {
+            dimension,
+            observed,
+            budget,
+            ratio,
+        };
+    }
+}
+
+fn capacity_action(ratio: f64, backpressure_ratio: f64, deny_ratio: f64) -> AdmissionAction {
+    if !ratio.is_finite() {
+        return AdmissionAction::Deny;
+    }
+    let backpressure_ratio = normalized_ratio(backpressure_ratio, 0.85, 0.01, 1.0);
+    let deny_ratio = normalized_ratio(deny_ratio, 1.0, backpressure_ratio, 2.0);
+    if ratio >= deny_ratio {
+        AdmissionAction::Deny
+    } else if ratio >= backpressure_ratio {
+        AdmissionAction::Backpressure
+    } else {
+        AdmissionAction::Admit
+    }
+}
+
+const fn action_rank(action: AdmissionAction) -> u8 {
+    match action {
+        AdmissionAction::Admit => 0,
+        AdmissionAction::Backpressure => 1,
+        AdmissionAction::Deny => 2,
+    }
+}
+
+const fn most_restrictive_action(left: AdmissionAction, right: AdmissionAction) -> AdmissionAction {
+    if action_rank(left) >= action_rank(right) {
+        left
+    } else {
+        right
+    }
+}
+
+fn controller_retry_after_ms(
+    action: AdmissionAction,
+    resource_retry_after_ms: u64,
+    capacity_action: AdmissionAction,
+    capacity_ratio: f64,
+    plan: &SwarmCapacityPlan,
+) -> u64 {
+    if action != AdmissionAction::Backpressure {
+        return 0;
+    }
+    let planned_retry = if capacity_action == AdmissionAction::Backpressure {
+        planned_capacity_backoff_ms(capacity_ratio, plan)
+    } else {
+        plan.backoff_initial_ms
+    };
+    let lower = plan.backoff_initial_ms.min(plan.backoff_max_ms);
+    let upper = plan.backoff_initial_ms.max(plan.backoff_max_ms).max(lower);
+    resource_retry_after_ms
+        .max(planned_retry)
+        .clamp(lower, upper)
+}
+
+#[allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss
+)]
+fn planned_capacity_backoff_ms(ratio: f64, plan: &SwarmCapacityPlan) -> u64 {
+    let lower = plan.backoff_initial_ms.min(plan.backoff_max_ms);
+    let upper = plan.backoff_initial_ms.max(plan.backoff_max_ms);
+    if upper <= lower {
+        return lower;
+    }
+    let backpressure_ratio = plan.resource_budgets.backpressure_ratio;
+    let deny_ratio = plan
+        .resource_budgets
+        .deny_ratio
+        .max(backpressure_ratio + f64::EPSILON);
+    let progress =
+        ((ratio - backpressure_ratio) / (deny_ratio - backpressure_ratio)).clamp(0.0, 1.0);
+    let span = upper.saturating_sub(lower);
+    lower
+        .saturating_add(((span as f64) * progress).ceil() as u64)
+        .min(upper)
+}
+
+fn controller_reason(
+    action: AdmissionAction,
+    capacity_action: AdmissionAction,
+    capacity_pressure: SwarmCapacityPressure,
+    resource_decision: &AdmissionDecision,
+) -> String {
+    if action_rank(capacity_action) > action_rank(resource_decision.action) {
+        return format!(
+            "swarm capacity pressure on {:?}: {} active vs {} planned ({:.2}x)",
+            capacity_pressure.dimension,
+            capacity_pressure.observed,
+            capacity_pressure.budget,
+            capacity_pressure.ratio
+        );
+    }
+    if action == AdmissionAction::Admit {
+        return "host resources and swarm capacity within budgets".to_string();
+    }
+    resource_decision.reason.clone()
 }
 
 fn dominant_pressure(
@@ -1733,11 +2112,12 @@ const fn read_open_files_soft_limit() -> Option<u64> {
 mod tests {
     use super::{
         AdmissionAction, HostResourceBudgets, HostResourceSample, ResourceDimension,
-        ResourceGovernor, ResourceOperationKind, ResourceRequest, SWARM_CAPACITY_PLAN_SCHEMA,
-        SwarmCapacityConfidence, SwarmCapacityPlanError, SwarmHostInventory,
-        TAIL_LATENCY_REGIME_SCHEMA, TailLatencyFallbackReason, TailLatencyRegime,
-        TailLatencyRegimeConfig, TailLatencyRegimeGuard, TailLatencyRegimeSample,
-        plan_swarm_capacity_from_jsonl,
+        ResourceGovernor, ResourceOperationKind, ResourceRequest,
+        SWARM_ADMISSION_CONTROLLER_SCHEMA, SWARM_CAPACITY_PLAN_SCHEMA, SwarmAdmissionController,
+        SwarmCapacityConfidence, SwarmCapacityDimension, SwarmCapacityPlanError,
+        SwarmHostInventory, SwarmLiveLoad, TAIL_LATENCY_REGIME_SCHEMA, TailLatencyFallbackReason,
+        TailLatencyRegime, TailLatencyRegimeConfig, TailLatencyRegimeGuard,
+        TailLatencyRegimeSample, plan_swarm_capacity_from_jsonl,
     };
 
     fn budgets() -> HostResourceBudgets {
@@ -1763,8 +2143,27 @@ mod tests {
 
     fn capacity_fixture_jsonl() -> &'static str {
         r#"{"schema":"pi.perf.session_workload_matrix_cell.v1","swarm_metrics":{"latency_quantiles_ms":{"p50":80.0,"p95":105.0,"p99":120.0,"p999":600.0},"queue_depth":{"p50":32,"p95":96,"p99":160,"p999":224,"max":256},"resource_usage":{"rss_mb":384,"cpu_pct":41.0},"component_breakdown_ms":{"tool":4.0,"provider":12.0,"extension":8.0,"session":56.0},"stage_breakdown_ms":{"open":8.0,"append":16.0,"save":20.0,"index":12.0},"host_capacity":{"target_cpu_cores":64,"observed_cpu_cores":64,"mem_total_mb":262144}}}
-{"schema":"pi.perf.session_workload_matrix_cell.v1","swarm_metrics":{"latency_quantiles_ms":{"p50":95.0,"p95":130.0,"p99":180.0,"p999":800.0},"queue_depth":{"p50":48,"p95":112,"p99":192,"p999":256,"max":256},"resource_usage":{"rss_mb":512,"cpu_pct":55.0},"component_breakdown_ms":{"tool":6.0,"provider":14.0,"extension":10.0,"session":65.0},"stage_breakdown_ms":{"open":10.0,"append":18.0,"save":24.0,"index":13.0},"host_capacity":{"target_cpu_cores":64,"observed_cpu_cores":64,"mem_total_mb":262144}}}
-{"schema":"pi.perf.session_workload_matrix_cell.v1","swarm_metrics":{"latency_quantiles_ms":{"p50":90.0,"p95":125.0,"p99":150.0,"p999":700.0},"queue_depth":{"p50":40,"p95":100,"p99":180,"p999":240,"max":256},"resource_usage":{"rss_mb":448,"cpu_pct":49.0},"component_breakdown_ms":{"tool":5.0,"provider":13.0,"extension":9.0,"session":63.0},"stage_breakdown_ms":{"open":9.0,"append":17.0,"save":23.0,"index":14.0},"host_capacity":{"target_cpu_cores":64,"observed_cpu_cores":64,"mem_total_mb":262144}}}"#
+	{"schema":"pi.perf.session_workload_matrix_cell.v1","swarm_metrics":{"latency_quantiles_ms":{"p50":95.0,"p95":130.0,"p99":180.0,"p999":800.0},"queue_depth":{"p50":48,"p95":112,"p99":192,"p999":256,"max":256},"resource_usage":{"rss_mb":512,"cpu_pct":55.0},"component_breakdown_ms":{"tool":6.0,"provider":14.0,"extension":10.0,"session":65.0},"stage_breakdown_ms":{"open":10.0,"append":18.0,"save":24.0,"index":13.0},"host_capacity":{"target_cpu_cores":64,"observed_cpu_cores":64,"mem_total_mb":262144}}}
+	{"schema":"pi.perf.session_workload_matrix_cell.v1","swarm_metrics":{"latency_quantiles_ms":{"p50":90.0,"p95":125.0,"p99":150.0,"p999":700.0},"queue_depth":{"p50":40,"p95":100,"p99":180,"p999":240,"max":256},"resource_usage":{"rss_mb":448,"cpu_pct":49.0},"component_breakdown_ms":{"tool":5.0,"provider":13.0,"extension":9.0,"session":63.0},"stage_breakdown_ms":{"open":9.0,"append":17.0,"save":23.0,"index":14.0},"host_capacity":{"target_cpu_cores":64,"observed_cpu_cores":64,"mem_total_mb":262144}}}"#
+    }
+
+    fn live_controller_sample() -> HostResourceSample {
+        HostResourceSample {
+            load_avg_1m: Some(20.0),
+            rss_bytes: Some(512 * 1024 * 1024),
+            process_count: Some(128),
+            fd_count: Some(128),
+        }
+    }
+
+    fn healthy_tail_sample() -> TailLatencyRegimeSample {
+        TailLatencyRegimeSample::new(100, 400, 64, 0.20)
+    }
+
+    fn live_controller_request() -> ResourceRequest {
+        ResourceRequest::new(ResourceOperationKind::Tool, "read")
+            .with_estimated_tool_output_bytes(16 * 1024 * 1024)
+            .with_queue_depth(128)
     }
 
     #[test]
@@ -1944,6 +2343,121 @@ mod tests {
                 .uncertainties
                 .iter()
                 .any(|uncertainty| uncertainty == "rss_exceeds_memory_headroom")
+        );
+    }
+
+    #[test]
+    fn live_swarm_admission_controller_admits_under_capacity_plan() {
+        let plan =
+            plan_swarm_capacity_from_jsonl(capacity_fixture_jsonl(), capacity_inventory()).unwrap();
+        let mut controller = SwarmAdmissionController::from_plan(plan.clone());
+        let load = SwarmLiveLoad::empty()
+            .with_active_agents(8)
+            .with_active_tool_calls(16)
+            .with_extension_hostcall_lanes(4)
+            .with_active_rch_jobs(1);
+
+        let decision = controller.decide(
+            &live_controller_request(),
+            live_controller_sample(),
+            healthy_tail_sample(),
+            load,
+        );
+
+        assert_eq!(decision.schema, SWARM_ADMISSION_CONTROLLER_SCHEMA);
+        assert_eq!(decision.action, AdmissionAction::Admit);
+        assert_eq!(
+            decision.capacity_pressure.dimension,
+            SwarmCapacityDimension::ActiveAgents
+        );
+        assert_eq!(
+            decision.recommended_agent_concurrency,
+            plan.recommended_agent_concurrency
+        );
+        assert_eq!(
+            controller.tail_latency_regime(),
+            TailLatencyRegime::Calibrated
+        );
+    }
+
+    #[test]
+    fn live_swarm_admission_controller_backpressures_near_capacity_budget() {
+        let plan =
+            plan_swarm_capacity_from_jsonl(capacity_fixture_jsonl(), capacity_inventory()).unwrap();
+        let mut controller = SwarmAdmissionController::from_plan(plan.clone());
+        let load = SwarmLiveLoad::empty()
+            .with_active_agents(24)
+            .with_active_tool_calls(16)
+            .with_extension_hostcall_lanes(4)
+            .with_active_rch_jobs(1);
+
+        let decision = controller.decide(
+            &live_controller_request(),
+            live_controller_sample(),
+            healthy_tail_sample(),
+            load,
+        );
+
+        assert_eq!(decision.action, AdmissionAction::Backpressure);
+        assert_eq!(
+            decision.capacity_pressure.dimension,
+            SwarmCapacityDimension::ActiveAgents
+        );
+        assert!(decision.retry_after_ms >= plan.backoff_initial_ms);
+        assert!(decision.reason.contains("swarm capacity pressure"));
+    }
+
+    #[test]
+    fn live_swarm_admission_controller_denies_when_capacity_budget_is_exhausted() {
+        let plan =
+            plan_swarm_capacity_from_jsonl(capacity_fixture_jsonl(), capacity_inventory()).unwrap();
+        let mut controller = SwarmAdmissionController::from_plan(plan);
+        let load = SwarmLiveLoad::empty()
+            .with_active_agents(8)
+            .with_active_tool_calls(64)
+            .with_extension_hostcall_lanes(4)
+            .with_active_rch_jobs(1);
+
+        let decision = controller.decide(
+            &live_controller_request(),
+            live_controller_sample(),
+            healthy_tail_sample(),
+            load,
+        );
+
+        assert_eq!(decision.action, AdmissionAction::Deny);
+        assert_eq!(
+            decision.capacity_pressure.dimension,
+            SwarmCapacityDimension::ActiveToolCalls
+        );
+        assert_eq!(decision.retry_after_ms, 0);
+        assert!(decision.reason.contains("swarm capacity pressure"));
+    }
+
+    #[test]
+    fn live_swarm_admission_controller_telemetry_contains_stable_schema() {
+        let plan =
+            plan_swarm_capacity_from_jsonl(capacity_fixture_jsonl(), capacity_inventory()).unwrap();
+        let mut controller = SwarmAdmissionController::from_plan(plan);
+        let decision = controller.decide(
+            &live_controller_request(),
+            live_controller_sample(),
+            healthy_tail_sample(),
+            SwarmLiveLoad::empty().with_active_agents(8),
+        );
+
+        let telemetry = decision.telemetry();
+
+        assert_eq!(
+            telemetry.get("schema").and_then(serde_json::Value::as_str),
+            Some(SWARM_ADMISSION_CONTROLLER_SCHEMA)
+        );
+        assert_eq!(
+            telemetry
+                .get("resource_decision")
+                .and_then(|value| value.get("action"))
+                .and_then(serde_json::Value::as_str),
+            Some("admit")
         );
     }
 
