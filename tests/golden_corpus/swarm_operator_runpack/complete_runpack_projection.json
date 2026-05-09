@@ -1,0 +1,233 @@
+{
+  "activity_digest": {
+    "evidence_pointers": [
+      "agent:MagentaOak"
+    ],
+    "reasons": [
+      "7 coordination events and 1 throughput event"
+    ],
+    "recommendations": [
+      {
+        "mode": "testing-golden-artifacts"
+      }
+    ],
+    "saturated": true,
+    "signals": [
+      "high_chatter_low_throughput"
+    ],
+    "source_path": "[WORKSPACE]/activity.json",
+    "status": "ok"
+  },
+  "agent_mail": {
+    "build_slots": {
+      "data": {
+        "active": 1,
+        "schema": "pi.doctor.agent_mail_build_slots.v1"
+      },
+      "detail": "[REDACTED] should be redacted",
+      "remediation": "Renew active reservations before long-running verification",
+      "severity": "warn",
+      "title": "Agent Mail reservations expire soon"
+    },
+    "doctor_findings": [
+      {
+        "data": {
+          "active": 1,
+          "schema": "pi.doctor.agent_mail_build_slots.v1"
+        },
+        "detail": "[REDACTED] should be redacted",
+        "remediation": "Renew active reservations before long-running verification",
+        "severity": "warn",
+        "title": "Agent Mail reservations expire soon"
+      }
+    ],
+    "smoke_reservation_count": 1
+  },
+  "beads": {
+    "active_count": 2,
+    "stale": [
+      {
+        "age_hours": 33.0,
+        "assignee": "GreenStone",
+        "id": "bd-stale",
+        "status": "in_progress",
+        "title": "Stale fixture",
+        "updated_at": "2026-05-08T00:00:00+00:00"
+      }
+    ],
+    "stale_after_hours": 24,
+    "status": "ok",
+    "status_counts": {
+      "in_progress": 1,
+      "open": 1
+    },
+    "total_issues": 2
+  },
+  "doctor_swarm": {
+    "agent_mail_build_slots": {
+      "data": {
+        "active": 1,
+        "schema": "pi.doctor.agent_mail_build_slots.v1"
+      },
+      "detail": "[REDACTED] should be redacted",
+      "remediation": "Renew active reservations before long-running verification",
+      "severity": "warn",
+      "title": "Agent Mail reservations expire soon"
+    },
+    "agent_mail_findings": [
+      {
+        "data": {
+          "active": 1,
+          "schema": "pi.doctor.agent_mail_build_slots.v1"
+        },
+        "detail": "[REDACTED] should be redacted",
+        "remediation": "Renew active reservations before long-running verification",
+        "severity": "warn",
+        "title": "Agent Mail reservations expire soon"
+      }
+    ],
+    "finding_count": 1,
+    "findings": [
+      {
+        "data": {
+          "active": 1,
+          "schema": "pi.doctor.agent_mail_build_slots.v1"
+        },
+        "detail": "[REDACTED] should be redacted",
+        "remediation": "Renew active reservations before long-running verification",
+        "severity": "warn",
+        "title": "Agent Mail reservations expire soon"
+      }
+    ],
+    "overall": "warn",
+    "severity_counts": {
+      "warn": 1
+    },
+    "status": "ok",
+    "summary": {
+      "fail": 0,
+      "info": 0,
+      "pass": 1,
+      "warn": 1
+    }
+  },
+  "evidence_readiness": {
+    "artifact_status_counts": {
+      "ready": 1
+    },
+    "blocking_artifacts": [],
+    "max_age_days": 14,
+    "overall_status": "ready",
+    "stale_claims": {
+      "stale_count": 0
+    },
+    "status": "ok"
+  },
+  "generated_at": "2026-05-09T09:00:00+00:00",
+  "git_state": {
+    "change_count": 2,
+    "dirty": true,
+    "sample": [
+      {
+        "path": "src/doctor.rs",
+        "status": " M"
+      },
+      {
+        "path": "scripts/new-tool.py",
+        "status": "??"
+      }
+    ],
+    "status": "ok"
+  },
+  "operator_next_actions": [
+    "Review stale in-progress Beads before assigning more work",
+    "Treat cargo/RCH admission as blocked or degraded before heavy builds",
+    "Use activity-digest saturation evidence to narrow or redirect the swarm",
+    "Account for dirty files before using the runpack as handoff evidence"
+  ],
+  "purpose": "operator_handoff_not_release_performance_claim",
+  "rch_admission": {
+    "allow_local_fallback": false,
+    "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/test/target",
+    "command_class": "heavy",
+    "decision": "backoff",
+    "reason": "rch_unavailable",
+    "requested_runner": "auto",
+    "resolved_runner": "none",
+    "status": "ok",
+    "storage_remediation": null,
+    "tmpdir": "/data/tmp/pi_agent_rust_cargo/test/tmp"
+  },
+  "redaction_summary": {
+    "fields": [
+      "doctor_swarm.findings[0].detail"
+    ],
+    "redacted_count": 1
+  },
+  "schema": "pi.swarm.operator_runpack.v1",
+  "smoke_harness": {
+    "artifact_paths": {
+      "summary_json": "[WORKSPACE]/smoke.json"
+    },
+    "correlation_id": "selftest",
+    "failed_scenarios": [],
+    "harness_status": "pass",
+    "reservation_count": 1,
+    "scenario_statuses": {
+      "reservation_conflict": "pass"
+    },
+    "status": "ok"
+  },
+  "source_statuses": [
+    {
+      "id": "doctor_swarm",
+      "issue": null,
+      "path": "[WORKSPACE]/doctor.json",
+      "schema": null,
+      "status": "ok"
+    },
+    {
+      "id": "claim_readiness",
+      "issue": null,
+      "path": "[WORKSPACE]/claim.json",
+      "schema": "pi.swarm.claim_readiness_report.v1",
+      "status": "ok"
+    },
+    {
+      "id": "smoke_harness",
+      "issue": null,
+      "path": "[WORKSPACE]/smoke.json",
+      "schema": "pi.swarm.smoke_harness.v1",
+      "status": "ok"
+    },
+    {
+      "id": "activity_digest",
+      "issue": null,
+      "path": "[WORKSPACE]/activity.json",
+      "schema": "pi.swarm.activity_digest.v1",
+      "status": "ok"
+    },
+    {
+      "id": "cargo_admission",
+      "issue": null,
+      "path": "[WORKSPACE]/cargo.json",
+      "schema": "pi.cargo_headroom.admission.v1",
+      "status": "ok"
+    },
+    {
+      "id": "beads",
+      "issue": null,
+      "path": "[WORKSPACE]/beads.json",
+      "schema": null,
+      "status": "ok"
+    },
+    {
+      "id": "git_status",
+      "issue": null,
+      "path": "[WORKSPACE]/git-status.txt",
+      "schema": null,
+      "status": "ok"
+    }
+  ],
+  "status": "degraded"
+}

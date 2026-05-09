@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import difflib
 import json
+import os
 import re
 import sys
 import tempfile
@@ -22,6 +24,9 @@ from typing import Any
 
 
 RUNPACK_SCHEMA = "pi.swarm.operator_runpack.v1"
+GOLDEN_REPORT_DIRECTORY = Path("tests/golden_corpus/swarm_operator_runpack")
+COMPLETE_RUNPACK_GOLDEN = "complete_runpack_projection.json"
+UPDATE_GOLDEN_ENV = "UPDATE_SWARM_OPERATOR_RUNPACK_GOLDEN"
 DEFAULT_MAX_ITEMS = 8
 DEFAULT_STALE_AFTER_HOURS = 24
 SENSITIVE_KEY_FRAGMENTS = (
@@ -601,6 +606,50 @@ def write_json(path: Path, payload: Any) -> Path:
     return path
 
 
+def canonicalize_for_golden(value: Any, workspace: Path) -> Any:
+    workspace_text = str(workspace)
+    if isinstance(value, dict):
+        return {key: canonicalize_for_golden(item, workspace) for key, item in value.items()}
+    if isinstance(value, list):
+        return [canonicalize_for_golden(item, workspace) for item in value]
+    if isinstance(value, str):
+        return value.replace(workspace_text, "[WORKSPACE]")
+    return value
+
+
+def assert_runpack_golden(runpack: dict[str, Any], workspace: Path) -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    golden_path = repo_root / GOLDEN_REPORT_DIRECTORY / COMPLETE_RUNPACK_GOLDEN
+    actual_projection = canonicalize_for_golden(runpack, workspace)
+    actual = json_dumps(actual_projection, pretty=True)
+    if os.environ.get(UPDATE_GOLDEN_ENV) == "1":
+        golden_path.parent.mkdir(parents=True, exist_ok=True)
+        golden_path.write_text(actual, encoding="utf-8")
+        return
+    try:
+        expected = golden_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise AssertionError(
+            f"missing runpack golden {golden_path}; rerun with {UPDATE_GOLDEN_ENV}=1"
+        ) from exc
+    if actual != expected:
+        diff = "\n".join(
+            difflib.unified_diff(
+                expected.splitlines(),
+                actual.splitlines(),
+                fromfile=str(golden_path),
+                tofile="actual swarm operator runpack projection",
+                lineterm="",
+            )
+        )
+        raise AssertionError(
+            "swarm operator runpack projection changed; update the golden only "
+            f"after reviewing the diff with `{UPDATE_GOLDEN_ENV}=1 "
+            "python3 scripts/build_swarm_operator_runpack.py --self-test`\n"
+            + diff
+        )
+
+
 def run_self_test() -> int:
     workspace = Path(tempfile.mkdtemp(prefix="pi_swarm_runpack_"))
     generated_at = "2026-05-09T09:00:00+00:00"
@@ -727,6 +776,7 @@ def run_self_test() -> int:
         assert runpack["git_state"]["dirty"] is True
         assert runpack["redaction_summary"]["redacted_count"] >= 1
         assert args.out_json.exists() and args.out_md.exists()
+        assert_runpack_golden(runpack, workspace)
         malformed = workspace / "malformed.json"
         malformed.write_text("{not valid json", encoding="utf-8")
         bad_args = argparse.Namespace(**{**vars(args), "doctor_json": malformed})
