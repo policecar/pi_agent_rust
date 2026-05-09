@@ -1605,7 +1605,7 @@ fn normalize_blocker_token(token: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    if trimmed == "[redacted]" || trimmed == "redacted" {
+    if matches!(trimmed.as_str(), "[redacted]" | "redacted") {
         return Some("<redacted>".to_string());
     }
     if let Some((key, value)) = trimmed.split_once('=') {
