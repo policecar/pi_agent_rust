@@ -1692,6 +1692,40 @@ fn format_stale_issues(issues: &[StaleIssue]) -> String {
     parts.join("; ")
 }
 
+#[derive(Default)]
+struct StalledReaperAudit {
+    parse_errors: usize,
+    in_progress_count: usize,
+    recently_updated_count: usize,
+    active_agent_count: usize,
+    blocked_by_note_count: usize,
+    unknown_assignee_count: usize,
+    suggestions: Vec<serde_json::Value>,
+}
+
+impl StalledReaperAudit {
+    fn candidate_count(&self) -> usize {
+        self.suggestions
+            .iter()
+            .filter(|suggestion| {
+                suggestion.get("action").and_then(serde_json::Value::as_str)
+                    == Some("notify_then_reopen_or_claim")
+            })
+            .count()
+    }
+
+    fn detail(&self, candidate_count: usize) -> String {
+        format!(
+            "in_progress={}, candidates={candidate_count}, active_agent={}, recently_updated={}, blocked_by_note={}, unknown_assignee={}",
+            self.in_progress_count,
+            self.active_agent_count,
+            self.recently_updated_count,
+            self.blocked_by_note_count,
+            self.unknown_assignee_count
+        )
+    }
+}
+
 fn classify_stalled_bead_reaper(
     content: &str,
     agent_roster: Option<&serde_json::Value>,
@@ -1701,79 +1735,17 @@ fn classify_stalled_bead_reaper(
 ) -> Finding {
     let activities =
         agent_roster.map_or_else(HashMap::new, |value| agent_mail_activity_index(value, now));
-    let mut parse_errors = 0_usize;
-    let mut in_progress_count = 0_usize;
-    let mut recently_updated_count = 0_usize;
-    let mut active_agent_count = 0_usize;
-    let mut blocked_by_note_count = 0_usize;
-    let mut unknown_assignee_count = 0_usize;
-    let mut suggestions = Vec::new();
+    let audit = collect_stalled_reaper_audit(content, &activities, now, stale_after_hours);
+    let candidate_count = audit.candidate_count();
+    let detail = audit.detail(candidate_count);
+    let parse_errors = audit.parse_errors;
+    let in_progress_count = audit.in_progress_count;
+    let recently_updated_count = audit.recently_updated_count;
+    let active_agent_count = audit.active_agent_count;
+    let blocked_by_note_count = audit.blocked_by_note_count;
+    let unknown_assignee_count = audit.unknown_assignee_count;
+    let suggestions = audit.suggestions;
 
-    for line in content.lines().filter(|line| !line.trim().is_empty()) {
-        let Ok(issue) = serde_json::from_str::<BeadsIssueRecord>(line) else {
-            parse_errors += 1;
-            continue;
-        };
-        if issue.status != "in_progress" {
-            continue;
-        }
-        in_progress_count += 1;
-
-        let updated_at = issue.updated_at.as_deref().unwrap_or_default();
-        let Some(br_age_hours) = age_hours_since(updated_at, now) else {
-            suggestions.push(stalled_reaper_suggestion(
-                &issue,
-                None,
-                None,
-                "missing_or_invalid_br_updated_at",
-                stale_after_hours,
-            ));
-            continue;
-        };
-        if br_age_hours < stale_after_hours {
-            recently_updated_count += 1;
-            continue;
-        }
-
-        if let Some(note_excerpt) = blocked_note_excerpt(&issue) {
-            blocked_by_note_count += 1;
-            suggestions.push(stalled_reaper_watch_item(
-                &issue,
-                br_age_hours,
-                "blocked_by_note",
-                note_excerpt,
-            ));
-            continue;
-        }
-
-        let assignee = issue_assignee(&issue);
-        let activity = assignee.and_then(|name| activities.get(name));
-        if activity.is_some_and(|activity| activity.age_hours < stale_after_hours) {
-            active_agent_count += 1;
-            continue;
-        }
-        if assignee.is_none() || activity.is_none() {
-            unknown_assignee_count += 1;
-        }
-        suggestions.push(stalled_reaper_suggestion(
-            &issue,
-            Some(br_age_hours),
-            activity,
-            "stale_in_progress",
-            stale_after_hours,
-        ));
-    }
-
-    let candidate_count = suggestions
-        .iter()
-        .filter(|suggestion| {
-            suggestion.get("action").and_then(serde_json::Value::as_str)
-                == Some("notify_then_reopen_or_claim")
-        })
-        .count();
-    let detail = format!(
-        "in_progress={in_progress_count}, candidates={candidate_count}, active_agent={active_agent_count}, recently_updated={recently_updated_count}, blocked_by_note={blocked_by_note_count}, unknown_assignee={unknown_assignee_count}"
-    );
     let data = serde_json::json!({
         "schema": SWARM_DOCTOR_STALLED_REAPER_SCHEMA,
         "mode": "audit_only",
@@ -1814,6 +1786,72 @@ fn classify_stalled_bead_reaper(
     .with_data(data)
 }
 
+fn collect_stalled_reaper_audit(
+    content: &str,
+    activities: &HashMap<String, AgentMailActivity>,
+    now: DateTime<Utc>,
+    stale_after_hours: i64,
+) -> StalledReaperAudit {
+    let mut audit = StalledReaperAudit::default();
+
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        let Ok(issue) = serde_json::from_str::<BeadsIssueRecord>(line) else {
+            audit.parse_errors += 1;
+            continue;
+        };
+        if !matches!(issue.status.as_str(), "in_progress") {
+            continue;
+        }
+        audit.in_progress_count += 1;
+
+        let updated_at = issue.updated_at.as_deref().unwrap_or_default();
+        let Some(br_age_hours) = age_hours_since(updated_at, now) else {
+            audit.suggestions.push(stalled_reaper_suggestion(
+                &issue,
+                None,
+                None,
+                "missing_or_invalid_br_updated_at",
+                stale_after_hours,
+            ));
+            continue;
+        };
+        if br_age_hours < stale_after_hours {
+            audit.recently_updated_count += 1;
+            continue;
+        }
+
+        if let Some(note_excerpt) = blocked_note_excerpt(&issue) {
+            audit.blocked_by_note_count += 1;
+            audit.suggestions.push(stalled_reaper_watch_item(
+                &issue,
+                br_age_hours,
+                "blocked_by_note",
+                &note_excerpt,
+            ));
+            continue;
+        }
+
+        let assignee = issue_assignee(&issue);
+        let activity = assignee.and_then(|name| activities.get(name));
+        if activity.is_some_and(|activity| activity.age_hours < stale_after_hours) {
+            audit.active_agent_count += 1;
+            continue;
+        }
+        if assignee.is_none() || activity.is_none() {
+            audit.unknown_assignee_count += 1;
+        }
+        audit.suggestions.push(stalled_reaper_suggestion(
+            &issue,
+            Some(br_age_hours),
+            activity,
+            "stale_in_progress",
+            stale_after_hours,
+        ));
+    }
+
+    audit
+}
+
 fn stalled_reaper_suggestion(
     issue: &BeadsIssueRecord,
     br_age_hours: Option<i64>,
@@ -1852,7 +1890,7 @@ fn stalled_reaper_watch_item(
     issue: &BeadsIssueRecord,
     br_age_hours: i64,
     reason: &str,
-    note_excerpt: String,
+    note_excerpt: &str,
 ) -> serde_json::Value {
     serde_json::json!({
         "issue_id": issue.id,
@@ -1876,9 +1914,7 @@ fn stalled_reaper_draft_body(
     stale_after_hours: i64,
 ) -> String {
     let assignee = issue_assignee(issue).unwrap_or("<unassigned>");
-    let br_age = br_age_hours
-        .map(|age| format!("{age}h"))
-        .unwrap_or_else(|| "unknown".to_string());
+    let br_age = br_age_hours.map_or_else(|| "unknown".to_string(), |age| format!("{age}h"));
     let agent_activity = activity.map_or_else(
         || "no recent Agent Mail activity found".to_string(),
         |activity| format!("last Agent Mail activity {}h ago", activity.age_hours),
