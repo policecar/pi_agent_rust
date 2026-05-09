@@ -73,6 +73,28 @@ The profile generator fails closed for empty profile sets, zero CPU/RAM inventor
 
 The controller uses the plan's resource budgets for host-pressure checks, the plan's tail-latency thresholds for conservative fallback, and the plan's active-agent/tool/RCH/extension-lane recommendations as live capacity ceilings. Capacity pressure can make a decision stricter than the host-resource decision, so a host that looks healthy still backpressures or denies when the swarm is already at the planned concurrency budget.
 
+## No-mock swarm smoke harness
+
+`scripts/run_swarm_smoke_harness.py` exercises the operator workflow against real local coordination surfaces in a retained temp project. It creates a disposable Beads workspace, registers three Agent Mail identities through the MCP HTTP endpoint, sends a fixture thread message, reserves and releases a real file reservation, forces a reservation conflict, scans an in-progress bead as stale, and records `scripts/cargo_headroom.sh --admit-only` decisions for the live RCH posture plus an isolated PATH where RCH is unavailable.
+
+Safe self-test:
+
+```bash
+python3 scripts/run_swarm_smoke_harness.py --self-test
+```
+
+Operator run with a fixed artifact directory:
+
+```bash
+python3 scripts/run_swarm_smoke_harness.py \
+  --correlation-id bd-2zcs5.26-smoke \
+  --out-dir /data/tmp/pi_swarm_smoke_artifacts/bd-2zcs5.26
+```
+
+The harness writes schema `pi.swarm.smoke_harness.v1` summaries and `pi.swarm.smoke_harness.event.v1` JSONL events. Every event includes the correlation ID, command timing when a command ran, redaction metadata, and the relevant agent names, bead IDs, reservation IDs, or RCH admission decision. Agent Mail registration tokens and sensitive-looking command output are redacted before they reach the artifact bundle. The smoke fixture treats any in-progress temp bead as stale by default; pass `--stale-after-seconds` to test a longer operator threshold. If `events.jsonl` or `summary.json` already exists in the requested output directory, the harness fails rather than overwriting evidence.
+
+The harness does not delete or reset production files. Generated fixture projects and artifacts are intentionally left under `TMPDIR` or `/data/tmp` so operators can inspect them after a failed smoke run. If the live RCH posture is degraded, the RCH admission scenario records the backoff decision instead of forcing a local heavy cargo fallback.
+
 Example row:
 
 ```json
