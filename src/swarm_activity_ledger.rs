@@ -1145,7 +1145,7 @@ fn stale_threads(
     };
     let mut thread_stats = BTreeMap::<String, ThreadDigestAccumulator>::new();
     for entry in entries {
-        if entry.kind != SwarmActivityKind::AgentMail {
+        if !matches!(entry.kind, SwarmActivityKind::AgentMail) {
             continue;
         }
         let Some(thread_id) = entry.ids.mail_thread_id.as_deref() else {
@@ -1650,7 +1650,7 @@ fn saturation_claim_keys(entry: &SwarmActivityLedgerEntry) -> Vec<String> {
 }
 
 fn is_new_bug_entry(entry: &SwarmActivityLedgerEntry) -> bool {
-    if entry.kind != SwarmActivityKind::BeadStatus {
+    if !matches!(entry.kind, SwarmActivityKind::BeadStatus) {
         return false;
     }
     let has_bug_signal =
