@@ -7,7 +7,8 @@
 use std::{collections::BTreeSet, fmt};
 
 use crate::swarm_activity_ledger::{
-    SwarmActivityKind, SwarmActivityLedgerEntry, SwarmActivityLedgerError, entries_from_jsonl,
+    SwarmActivityDigest, SwarmActivityKind, SwarmActivityLedgerEntry, SwarmActivityLedgerError,
+    entries_from_jsonl,
 };
 
 use serde::Serialize;
@@ -296,6 +297,10 @@ pub const SWARM_ADMISSION_CONTROLLER_SCHEMA: &str =
 
 /// Stable schema for deterministic admission replay reports.
 pub const SWARM_ADMISSION_REPLAY_SCHEMA: &str = "pi.resource_governor.swarm_admission_replay.v1";
+
+/// Stable schema for digest-to-admission replay alignment assertions.
+pub const SWARM_ADMISSION_REPLAY_DIGEST_ALIGNMENT_SCHEMA: &str =
+    "pi.resource_governor.swarm_admission_replay_digest_alignment.v1";
 
 /// Current tail-latency regime selected by the guard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -1357,6 +1362,69 @@ impl SwarmAdmissionReplayReport {
     }
 }
 
+/// Severity used when comparing a transcript digest to admission replay output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SwarmAdmissionReplayDigestSeverity {
+    /// Digest and replay evidence show no expansion pressure.
+    Safe,
+    /// Digest saturation or replay backpressure/denial shows degraded capacity.
+    Degraded,
+    /// Replay evidence is missing, stale, or otherwise cannot be trusted.
+    FailClosed,
+}
+
+/// Alignment mismatch between digest saturation and replayed admission severity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SwarmAdmissionReplayDigestAssertionKind {
+    /// The digest reports saturation while replay stays optimistic.
+    SaturatedDigestOptimisticReplay,
+    /// Replay reports degraded/fail-closed admission while the digest has no saturation signal.
+    UnsaturatedDigestConservativeReplay,
+}
+
+/// One actionable assertion emitted by digest/admission alignment checks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SwarmAdmissionReplayDigestAssertion {
+    /// Mismatch category.
+    pub kind: SwarmAdmissionReplayDigestAssertionKind,
+    /// Human-readable assertion detail.
+    pub detail: String,
+    /// Exact operator action recommended before increasing swarm fanout.
+    pub recommended_operator_action: String,
+}
+
+/// Deterministic bridge between transcript saturation and admission replay evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SwarmAdmissionReplayDigestAlignment {
+    /// Stable schema identifier.
+    pub schema: &'static str,
+    /// Pass only when digest severity and replay severity agree.
+    pub status: SwarmAdmissionReplayStatus,
+    /// Severity derived from the transcript digest.
+    pub digest_severity: SwarmAdmissionReplayDigestSeverity,
+    /// Severity derived from the admission replay report.
+    pub replay_severity: SwarmAdmissionReplayDigestSeverity,
+    /// Digest reasons carried into the assertion report.
+    pub digest_saturation_reasons: Vec<String>,
+    /// Redacted digest evidence pointers carried into the assertion report.
+    pub digest_evidence_pointers: Vec<String>,
+    /// Replay divergence marker count retained for operator triage.
+    pub replay_divergence_count: usize,
+    /// Actionable mismatches. Empty when status is pass.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actionable_assertions: Vec<SwarmAdmissionReplayDigestAssertion>,
+}
+
+impl SwarmAdmissionReplayDigestAlignment {
+    /// Render stable JSON telemetry for the alignment report.
+    #[must_use]
+    pub fn telemetry(&self) -> Value {
+        json!(self)
+    }
+}
+
 /// Error returned when deterministic admission replay cannot start safely.
 #[derive(Debug)]
 pub enum SwarmAdmissionReplayError {
@@ -1843,6 +1911,101 @@ pub fn replay_swarm_admission_from_jsonl(
         decision_timeline,
         divergence_markers,
     })
+}
+
+/// Compare transcript-derived saturation with deterministic admission replay severity.
+///
+/// The returned report is a separate assertion artifact; it does not mutate or
+/// extend the replay report schema.
+#[must_use]
+pub fn assert_swarm_digest_admission_replay_alignment(
+    digest: &SwarmActivityDigest,
+    replay: &SwarmAdmissionReplayReport,
+) -> SwarmAdmissionReplayDigestAlignment {
+    let digest_severity = digest_replay_severity_from_digest(digest);
+    let replay_severity = digest_replay_severity_from_replay(replay);
+    let actionable_assertions =
+        digest_replay_alignment_assertions(digest, replay, digest_severity, replay_severity);
+    let status = if actionable_assertions.is_empty() {
+        SwarmAdmissionReplayStatus::Pass
+    } else {
+        SwarmAdmissionReplayStatus::FailClosed
+    };
+
+    SwarmAdmissionReplayDigestAlignment {
+        schema: SWARM_ADMISSION_REPLAY_DIGEST_ALIGNMENT_SCHEMA,
+        status,
+        digest_severity,
+        replay_severity,
+        digest_saturation_reasons: digest.saturation.reasons.clone(),
+        digest_evidence_pointers: digest.saturation.evidence_pointers.clone(),
+        replay_divergence_count: replay.divergence_markers.len(),
+        actionable_assertions,
+    }
+}
+
+const fn digest_replay_severity_from_digest(
+    digest: &SwarmActivityDigest,
+) -> SwarmAdmissionReplayDigestSeverity {
+    if digest.saturation.saturated {
+        SwarmAdmissionReplayDigestSeverity::Degraded
+    } else {
+        SwarmAdmissionReplayDigestSeverity::Safe
+    }
+}
+
+fn digest_replay_severity_from_replay(
+    replay: &SwarmAdmissionReplayReport,
+) -> SwarmAdmissionReplayDigestSeverity {
+    if replay.status == SwarmAdmissionReplayStatus::FailClosed {
+        return SwarmAdmissionReplayDigestSeverity::FailClosed;
+    }
+    if replay
+        .decision_timeline
+        .iter()
+        .any(|decision| !matches!(decision.admission_decision.action, AdmissionAction::Admit))
+    {
+        return SwarmAdmissionReplayDigestSeverity::Degraded;
+    }
+    SwarmAdmissionReplayDigestSeverity::Safe
+}
+
+fn digest_replay_alignment_assertions(
+    digest: &SwarmActivityDigest,
+    replay: &SwarmAdmissionReplayReport,
+    digest_severity: SwarmAdmissionReplayDigestSeverity,
+    replay_severity: SwarmAdmissionReplayDigestSeverity,
+) -> Vec<SwarmAdmissionReplayDigestAssertion> {
+    use SwarmAdmissionReplayDigestSeverity::{Degraded, FailClosed, Safe};
+
+    match (digest_severity, replay_severity) {
+        (Degraded, Safe) => {
+            vec![SwarmAdmissionReplayDigestAssertion {
+                kind: SwarmAdmissionReplayDigestAssertionKind::SaturatedDigestOptimisticReplay,
+                detail: format!(
+                    "digest saturated with {} reason(s) and {} evidence pointer(s), but replay stayed safe across {} decision(s)",
+                    digest.saturation.reasons.len(),
+                    digest.saturation.evidence_pointers.len(),
+                    replay.decision_count
+                ),
+                recommended_operator_action:
+                    "pause new agent launches; inspect digest evidence and replay with captured resource pressure before raising fanout".to_string(),
+            }]
+        }
+        (Safe, Degraded | FailClosed) => {
+            vec![SwarmAdmissionReplayDigestAssertion {
+                kind: SwarmAdmissionReplayDigestAssertionKind::UnsaturatedDigestConservativeReplay,
+                detail: format!(
+                    "digest has no saturation signal, but replay severity was {:?} with {} divergence marker(s)",
+                    replay_severity,
+                    replay.divergence_markers.len()
+                ),
+                recommended_operator_action:
+                    "keep admission conservative; refresh captured resource samples or explain replay divergences before changing budgets".to_string(),
+            }]
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn validate_replay_samples(
@@ -2809,19 +2972,26 @@ mod tests {
     use super::{
         AdmissionAction, HostResourceBudgets, HostResourceSample, ResourceDimension,
         ResourceGovernor, ResourceOperationKind, ResourceRequest,
-        SWARM_ADMISSION_CONTROLLER_SCHEMA, SWARM_ADMISSION_REPLAY_SCHEMA,
-        SWARM_CAPACITY_PLAN_SCHEMA, SWARM_OPERATOR_BUDGET_PROFILES_SCHEMA,
-        SwarmAdmissionController, SwarmAdmissionReplayConfig, SwarmAdmissionReplayDivergenceKind,
+        SWARM_ADMISSION_CONTROLLER_SCHEMA, SWARM_ADMISSION_REPLAY_DIGEST_ALIGNMENT_SCHEMA,
+        SWARM_ADMISSION_REPLAY_SCHEMA, SWARM_CAPACITY_PLAN_SCHEMA,
+        SWARM_OPERATOR_BUDGET_PROFILES_SCHEMA, SwarmAdmissionController,
+        SwarmAdmissionReplayConfig, SwarmAdmissionReplayDigestAssertionKind,
+        SwarmAdmissionReplayDigestSeverity, SwarmAdmissionReplayDivergenceKind,
         SwarmAdmissionReplayError, SwarmAdmissionReplaySample, SwarmAdmissionReplayStatus,
         SwarmCapacityConfidence, SwarmCapacityDimension, SwarmCapacityPlanError,
         SwarmHostInventory, SwarmLiveLoad, SwarmOperatorHostClass, TAIL_LATENCY_REGIME_SCHEMA,
         TailLatencyFallbackReason, TailLatencyRegime, TailLatencyRegimeConfig,
         TailLatencyRegimeGuard, TailLatencyRegimeSample,
+        assert_swarm_digest_admission_replay_alignment,
         generate_operator_budget_profiles_from_jsonl,
         generate_operator_budget_profiles_from_jsonl_with_host_classes,
         plan_swarm_capacity_from_jsonl, replay_swarm_admission_from_jsonl,
     };
-    use crate::swarm_activity_ledger::{SwarmActivityIds, SwarmActivityKind, SwarmActivityLedger};
+    use crate::swarm_activity_ledger::{
+        SwarmActivityDigestConfig, SwarmActivityIds, SwarmActivityKind, SwarmActivityLedger,
+        digest_from_jsonl,
+    };
+    use serde_json::Value;
 
     fn budgets() -> HostResourceBudgets {
         HostResourceBudgets::fixed(10.0, 1_000, 100, 100, 1_000)
@@ -2884,6 +3054,48 @@ mod tests {
                 .with_extension_hostcall_lanes(4)
                 .with_active_rch_jobs(1),
         )
+    }
+
+    fn saturated_admission_fixture_jsonl() -> String {
+        let mut ledger = SwarmActivityLedger::new();
+        ledger.append(
+            100,
+            SwarmActivityKind::AgentMail,
+            SwarmActivityIds::new("saturation-chatter")
+                .with_agent_name("MagentaOak")
+                .with_mail_thread_id("bd-saturation"),
+            "coordination note while saturated",
+            [("subject", "status")],
+        );
+        ledger.append(
+            200,
+            SwarmActivityKind::Verification,
+            SwarmActivityIds::new("saturation-replay")
+                .with_agent_name("MagentaOak")
+                .with_bead_id("bd-saturation"),
+            "verification should wait for capacity",
+            [
+                ("expected_action", "backpressure"),
+                ("request_operation", "exec"),
+                ("queue_depth", "64"),
+            ],
+        );
+        ledger.to_jsonl().expect("fixture should serialize")
+    }
+
+    fn saturated_digest_config() -> SwarmActivityDigestConfig {
+        SwarmActivityDigestConfig {
+            max_items: 8,
+            stale_thread_after_ms: 60_000,
+            saturation_window_ms: 1_000,
+            min_new_bugs_per_window: 1,
+            duplicate_work_threshold: 10,
+            repeated_blocker_threshold: 10,
+            closed_surface_edit_threshold: 10,
+            stale_introduction_threshold: 10,
+            coordination_chatter_threshold: 10,
+            low_throughput_event_threshold: 0,
+        }
     }
 
     #[test]
@@ -3437,6 +3649,142 @@ mod tests {
             err,
             SwarmAdmissionReplayError::MissingEvidence("resource_samples")
         ));
+    }
+
+    #[test]
+    fn admission_replay_alignment_accepts_matching_saturated_backpressure_evidence() {
+        let jsonl = saturated_admission_fixture_jsonl();
+        let digest = digest_from_jsonl(&jsonl, saturated_digest_config()).unwrap();
+        let plan =
+            plan_swarm_capacity_from_jsonl(capacity_fixture_jsonl(), capacity_inventory()).unwrap();
+        let report = replay_swarm_admission_from_jsonl(
+            &jsonl,
+            plan,
+            &[replay_sample(0, 24, 16)],
+            SwarmAdmissionReplayConfig::new(1_000),
+        )
+        .unwrap();
+
+        assert!(digest.saturation.saturated);
+        assert_eq!(report.status, SwarmAdmissionReplayStatus::Pass);
+        assert!(report.decision_timeline.iter().any(|decision| matches!(
+            decision.admission_decision.action,
+            AdmissionAction::Backpressure
+        )));
+
+        let alignment = assert_swarm_digest_admission_replay_alignment(&digest, &report);
+
+        assert_eq!(
+            alignment.schema,
+            SWARM_ADMISSION_REPLAY_DIGEST_ALIGNMENT_SCHEMA
+        );
+        assert_eq!(alignment.status, SwarmAdmissionReplayStatus::Pass);
+        assert_eq!(
+            alignment.digest_severity,
+            SwarmAdmissionReplayDigestSeverity::Degraded
+        );
+        assert_eq!(
+            alignment.replay_severity,
+            SwarmAdmissionReplayDigestSeverity::Degraded
+        );
+        assert!(alignment.actionable_assertions.is_empty());
+        assert!(
+            alignment
+                .digest_evidence_pointers
+                .iter()
+                .any(|pointer| pointer.starts_with("new_bug_window:start="))
+        );
+        assert_eq!(
+            report.telemetry().get("schema").and_then(Value::as_str),
+            Some(SWARM_ADMISSION_REPLAY_SCHEMA)
+        );
+        assert!(report.telemetry().get("digest_severity").is_none());
+    }
+
+    #[test]
+    fn admission_replay_alignment_fails_closed_for_saturated_digest_and_safe_replay() {
+        let jsonl = saturated_admission_fixture_jsonl();
+        let digest = digest_from_jsonl(&jsonl, saturated_digest_config()).unwrap();
+        let plan =
+            plan_swarm_capacity_from_jsonl(capacity_fixture_jsonl(), capacity_inventory()).unwrap();
+        let report = replay_swarm_admission_from_jsonl(
+            &jsonl,
+            plan,
+            &[replay_sample(0, 8, 16)],
+            SwarmAdmissionReplayConfig::new(1_000),
+        )
+        .unwrap();
+
+        assert!(digest.saturation.saturated);
+        assert_eq!(report.status, SwarmAdmissionReplayStatus::Pass);
+        assert!(
+            report.decision_timeline.iter().all(|decision| matches!(
+                decision.admission_decision.action,
+                AdmissionAction::Admit
+            ))
+        );
+
+        let alignment = assert_swarm_digest_admission_replay_alignment(&digest, &report);
+
+        assert_eq!(alignment.status, SwarmAdmissionReplayStatus::FailClosed);
+        assert_eq!(
+            alignment.digest_severity,
+            SwarmAdmissionReplayDigestSeverity::Degraded
+        );
+        assert_eq!(
+            alignment.replay_severity,
+            SwarmAdmissionReplayDigestSeverity::Safe
+        );
+        assert_eq!(alignment.actionable_assertions.len(), 1);
+        assert_eq!(
+            alignment.actionable_assertions[0].kind,
+            SwarmAdmissionReplayDigestAssertionKind::SaturatedDigestOptimisticReplay
+        );
+        assert!(
+            alignment.actionable_assertions[0]
+                .recommended_operator_action
+                .contains("pause new agent launches")
+        );
+    }
+
+    #[test]
+    fn admission_replay_alignment_fails_closed_for_unsaturated_digest_and_degraded_replay() {
+        let jsonl = saturated_admission_fixture_jsonl();
+        let digest = digest_from_jsonl(
+            &jsonl,
+            SwarmActivityDigestConfig {
+                min_new_bugs_per_window: 0,
+                ..saturated_digest_config()
+            },
+        )
+        .unwrap();
+        let plan =
+            plan_swarm_capacity_from_jsonl(capacity_fixture_jsonl(), capacity_inventory()).unwrap();
+        let report = replay_swarm_admission_from_jsonl(
+            &jsonl,
+            plan,
+            &[replay_sample(0, 24, 16)],
+            SwarmAdmissionReplayConfig::new(1_000),
+        )
+        .unwrap();
+
+        assert!(!digest.saturation.saturated);
+
+        let alignment = assert_swarm_digest_admission_replay_alignment(&digest, &report);
+
+        assert_eq!(alignment.status, SwarmAdmissionReplayStatus::FailClosed);
+        assert_eq!(
+            alignment.digest_severity,
+            SwarmAdmissionReplayDigestSeverity::Safe
+        );
+        assert_eq!(
+            alignment.replay_severity,
+            SwarmAdmissionReplayDigestSeverity::Degraded
+        );
+        assert_eq!(
+            alignment.actionable_assertions[0].kind,
+            SwarmAdmissionReplayDigestAssertionKind::UnsaturatedDigestConservativeReplay
+        );
     }
 
     #[test]
