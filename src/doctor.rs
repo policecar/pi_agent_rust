@@ -33,6 +33,8 @@ const SWARM_DISK_WARN_AVAILABLE_KB: u64 = 10 * 1024 * 1024;
 const SWARM_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const SWARM_DOCTOR_ADMISSION_SCHEMA: &str = "pi.doctor.swarm_admission.v1";
 const SWARM_DOCTOR_RCH_FAILURE_SCHEMA: &str = "pi.doctor.rch_failure.v1";
+const SWARM_DOCTOR_TEMP_DIR_SCHEMA: &str = "pi.doctor.swarm_temp_dir.v1";
+const SWARM_CARGO_SCRATCH_ROOT: &str = "/data/tmp/pi_agent_rust_cargo";
 const MIB_BYTES: u64 = 1024 * 1024;
 
 // ── Core Types ──────────────────────────────────────────────────────
@@ -2175,8 +2177,13 @@ fn check_swarm_temp_dir(env_name: &str, findings: &mut Vec<Finding>) {
     let Some(raw_path) = std::env::var_os(env_name) else {
         findings.push(
             Finding::warn(cat, format!("{env_name} is not set"))
-                .with_detail("Heavyweight swarm checks should use /data/tmp/pi_agent_rust_cargo/<agent>")
-                .with_remediation("Export CARGO_TARGET_DIR and TMPDIR under /data/tmp/pi_agent_rust_cargo/<agent>/ before cargo checks"),
+                .with_detail(format!(
+                    "Heavyweight swarm checks should use {SWARM_CARGO_SCRATCH_ROOT}/<agent>"
+                ))
+                .with_remediation(format!(
+                    "Export CARGO_TARGET_DIR and TMPDIR under {SWARM_CARGO_SCRATCH_ROOT}/<agent>/ before cargo checks"
+                ))
+                .with_data(swarm_temp_dir_data(env_name, None, false, None)),
         );
         return;
     };
@@ -2188,51 +2195,118 @@ fn check_swarm_temp_dir(env_name: &str, findings: &mut Vec<Finding>) {
                 .with_remediation(format!(
                     "Create {} or export {env_name} to an existing high-capacity directory",
                     path.display()
-                )),
+                ))
+                .with_data(swarm_temp_dir_data(env_name, Some(&path), false, None)),
         );
         return;
     }
 
     match disk_available_kb(&path) {
-        Ok(Some(available_kb)) if available_kb < SWARM_DISK_WARN_AVAILABLE_KB => {
-            findings.push(
-                Finding::warn(cat, format!("{env_name} has low free space"))
-                    .with_detail(format!(
-                        "{} available at {}",
-                        format_available_kb(available_kb),
-                        path.display()
-                    ))
-                    .with_remediation("Switch to a larger /data/tmp target or wait for cleanup before heavy cargo checks"),
-            );
+        Ok(available_kb) => {
+            findings.push(swarm_temp_dir_finding(env_name, &path, available_kb, None));
         }
-        Ok(Some(available_kb)) => {
-            findings.push(
-                Finding::pass(cat, format!("{env_name} headroom")).with_detail(format!(
+        Err(err) => {
+            let detail = err.to_string();
+            findings.push(swarm_temp_dir_finding(
+                env_name,
+                &path,
+                None,
+                Some(detail.as_str()),
+            ));
+        }
+    }
+}
+
+fn swarm_temp_dir_finding(
+    env_name: &str,
+    path: &Path,
+    available_kb: Option<u64>,
+    probe_error: Option<&str>,
+) -> Finding {
+    let cat = CheckCategory::Swarm;
+    let data = swarm_temp_dir_data(env_name, Some(path), true, available_kb);
+
+    if let Some(available_kb) = available_kb {
+        if available_kb < SWARM_DISK_WARN_AVAILABLE_KB {
+            return Finding::warn(cat, format!("{env_name} has low free space"))
+                .with_detail(format!(
                     "{} available at {}",
                     format_available_kb(available_kb),
                     path.display()
-                )),
-            );
-        }
-        Ok(None) => {
-            findings.push(
-                Finding::info(cat, format!("{env_name} headroom unavailable"))
-                    .with_detail(path.display().to_string())
-                    .with_remediation(
-                        "Run `df -h` on the configured path before heavy cargo checks",
-                    ),
-            );
-        }
-        Err(err) => {
-            findings.push(
-                Finding::info(cat, format!("{env_name} headroom probe failed"))
-                    .with_detail(err.to_string())
-                    .with_remediation(
-                        "Run `df -h` on the configured path before heavy cargo checks",
-                    ),
-            );
+                ))
+                .with_remediation("Switch to a larger /data/tmp target or wait for cleanup before heavy cargo checks")
+                .with_data(data);
         }
     }
+
+    if !path_under_swarm_scratch_root(path) {
+        let detail = available_kb.map_or_else(
+            || {
+                format!(
+                    "{}; expected path under {SWARM_CARGO_SCRATCH_ROOT}",
+                    path.display()
+                )
+            },
+            |available_kb| {
+                format!(
+                    "{} available at {}; expected path under {SWARM_CARGO_SCRATCH_ROOT}",
+                    format_available_kb(available_kb),
+                    path.display()
+                )
+            },
+        );
+        return Finding::warn(cat, format!("{env_name} is outside swarm scratch root"))
+            .with_detail(detail)
+            .with_remediation(format!(
+                "Export {env_name} under {SWARM_CARGO_SCRATCH_ROOT}/<agent>/ before heavyweight RCH or cargo checks"
+            ))
+            .with_data(data);
+    }
+
+    if let Some(available_kb) = available_kb {
+        return Finding::pass(cat, format!("{env_name} headroom"))
+            .with_detail(format!(
+                "{} available at {}",
+                format_available_kb(available_kb),
+                path.display()
+            ))
+            .with_data(data);
+    }
+
+    if let Some(error) = probe_error {
+        return Finding::info(cat, format!("{env_name} headroom probe failed"))
+            .with_detail(error.to_string())
+            .with_remediation("Run `df -h` on the configured path before heavy cargo checks")
+            .with_data(data);
+    }
+
+    Finding::info(cat, format!("{env_name} headroom unavailable"))
+        .with_detail(path.display().to_string())
+        .with_remediation("Run `df -h` on the configured path before heavy cargo checks")
+        .with_data(data)
+}
+
+fn swarm_temp_dir_data(
+    env_name: &str,
+    path: Option<&Path>,
+    exists: bool,
+    available_kb: Option<u64>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema": SWARM_DOCTOR_TEMP_DIR_SCHEMA,
+        "env_name": env_name,
+        "path": path.map(|p| p.display().to_string()),
+        "exists": exists,
+        "expected_root": SWARM_CARGO_SCRATCH_ROOT,
+        "under_expected_root": path.map(path_under_swarm_scratch_root),
+        "available_kb": available_kb,
+        "warn_available_kb": SWARM_DISK_WARN_AVAILABLE_KB,
+        "recommended_pattern": format!("{SWARM_CARGO_SCRATCH_ROOT}/<agent>/target or {SWARM_CARGO_SCRATCH_ROOT}/<agent>/tmp"),
+    })
+}
+
+fn path_under_swarm_scratch_root(path: &Path) -> bool {
+    path.starts_with(Path::new(SWARM_CARGO_SCRATCH_ROOT))
 }
 
 fn disk_available_kb(path: &Path) -> std::io::Result<Option<u64>> {
@@ -3243,6 +3317,47 @@ not-json
         assert_eq!(parse_df_available_kb(output), Some(88_000));
         assert_eq!(format_available_kb(88_000), "85.9 MiB");
         assert_eq!(format_available_kb(11 * 1024 * 1024), "11.0 GiB");
+    }
+
+    #[test]
+    fn swarm_temp_dir_posture_passes_for_expected_scratch_root() {
+        let finding = swarm_temp_dir_finding(
+            "CARGO_TARGET_DIR",
+            Path::new("/data/tmp/pi_agent_rust_cargo/sunnybeacon/target"),
+            Some(12 * 1024 * 1024),
+            None,
+        );
+        let data = finding_data(&finding);
+
+        assert_eq!(finding.severity, Severity::Pass);
+        assert_eq!(data["schema"], SWARM_DOCTOR_TEMP_DIR_SCHEMA);
+        assert_eq!(data["env_name"], "CARGO_TARGET_DIR");
+        assert_eq!(data["under_expected_root"], serde_json::json!(true));
+        assert_eq!(data["available_kb"], serde_json::json!(12 * 1024 * 1024));
+    }
+
+    #[test]
+    fn swarm_temp_dir_posture_warns_outside_scratch_root_even_with_headroom() {
+        let finding = swarm_temp_dir_finding(
+            "TMPDIR",
+            Path::new("/tmp/pi_agent_rust_cargo/sunnybeacon/tmp"),
+            Some(64 * 1024 * 1024),
+            None,
+        );
+        let data = finding_data(&finding);
+
+        assert_eq!(finding.severity, Severity::Warn);
+        assert!(finding.title.contains("outside swarm scratch root"));
+        assert_eq!(data["schema"], SWARM_DOCTOR_TEMP_DIR_SCHEMA);
+        assert_eq!(data["under_expected_root"], serde_json::json!(false));
+        assert_eq!(data["expected_root"], SWARM_CARGO_SCRATCH_ROOT);
+        assert!(
+            finding
+                .remediation
+                .as_deref()
+                .unwrap_or_default()
+                .contains(SWARM_CARGO_SCRATCH_ROOT)
+        );
     }
 
     #[test]
