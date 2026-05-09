@@ -38,8 +38,13 @@ const SWARM_DOCTOR_BUILD_SLOT_SCHEMA: &str = "pi.doctor.agent_mail_build_slots.v
 const SWARM_DOCTOR_CONTACTS_SCHEMA: &str = "pi.doctor.agent_mail_contacts.v1";
 const SWARM_DOCTOR_STALLED_REAPER_SCHEMA: &str = "pi.doctor.stalled_bead_reaper.v1";
 const SWARM_DOCTOR_NEXT_ACTION_SCHEMA: &str = "pi.doctor.communication_purgatory_next_action.v1";
+const SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA: &str =
+    "pi.doctor.agent_mail_reservation_conflict_heatmap.v1";
 const SWARM_CARGO_SCRATCH_ROOT: &str = "/data/tmp/pi_agent_rust_cargo";
 const SWARM_BUILD_SLOT_SOON_EXPIRING_MINUTES: i64 = 30;
+const SWARM_RESERVATION_RECENT_HOURS: i64 = 24;
+const SWARM_RESERVATION_STALE_HOLDER_HOURS: i64 = 24;
+const SWARM_RESERVATION_EXPIRING_SOON_MINUTES: i64 = 30;
 const MIB_BYTES: u64 = 1024 * 1024;
 
 // ── Core Types ──────────────────────────────────────────────────────
@@ -2860,25 +2865,654 @@ fn classify_agent_mail_inbox(value: &serde_json::Value) -> Finding {
 }
 
 fn classify_agent_mail_reservations(value: &serde_json::Value) -> Finding {
+    classify_agent_mail_reservations_at(value, Utc::now())
+}
+
+fn classify_agent_mail_reservations_at(value: &serde_json::Value, now: DateTime<Utc>) -> Finding {
+    let heatmap = build_agent_mail_reservation_heatmap(value, now);
     let active = json_array_len_by_key(value, "reservations")
         .or_else(|| json_array_len_by_key(value, "items"))
-        .unwrap_or_else(|| json_number_by_key_as_usize(value, "active").unwrap_or(0));
-    let has_conflict = json_truthy_key_contains(value, "conflict");
-    let expiring = json_number_by_key(value, "expiring").unwrap_or(0);
+        .unwrap_or_else(|| json_number_by_key_as_usize(value, "active").unwrap_or(heatmap.active));
+    let has_conflict = json_truthy_key_contains(value, "conflict") || !heatmap.conflicts.is_empty();
+    let expiring = json_number_by_key(value, "expiring")
+        .unwrap_or_else(|| usize_to_u64(heatmap.expiring_soon));
+    let detail = heatmap.detail(active, expiring);
+    let data = heatmap.to_json();
+
     if has_conflict {
         Finding::warn(
             CheckCategory::Swarm,
-            "Agent Mail reservation conflicts detected",
+            "Agent Mail reservation conflict heatmap has active conflicts",
         )
-        .with_detail(format!("active={active}, expiring_soon={expiring}"))
+        .with_detail(detail)
         .with_remediation("Resolve conflicting file reservations before editing overlapping paths")
+        .with_data(data)
+    } else if !heatmap.stale_recommendations.is_empty() {
+        Finding::warn(
+            CheckCategory::Swarm,
+            "Agent Mail reservation heatmap has stale holder recommendations",
+        )
+        .with_detail(detail)
+        .with_remediation(
+            "Contact stale reservation holders and ask them to renew or release before taking overlapping work",
+        )
+        .with_data(data)
     } else if expiring > 0 {
         Finding::warn(CheckCategory::Swarm, "Agent Mail reservations expire soon")
-            .with_detail(format!("active={active}, expiring_soon={expiring}"))
+            .with_detail(detail)
             .with_remediation("Renew active reservations before long-running verification")
+            .with_data(data)
     } else {
-        Finding::pass(CheckCategory::Swarm, "Agent Mail reservations reachable")
-            .with_detail(format!("active={active}, expiring_soon={expiring}"))
+        Finding::pass(
+            CheckCategory::Swarm,
+            "Agent Mail reservation conflict heatmap clear",
+        )
+        .with_detail(detail)
+        .with_data(data)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AgentMailReservationRow {
+    path_pattern: String,
+    agent: String,
+    bead: String,
+    reason: Option<String>,
+    lease_mode: ReservationLeaseMode,
+    activity: ReservationActivity,
+    expired: bool,
+    released: bool,
+    expiring_soon: bool,
+    age_hours: Option<i64>,
+}
+
+impl AgentMailReservationRow {
+    const fn is_exclusive(&self) -> bool {
+        matches!(self.lease_mode, ReservationLeaseMode::Exclusive)
+    }
+
+    const fn is_active(&self) -> bool {
+        matches!(self.activity, ReservationActivity::Active)
+    }
+
+    const fn is_recent(&self) -> bool {
+        matches!(self.activity, ReservationActivity::RecentInactive)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReservationLeaseMode {
+    Exclusive,
+    Shared,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReservationActivity {
+    Active,
+    RecentInactive,
+    Inactive,
+}
+
+#[derive(Debug, Default)]
+struct AgentMailReservationHeatmap {
+    rows_seen: usize,
+    active: usize,
+    recent_inactive: usize,
+    expired: usize,
+    released: usize,
+    exclusive_active: usize,
+    shared_active: usize,
+    expiring_soon: usize,
+    path_groups: HashMap<String, ReservationGroupStats>,
+    agent_groups: HashMap<String, ReservationGroupStats>,
+    bead_groups: HashMap<String, ReservationGroupStats>,
+    conflicts: Vec<serde_json::Value>,
+    stale_recommendations: Vec<serde_json::Value>,
+}
+
+impl AgentMailReservationHeatmap {
+    fn detail(&self, active_fallback: usize, expiring_fallback: u64) -> String {
+        let active = if self.rows_seen == 0 {
+            active_fallback
+        } else {
+            self.active
+        };
+        let expiring = if self.rows_seen == 0 {
+            expiring_fallback
+        } else {
+            usize_to_u64(self.expiring_soon).max(expiring_fallback)
+        };
+        format!(
+            "active={}, recent_inactive={}, conflict_groups={}, stale_holder_recommendations={}, expiring_soon={}, top_paths={}",
+            active,
+            self.recent_inactive,
+            self.conflicts.len(),
+            self.stale_recommendations.len(),
+            expiring,
+            self.top_path_summary()
+        )
+    }
+
+    fn top_path_summary(&self) -> String {
+        let mut groups = self.path_groups.values().collect::<Vec<_>>();
+        groups.sort_by(|left, right| {
+            right
+                .conflict_count
+                .cmp(&left.conflict_count)
+                .then_with(|| right.active_count.cmp(&left.active_count))
+                .then_with(|| left.key.cmp(&right.key))
+        });
+        let parts = groups
+            .into_iter()
+            .take(SWARM_DETAIL_LIMIT)
+            .map(|group| {
+                format!(
+                    "{} active={} conflicts={}",
+                    group.key, group.active_count, group.conflict_count
+                )
+            })
+            .collect::<Vec<_>>();
+        if parts.is_empty() {
+            "none".to_string()
+        } else {
+            parts.join("; ")
+        }
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "schema": SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA,
+            "recent_window_hours": SWARM_RESERVATION_RECENT_HOURS,
+            "stale_holder_hours": SWARM_RESERVATION_STALE_HOLDER_HOURS,
+            "totals": {
+                "rows_seen": self.rows_seen,
+                "active_count": self.active,
+                "recent_inactive_count": self.recent_inactive,
+                "expired_count": self.expired,
+                "released_count": self.released,
+                "exclusive_active_count": self.exclusive_active,
+                "shared_active_count": self.shared_active,
+                "expiring_soon_count": self.expiring_soon,
+                "conflict_group_count": self.conflicts.len(),
+                "stale_holder_recommendation_count": self.stale_recommendations.len()
+            },
+            "heatmap": {
+                "by_path_pattern": reservation_groups_json(&self.path_groups, "path_pattern"),
+                "by_agent": reservation_groups_json(&self.agent_groups, "agent"),
+                "by_bead": reservation_groups_json(&self.bead_groups, "bead"),
+                "conflicts": self.conflicts
+            },
+            "stale_holder_recommendations": self.stale_recommendations
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct ReservationGroupStats {
+    key: String,
+    active_count: usize,
+    recent_inactive_count: usize,
+    exclusive_active_count: usize,
+    shared_active_count: usize,
+    stale_holder_count: usize,
+    conflict_count: usize,
+    max_age_hours: Option<i64>,
+    agents: HashSet<String>,
+    beads: HashSet<String>,
+}
+
+fn build_agent_mail_reservation_heatmap(
+    value: &serde_json::Value,
+    now: DateTime<Utc>,
+) -> AgentMailReservationHeatmap {
+    let rows = agent_mail_reservation_rows(value, now);
+    let mut heatmap = AgentMailReservationHeatmap {
+        rows_seen: rows.len(),
+        ..AgentMailReservationHeatmap::default()
+    };
+
+    for row in &rows {
+        if row.expired {
+            heatmap.expired += 1;
+        }
+        if row.released {
+            heatmap.released += 1;
+        }
+        if row.expiring_soon {
+            heatmap.expiring_soon += 1;
+        }
+        if row.is_active() {
+            heatmap.active += 1;
+            if row.is_exclusive() {
+                heatmap.exclusive_active += 1;
+            } else {
+                heatmap.shared_active += 1;
+            }
+        } else if row.is_recent() {
+            heatmap.recent_inactive += 1;
+        }
+        if row.is_active() || row.is_recent() {
+            insert_reservation_group(&mut heatmap.path_groups, &row.path_pattern, row);
+            insert_reservation_group(&mut heatmap.agent_groups, &row.agent, row);
+            insert_reservation_group(&mut heatmap.bead_groups, &row.bead, row);
+        }
+        if reservation_stale_reason(row).is_some() {
+            heatmap
+                .stale_recommendations
+                .push(stale_reservation_recommendation(row));
+            mark_reservation_stale(&mut heatmap.path_groups, &row.path_pattern);
+            mark_reservation_stale(&mut heatmap.agent_groups, &row.agent);
+            mark_reservation_stale(&mut heatmap.bead_groups, &row.bead);
+        }
+    }
+
+    add_reservation_conflicts(&rows, &mut heatmap);
+    heatmap
+}
+
+fn agent_mail_reservation_rows(
+    value: &serde_json::Value,
+    now: DateTime<Utc>,
+) -> Vec<AgentMailReservationRow> {
+    let mut rows = Vec::new();
+    collect_agent_mail_reservation_rows(value, now, &mut rows);
+    rows
+}
+
+fn collect_agent_mail_reservation_rows(
+    value: &serde_json::Value,
+    now: DateTime<Utc>,
+    rows: &mut Vec<AgentMailReservationRow>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(row) = reservation_row_from_map(map, now) {
+                rows.push(row);
+                return;
+            }
+            for (key, child) in map {
+                if key.to_ascii_lowercase().contains("conflict") {
+                    continue;
+                }
+                collect_agent_mail_reservation_rows(child, now, rows);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for child in values {
+                collect_agent_mail_reservation_rows(child, now, rows);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn reservation_row_from_map(
+    map: &serde_json::Map<String, serde_json::Value>,
+    now: DateTime<Utc>,
+) -> Option<AgentMailReservationRow> {
+    let path_pattern = first_string_field(map, &["path_pattern", "pathPattern", "path"])?
+        .trim()
+        .to_string();
+    if path_pattern.is_empty() {
+        return None;
+    }
+    let agent = first_string_field(
+        map,
+        &["agent", "holder", "agent_name", "holder_agent", "owner"],
+    )
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .unwrap_or("<unknown>")
+    .to_string();
+    let reason = first_string_field(map, &["reason", "note", "description"]).map(str::to_string);
+    let bead = reservation_bead(map, reason.as_deref());
+    let released_ts = first_string_field(map, &["released_ts", "released_at"]);
+    let expires_ts = first_string_field(map, &["expires_ts", "expires_at", "expiration"]);
+    let released = released_ts.is_some()
+        || first_string_field(map, &["status"]).is_some_and(|status| {
+            status.eq_ignore_ascii_case("released") || status.eq_ignore_ascii_case("closed")
+        });
+    let expires_at = expires_ts.and_then(parse_rfc3339_utc);
+    let expired = expires_at.is_some_and(|expires_at| expires_at <= now);
+    let active = !released && !expired;
+    let terminal_age_hours = released_ts
+        .or(expires_ts)
+        .and_then(|timestamp| age_hours_since(timestamp, now));
+    let activity_age_hours = first_string_field(
+        map,
+        &[
+            "updated_at",
+            "updated_ts",
+            "renewed_at",
+            "last_active_ts",
+            "created_at",
+            "created_ts",
+        ],
+    )
+    .and_then(|timestamp| age_hours_since(timestamp, now));
+    let recent = !active
+        && terminal_age_hours
+            .is_some_and(|age| (0..=SWARM_RESERVATION_RECENT_HOURS).contains(&age));
+    let expiring_soon = active
+        && expires_at.is_some_and(|expires_at| {
+            let minutes = expires_at.signed_duration_since(now).num_minutes();
+            (0..=SWARM_RESERVATION_EXPIRING_SOON_MINUTES).contains(&minutes)
+        });
+
+    Some(AgentMailReservationRow {
+        path_pattern,
+        agent,
+        bead,
+        reason,
+        lease_mode: reservation_lease_mode(map),
+        activity: if active {
+            ReservationActivity::Active
+        } else if recent {
+            ReservationActivity::RecentInactive
+        } else {
+            ReservationActivity::Inactive
+        },
+        expired,
+        released,
+        expiring_soon,
+        age_hours: if active {
+            activity_age_hours
+        } else {
+            terminal_age_hours.or(activity_age_hours)
+        },
+    })
+}
+
+fn first_string_field<'a>(
+    map: &'a serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<&'a str> {
+    keys.iter()
+        .find_map(|key| map.get(*key).and_then(serde_json::Value::as_str))
+}
+
+fn reservation_lease_mode(
+    map: &serde_json::Map<String, serde_json::Value>,
+) -> ReservationLeaseMode {
+    if let Some(exclusive) = map.get("exclusive").and_then(serde_json::Value::as_bool) {
+        return if exclusive {
+            ReservationLeaseMode::Exclusive
+        } else {
+            ReservationLeaseMode::Shared
+        };
+    }
+    if first_string_field(map, &["mode", "kind", "reservation_type", "type"]).is_some_and(|mode| {
+        matches!(
+            mode.to_ascii_lowercase().as_str(),
+            "shared" | "non_exclusive" | "non-exclusive" | "observe" | "read"
+        )
+    }) {
+        ReservationLeaseMode::Shared
+    } else {
+        ReservationLeaseMode::Exclusive
+    }
+}
+
+fn reservation_bead(
+    map: &serde_json::Map<String, serde_json::Value>,
+    reason: Option<&str>,
+) -> String {
+    first_string_field(map, &["bead", "bead_id", "issue_id", "thread_id"])
+        .or_else(|| reason.and_then(extract_bead_id))
+        .unwrap_or("<untracked>")
+        .to_string()
+}
+
+fn extract_bead_id(text: &str) -> Option<&str> {
+    text.split_whitespace().find_map(|token| {
+        let trimmed = token.trim_matches(|ch: char| {
+            !(ch.is_ascii_alphanumeric() || matches!(ch, '-' | '.' | '_'))
+        });
+        trimmed.starts_with("bd-").then_some(trimmed)
+    })
+}
+
+fn insert_reservation_group(
+    groups: &mut HashMap<String, ReservationGroupStats>,
+    key: &str,
+    row: &AgentMailReservationRow,
+) {
+    let stats = groups
+        .entry(key.to_string())
+        .or_insert_with(|| ReservationGroupStats {
+            key: key.to_string(),
+            ..ReservationGroupStats::default()
+        });
+    if row.is_active() {
+        stats.active_count += 1;
+        if row.is_exclusive() {
+            stats.exclusive_active_count += 1;
+        } else {
+            stats.shared_active_count += 1;
+        }
+    } else if row.is_recent() {
+        stats.recent_inactive_count += 1;
+    }
+    if let Some(age_hours) = row.age_hours {
+        stats.max_age_hours = Some(
+            stats
+                .max_age_hours
+                .map_or(age_hours, |current| current.max(age_hours)),
+        );
+    }
+    stats.agents.insert(row.agent.clone());
+    stats.beads.insert(row.bead.clone());
+}
+
+fn mark_reservation_stale(groups: &mut HashMap<String, ReservationGroupStats>, key: &str) {
+    if let Some(stats) = groups.get_mut(key) {
+        stats.stale_holder_count += 1;
+    }
+}
+
+fn add_reservation_conflicts(
+    rows: &[AgentMailReservationRow],
+    heatmap: &mut AgentMailReservationHeatmap,
+) {
+    let active_rows = rows
+        .iter()
+        .filter(|row| row.is_active())
+        .collect::<Vec<_>>();
+    for (index, left) in active_rows.iter().enumerate() {
+        for right in active_rows.iter().skip(index + 1) {
+            if !reservation_rows_conflict(left, right) {
+                continue;
+            }
+            mark_reservation_conflict(&mut heatmap.path_groups, &left.path_pattern);
+            mark_reservation_conflict(&mut heatmap.path_groups, &right.path_pattern);
+            mark_reservation_conflict(&mut heatmap.agent_groups, &left.agent);
+            mark_reservation_conflict(&mut heatmap.agent_groups, &right.agent);
+            mark_reservation_conflict(&mut heatmap.bead_groups, &left.bead);
+            mark_reservation_conflict(&mut heatmap.bead_groups, &right.bead);
+            heatmap
+                .conflicts
+                .push(reservation_conflict_json(left, right));
+        }
+    }
+    heatmap
+        .conflicts
+        .sort_by_key(std::string::ToString::to_string);
+}
+
+fn reservation_rows_conflict(
+    left: &AgentMailReservationRow,
+    right: &AgentMailReservationRow,
+) -> bool {
+    reservation_patterns_overlap(&left.path_pattern, &right.path_pattern)
+        && (left.is_exclusive() || right.is_exclusive())
+        && reservation_agents_distinct(&left.agent, &right.agent)
+}
+
+fn reservation_agents_distinct(left: &str, right: &str) -> bool {
+    left != right || left == "<unknown>" || right == "<unknown>"
+}
+
+fn reservation_patterns_overlap(left: &str, right: &str) -> bool {
+    left == right || simple_glob_match(left, right) || simple_glob_match(right, left)
+}
+
+fn simple_glob_match(pattern: &str, text: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let text = text.as_bytes();
+    let mut pattern_index = 0;
+    let mut text_index = 0;
+    let mut star_index = None;
+    let mut star_text_index = 0;
+
+    while text_index < text.len() {
+        if pattern_index < pattern.len()
+            && (pattern[pattern_index] == b'?' || pattern[pattern_index] == text[text_index])
+        {
+            pattern_index += 1;
+            text_index += 1;
+        } else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+            star_index = Some(pattern_index);
+            pattern_index += 1;
+            star_text_index = text_index;
+        } else if let Some(star) = star_index {
+            pattern_index = star + 1;
+            star_text_index += 1;
+            text_index = star_text_index;
+        } else {
+            return false;
+        }
+    }
+
+    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        pattern_index += 1;
+    }
+    pattern_index == pattern.len()
+}
+
+fn mark_reservation_conflict(groups: &mut HashMap<String, ReservationGroupStats>, key: &str) {
+    if let Some(stats) = groups.get_mut(key) {
+        stats.conflict_count += 1;
+    }
+}
+
+fn reservation_conflict_json(
+    left: &AgentMailReservationRow,
+    right: &AgentMailReservationRow,
+) -> serde_json::Value {
+    serde_json::json!({
+        "path_patterns": sorted_pair(&left.path_pattern, &right.path_pattern),
+        "agents": sorted_pair(&left.agent, &right.agent),
+        "beads": sorted_pair(&left.bead, &right.bead),
+        "exclusive_involved": left.is_exclusive() || right.is_exclusive(),
+        "max_age_hours": max_option_i64(left.age_hours, right.age_hours),
+        "reason": "overlapping_active_reservations",
+        "recommendation": "Coordinate with holders before editing overlapping files"
+    })
+}
+
+const fn reservation_stale_reason(row: &AgentMailReservationRow) -> Option<&'static str> {
+    if !row.is_active() || !row.is_exclusive() {
+        return None;
+    }
+    match row.age_hours {
+        Some(age) if age >= SWARM_RESERVATION_STALE_HOLDER_HOURS => {
+            Some("active_exclusive_reservation_older_than_threshold")
+        }
+        _ => None,
+    }
+}
+
+fn stale_reservation_recommendation(row: &AgentMailReservationRow) -> serde_json::Value {
+    serde_json::json!({
+        "agent": row.agent,
+        "path_pattern": row.path_pattern,
+        "bead": row.bead,
+        "reason": reservation_stale_reason(row),
+        "age_hours": row.age_hours,
+        "reservation_reason": row.reason,
+        "suggested_action": "Contact holder and ask them to renew or release before taking overlapping work"
+    })
+}
+
+fn reservation_groups_json(
+    groups: &HashMap<String, ReservationGroupStats>,
+    key_name: &str,
+) -> Vec<serde_json::Value> {
+    let mut values = groups.values().collect::<Vec<_>>();
+    values.sort_by(|left, right| {
+        right
+            .conflict_count
+            .cmp(&left.conflict_count)
+            .then_with(|| right.active_count.cmp(&left.active_count))
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    values
+        .into_iter()
+        .map(|stats| reservation_group_json(stats, key_name))
+        .collect()
+}
+
+fn reservation_group_json(stats: &ReservationGroupStats, key_name: &str) -> serde_json::Value {
+    let mut object = serde_json::Map::new();
+    object.insert(key_name.to_string(), serde_json::json!(stats.key));
+    object.insert(
+        "active_count".to_string(),
+        serde_json::json!(stats.active_count),
+    );
+    object.insert(
+        "recent_inactive_count".to_string(),
+        serde_json::json!(stats.recent_inactive_count),
+    );
+    object.insert(
+        "exclusive_active_count".to_string(),
+        serde_json::json!(stats.exclusive_active_count),
+    );
+    object.insert(
+        "shared_active_count".to_string(),
+        serde_json::json!(stats.shared_active_count),
+    );
+    object.insert(
+        "stale_holder_count".to_string(),
+        serde_json::json!(stats.stale_holder_count),
+    );
+    object.insert(
+        "conflict_count".to_string(),
+        serde_json::json!(stats.conflict_count),
+    );
+    object.insert(
+        "max_age_hours".to_string(),
+        serde_json::json!(stats.max_age_hours),
+    );
+    object.insert(
+        "agents".to_string(),
+        serde_json::json!(sorted_set(&stats.agents)),
+    );
+    object.insert(
+        "beads".to_string(),
+        serde_json::json!(sorted_set(&stats.beads)),
+    );
+    serde_json::Value::Object(object)
+}
+
+fn sorted_set(values: &HashSet<String>) -> Vec<String> {
+    let mut values = values.iter().cloned().collect::<Vec<_>>();
+    values.sort();
+    values
+}
+
+fn sorted_pair<'a>(left: &'a str, right: &'a str) -> Vec<&'a str> {
+    if left <= right {
+        vec![left, right]
+    } else {
+        vec![right, left]
+    }
+}
+
+fn max_option_i64(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
     }
 }
 
@@ -4347,6 +4981,10 @@ mod tests {
             .with_timezone(&Utc)
     }
 
+    fn heatmap_test_now() -> DateTime<Utc> {
+        build_slot_test_now()
+    }
+
     #[test]
     fn severity_ordering() {
         assert!(Severity::Pass < Severity::Info);
@@ -4901,17 +5539,25 @@ not-json
     fn swarm_agent_mail_reservations_detect_conflicts() {
         let value = serde_json::json!({
             "reservations": [
-                {"path": "src/doctor.rs", "agent": "CalmBridge"}
+                {
+                    "path": "src/doctor.rs",
+                    "agent": "CalmBridge",
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:00:00Z"
+                }
             ],
             "conflicts": [
                 {"path": "src/doctor.rs", "holder": "OtherAgent"}
             ]
         });
 
-        let finding = classify_agent_mail_reservations(&value);
+        let finding = classify_agent_mail_reservations_at(&value, heatmap_test_now());
 
         assert_eq!(finding.severity, Severity::Warn);
         assert!(finding.title.contains("conflicts"));
+        let data = finding.data.unwrap();
+        assert_eq!(data["schema"], SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA);
+        assert_eq!(data["totals"]["active_count"], 1);
     }
 
     #[test]
@@ -4922,9 +5568,133 @@ not-json
             "conflicts": []
         });
 
-        let finding = classify_agent_mail_reservations(&value);
+        let finding = classify_agent_mail_reservations_at(&value, heatmap_test_now());
 
         assert_eq!(finding.severity, Severity::Pass);
+    }
+
+    #[test]
+    fn swarm_agent_mail_reservation_heatmap_detects_overlapping_globs() {
+        let value = serde_json::json!({
+            "reservations": [
+                {
+                    "path_pattern": "src/**",
+                    "agent": "CalmBridge",
+                    "reason": "bd-overlap parent lane",
+                    "exclusive": true,
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:00:00Z"
+                },
+                {
+                    "path_pattern": "src/doctor.rs",
+                    "agent": "DarkGoose",
+                    "reason": "bd-overlap.1 concrete lane",
+                    "exclusive": true,
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:30:00Z"
+                }
+            ]
+        });
+
+        let finding = classify_agent_mail_reservations_at(&value, heatmap_test_now());
+
+        assert_eq!(finding.severity, Severity::Warn);
+        let data = finding.data.unwrap();
+        assert_eq!(data["totals"]["conflict_group_count"], 1);
+        assert_eq!(
+            data["heatmap"]["conflicts"][0]["reason"],
+            "overlapping_active_reservations"
+        );
+        assert_eq!(data["heatmap"]["by_path_pattern"][0]["conflict_count"], 1);
+    }
+
+    #[test]
+    fn swarm_agent_mail_reservation_heatmap_ignores_expired_conflicts_but_counts_recent() {
+        let value = serde_json::json!({
+            "reservations": [
+                {
+                    "path_pattern": "src/**",
+                    "agent": "CalmBridge",
+                    "exclusive": true,
+                    "expires_ts": "2026-05-09T07:45:00Z",
+                    "created_at": "2026-05-09T06:00:00Z"
+                },
+                {
+                    "path_pattern": "src/doctor.rs",
+                    "agent": "DarkGoose",
+                    "exclusive": true,
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:30:00Z"
+                }
+            ]
+        });
+
+        let finding = classify_agent_mail_reservations_at(&value, heatmap_test_now());
+
+        assert_eq!(finding.severity, Severity::Pass);
+        let data = finding.data.unwrap();
+        assert_eq!(data["totals"]["expired_count"], 1);
+        assert_eq!(data["totals"]["recent_inactive_count"], 1);
+        assert_eq!(data["totals"]["conflict_group_count"], 0);
+    }
+
+    #[test]
+    fn swarm_agent_mail_reservation_heatmap_allows_shared_overlaps() {
+        let value = serde_json::json!({
+            "reservations": [
+                {
+                    "path_pattern": "src/**",
+                    "agent": "CalmBridge",
+                    "reason": "bd-shared",
+                    "exclusive": false,
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:00:00Z"
+                },
+                {
+                    "path_pattern": "src/doctor.rs",
+                    "agent": "DarkGoose",
+                    "reason": "bd-shared",
+                    "exclusive": false,
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:30:00Z"
+                }
+            ]
+        });
+
+        let finding = classify_agent_mail_reservations_at(&value, heatmap_test_now());
+
+        assert_eq!(finding.severity, Severity::Pass);
+        let data = finding.data.unwrap();
+        assert_eq!(data["totals"]["shared_active_count"], 2);
+        assert_eq!(data["totals"]["exclusive_active_count"], 0);
+        assert_eq!(data["totals"]["conflict_group_count"], 0);
+    }
+
+    #[test]
+    fn swarm_agent_mail_reservation_heatmap_recommends_stale_holders() {
+        let value = serde_json::json!({
+            "reservations": [
+                {
+                    "path_pattern": "src/doctor.rs",
+                    "agent": "CalmBridge",
+                    "reason": "bd-stale stale holder",
+                    "exclusive": true,
+                    "expires_ts": "2026-05-10T08:00:00Z",
+                    "created_at": "2026-05-08T07:00:00Z"
+                }
+            ]
+        });
+
+        let finding = classify_agent_mail_reservations_at(&value, heatmap_test_now());
+
+        assert_eq!(finding.severity, Severity::Warn);
+        assert!(finding.title.contains("stale holder"));
+        let data = finding.data.unwrap();
+        assert_eq!(data["totals"]["stale_holder_recommendation_count"], 1);
+        assert_eq!(
+            data["stale_holder_recommendations"][0]["reason"],
+            "active_exclusive_reservation_older_than_threshold"
+        );
     }
 
     #[test]
