@@ -1,0 +1,161 @@
+{
+  "schema": "pi.swarm.activity_digest.v1",
+  "generated_at": "2026-05-09T11:40:21Z",
+  "correlation_id": "bd-2zcs5-runpack-closeout-20260509",
+  "claim_scope": "operator_handoff_digest_not_release_performance_claim",
+  "source_note": "Materialized from audited Beads, Git, and Agent Mail closeout evidence for the bd-2zcs5 runpack lane after bd-2zcs5.42 completion.",
+  "event_count": 11,
+  "first_timestamp_ms": 1778317601000,
+  "last_timestamp_ms": 1778326570000,
+  "active_agents": [
+    {
+      "key": "MagentaOak",
+      "count": 7
+    },
+    {
+      "key": "SunnyBeacon",
+      "count": 4
+    }
+  ],
+  "bead_changes": [
+    {
+      "timestamp_ms": 1778326519000,
+      "kind": "bead_status",
+      "correlation_id": "bd-2zcs5.42:close",
+      "summary": "Closed swarm readiness runpack umbrella after acceptance audit",
+      "bead_id": "bd-2zcs5.42",
+      "agent_name": "MagentaOak",
+      "detail": "status=closed"
+    },
+    {
+      "timestamp_ms": 1778326381000,
+      "kind": "bead_status",
+      "correlation_id": "bd-2zcs5.49:close",
+      "summary": "Closed runpack conformance contract support slice",
+      "bead_id": "bd-2zcs5.49",
+      "agent_name": "MagentaOak",
+      "detail": "status=closed"
+    },
+    {
+      "timestamp_ms": 1778323130000,
+      "kind": "bead_status",
+      "correlation_id": "bd-2zcs5.43:close",
+      "summary": "Closed Agent Mail build-slot diagnostics prerequisite",
+      "bead_id": "bd-2zcs5.43",
+      "agent_name": "SunnyBeacon",
+      "detail": "status=closed"
+    },
+    {
+      "timestamp_ms": 1778318557000,
+      "kind": "bead_status",
+      "correlation_id": "bd-2zcs5.48:close",
+      "summary": "Closed golden projection support slice",
+      "bead_id": "bd-2zcs5.48",
+      "agent_name": "MagentaOak",
+      "detail": "status=closed"
+    },
+    {
+      "timestamp_ms": 1778318264000,
+      "kind": "bead_status",
+      "correlation_id": "bd-2zcs5.47:close",
+      "summary": "Closed source-driven runpack wrapper foundation",
+      "bead_id": "bd-2zcs5.47",
+      "agent_name": "MagentaOak",
+      "detail": "status=closed"
+    }
+  ],
+  "agent_mail_activity": [
+    {
+      "timestamp_ms": 1778326570000,
+      "kind": "agent_mail",
+      "correlation_id": "bd-2zcs5.42:mail:completed",
+      "summary": "Completion handoff sent for bd-2zcs5.42 with acceptance-audit evidence",
+      "bead_id": "bd-2zcs5.42",
+      "agent_name": "MagentaOak",
+      "detail": "status=sent"
+    },
+    {
+      "timestamp_ms": 1778326428000,
+      "kind": "agent_mail",
+      "correlation_id": "bd-2zcs5.49:mail:completed",
+      "summary": "Completion handoff sent for bd-2zcs5.49 conformance contract",
+      "bead_id": "bd-2zcs5.49",
+      "agent_name": "MagentaOak",
+      "detail": "status=sent"
+    },
+    {
+      "timestamp_ms": 1778323170000,
+      "kind": "agent_mail",
+      "correlation_id": "bd-2zcs5.43:mail:completed",
+      "summary": "SunnyBeacon reported build-slot diagnostics completion",
+      "bead_id": "bd-2zcs5.43",
+      "agent_name": "SunnyBeacon",
+      "detail": "status=received"
+    }
+  ],
+  "file_reservations": [
+    {
+      "timestamp_ms": 1778326428000,
+      "kind": "file_reservation",
+      "correlation_id": "bd-2zcs5.49:reservation:release",
+      "summary": "Released runpack contract artifact reservation",
+      "bead_id": "bd-2zcs5.49",
+      "agent_name": "MagentaOak",
+      "detail": "status=released"
+    }
+  ],
+  "verification_evidence": [
+    {
+      "timestamp_ms": 1778326519000,
+      "kind": "git_commit",
+      "correlation_id": "bd-2zcs5.42:commit",
+      "summary": "Commit 8964ae46e closed the runpack umbrella bead",
+      "bead_id": "bd-2zcs5.42",
+      "agent_name": "MagentaOak",
+      "detail": "status=pushed"
+    },
+    {
+      "timestamp_ms": 1778326381000,
+      "kind": "verification",
+      "correlation_id": "bd-2zcs5.49:self-test",
+      "summary": "Runpack self-test, contract validation, ledger reconciliation, diff check, and staged UBS passed",
+      "bead_id": "bd-2zcs5.49",
+      "agent_name": "MagentaOak",
+      "detail": "verification_id=runpack-contract-self-test"
+    },
+    {
+      "timestamp_ms": 1778326381000,
+      "kind": "git_commit",
+      "correlation_id": "bd-2zcs5.49:commit",
+      "summary": "Commit 5a12bdd24 added the runpack conformance contract",
+      "bead_id": "bd-2zcs5.49",
+      "agent_name": "MagentaOak",
+      "detail": "status=pushed"
+    }
+  ],
+  "repeated_blockers": [],
+  "stale_threads": [],
+  "saturation": {
+    "window_ms": 3600000,
+    "window_start_ms": 1778322970000,
+    "new_bug_count": 0,
+    "few_new_bugs": false,
+    "repeated_blocker_count": 0,
+    "duplicate_work_count": 0,
+    "closed_surface_edit_count": 0,
+    "stale_introduction_count": 0,
+    "coordination_chatter_count": 4,
+    "throughput_event_count": 6,
+    "stale_thread_count": 0,
+    "signals": [],
+    "saturated": false,
+    "reasons": [],
+    "evidence_pointers": [
+      "bead:bd-2zcs5.42:closed",
+      "bead:bd-2zcs5.49:closed",
+      "commit:5a12bdd24",
+      "commit:8964ae46e"
+    ]
+  },
+  "recommendations": []
+}
