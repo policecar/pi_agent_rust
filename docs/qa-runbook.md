@@ -103,6 +103,16 @@ inputs are reported up front with the exact RCH commands and expected paths:
 python3 scripts/perf/preflight_budget_inputs.py
 ```
 
+`scripts/perf/orchestrate.sh` persists the same check as
+`results/perf_budget_preflight_before_refresh.json` before the perf budget
+suite can refresh `tests/perf/reports/budget_summary.json`. It also writes
+`results/perf_artifact_staging_manifest.json` (`pi.perf.artifact_staging_manifest.v1`)
+after artifact collection. Treat that staging manifest as blocked unless every
+required contract has a fresh artifact with source path, retrieved local path,
+mtime, checksum, and schema when the format provides one. If RCH exposes a
+remote target prefix, set `PERF_REMOTE_TARGET_DIR` so the manifest records the
+remote source path instead of the inferred local target path.
+
 Run heavyweight checks with remote offload:
 
 ```bash

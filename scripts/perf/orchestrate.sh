@@ -36,6 +36,7 @@
 #   PERF_CROSS_ENV_VARIANCE_ALERT_PCT
 #                             Cross-env spread threshold percent (default: 10.0)
 #   PERF_CROSS_ENV_ENFORCE    If 1, fail run when cross-env diagnosis emits alerts
+#   PERF_REMOTE_TARGET_DIR    Optional remote CARGO_TARGET_DIR prefix recorded in artifact staging manifests
 #   PERF_QUICK                Set to 1 for PR-safe subset (same as --profile quick)
 #   PERF_SKIP_CRITERION       Set to 1 to skip criterion benchmarks
 #   PERF_SKIP_BUILD           Set to 1 to skip cargo build step
@@ -58,6 +59,9 @@ TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 CARGO_PROFILE="${PERF_PROFILE:-perf}"
 TARGET_DIR="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
 OUTPUT_DIR="${PERF_OUTPUT_DIR:-$TARGET_DIR/perf/runs/$TIMESTAMP}"
+PREFLIGHT_BEFORE_REFRESH_PATH="$OUTPUT_DIR/results/perf_budget_preflight_before_refresh.json"
+PREFLIGHT_AFTER_RUN_PATH="$OUTPUT_DIR/results/perf_budget_preflight.json"
+STAGING_MANIFEST_PATH="$OUTPUT_DIR/results/perf_artifact_staging_manifest.json"
 PARALLELISM="${PERF_PARALLELISM:-1}"
 PGO_MODE="${PERF_PGO_MODE:-off}"
 PGO_PROFILE_DATA="${PERF_PGO_PROFILE_DATA:-$TARGET_DIR/perf/$CARGO_PROFILE/pgo_profile/pijs_workload.profdata}"
@@ -79,6 +83,10 @@ CARGO_RUNNER_MODE="local"
 declare -a CARGO_RUNNER_ARGS=("cargo")
 SEEN_NO_RCH=false
 SEEN_REQUIRE_RCH=false
+ARTIFACT_STAGING_STATUS="not_generated"
+ARTIFACT_STAGING_MISSING_REQUIRED=0
+ARTIFACT_STAGING_STALE_REQUIRED=0
+ARTIFACT_STAGING_BLOCKERS=0
 
 # Suite registry: name -> cargo test target or bench name
 declare -A SUITE_TARGETS=(
@@ -148,6 +156,33 @@ generate_correlation_id() {
   python3 -c "import uuid; print(uuid.uuid4().hex)" 2>/dev/null \
     || head -c 16 /dev/urandom | xxd -p 2>/dev/null \
     || echo "local-$(date +%s)-$$"
+}
+
+run_budget_preflight() {
+  local output_path="$1"
+  shift
+  local args=(
+    --repo-root "$PROJECT_ROOT"
+    --cargo-target-dir "$TARGET_DIR"
+    --skip-rch-check
+  )
+  python3 "$SCRIPT_DIR/preflight_budget_inputs.py" "${args[@]}" "$@" > "$output_path"
+}
+
+run_artifact_staging_manifest() {
+  local output_path="$1"
+  shift
+  local args=(
+    --repo-root "$PROJECT_ROOT"
+    --cargo-target-dir "$TARGET_DIR"
+    --local-results-dir "$OUTPUT_DIR/results"
+    --runner-mode "$CARGO_RUNNER_MODE"
+    --output "$output_path"
+  )
+  if [[ -n "${PERF_REMOTE_TARGET_DIR:-}" ]]; then
+    args+=(--remote-target-dir "$PERF_REMOTE_TARGET_DIR")
+  fi
+  python3 "$SCRIPT_DIR/artifact_staging.py" "${args[@]}" "$@"
 }
 
 # ─── CLI Parsing ─────────────────────────────────────────────────────────────
@@ -480,6 +515,21 @@ else
   log_step "Skipping build (--skip-build / PERF_SKIP_BUILD=1)"
 fi
 
+# ─── Phase 2b: Budget artifact preflight ────────────────────────────────────
+
+if suite_selected "perf_budgets" || suite_selected "perf_regression"; then
+  log_phase "Phase 2b: Budget Artifact Preflight"
+  preflight_exit=0
+  if run_budget_preflight "$PREFLIGHT_BEFORE_REFRESH_PATH"; then
+    log_ok "Budget artifact preflight passed: results/$(basename "$PREFLIGHT_BEFORE_REFRESH_PATH")"
+  else
+    preflight_exit=$?
+    log_warn "Budget artifact blockers written before budget summary refresh:"
+    log_warn "  results/$(basename "$PREFLIGHT_BEFORE_REFRESH_PATH") (exit=$preflight_exit)"
+    log_warn "The final artifact staging gate will remain blocked unless the required paths are refreshed."
+  fi
+fi
+
 # ─── Phase 3: Execute suites ────────────────────────────────────────────────
 
 log_phase "Phase 3: Execute Suites"
@@ -674,6 +724,76 @@ if [[ -d "$PROJECT_ROOT/tests/perf/reports" ]]; then
   log_ok "Collected perf reports directory"
 fi
 
+if [[ -f "$PREFLIGHT_BEFORE_REFRESH_PATH" ]]; then
+  artifact_count=$((artifact_count + 1))
+  log_ok "Collected: $(basename "$PREFLIGHT_BEFORE_REFRESH_PATH")"
+fi
+
+staging_exit=0
+if run_budget_preflight \
+  "$PREFLIGHT_AFTER_RUN_PATH"; then
+  log_ok "Post-run budget preflight passed: results/$(basename "$PREFLIGHT_AFTER_RUN_PATH")"
+else
+  staging_exit=$?
+  log_warn "Post-run budget preflight found blockers:"
+  log_warn "  results/$(basename "$PREFLIGHT_AFTER_RUN_PATH") (exit=$staging_exit)"
+fi
+
+if [[ -f "$PREFLIGHT_AFTER_RUN_PATH" ]]; then
+  artifact_count=$((artifact_count + 1))
+  log_ok "Collected: $(basename "$PREFLIGHT_AFTER_RUN_PATH")"
+fi
+
+if run_artifact_staging_manifest "$STAGING_MANIFEST_PATH"; then
+  log_ok "Artifact staging manifest passed: results/$(basename "$STAGING_MANIFEST_PATH")"
+else
+  staging_exit=$?
+  log_warn "Artifact staging manifest found blockers: results/$(basename "$STAGING_MANIFEST_PATH") (exit=$staging_exit)"
+fi
+
+if [[ -f "$STAGING_MANIFEST_PATH" ]]; then
+  artifact_count=$((artifact_count + 1))
+  staging_summary="$(
+    python3 - "$STAGING_MANIFEST_PATH" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+summary = payload.get("summary", {})
+print(
+    "|".join(
+        str(summary.get(key, 0))
+        for key in (
+            "status",
+            "missing_required_count",
+            "stale_required_count",
+            "present_required_count",
+        )
+    )
+    + "|"
+    + str(len(payload.get("blockers", [])))
+)
+PY
+  )"
+  IFS='|' read -r \
+    ARTIFACT_STAGING_STATUS \
+    ARTIFACT_STAGING_MISSING_REQUIRED \
+    ARTIFACT_STAGING_STALE_REQUIRED \
+    ARTIFACT_STAGING_PRESENT_REQUIRED \
+    ARTIFACT_STAGING_BLOCKERS <<< "$staging_summary"
+  log_ok "Artifact staging manifest: status=$ARTIFACT_STAGING_STATUS present=$ARTIFACT_STAGING_PRESENT_REQUIRED"
+  log_ok "Artifact staging blockers: missing=$ARTIFACT_STAGING_MISSING_REQUIRED stale=$ARTIFACT_STAGING_STALE_REQUIRED"
+else
+  log_warn "Artifact staging manifest was not generated"
+fi
+
+if [[ "$ARTIFACT_STAGING_STATUS" == "blocked" && "${PI_PERF_STRICT:-0}" == "1" ]]; then
+  suite_fail=$((suite_fail + 1))
+  SUITE_RESULTS+=("{\"suite\":\"artifact_staging\",\"status\":\"fail\",\"exit_code\":$staging_exit,\"elapsed_ms\":0}")
+  log_warn "Strict mode: artifact staging blockers mark the run failed (blockers=$ARTIFACT_STAGING_BLOCKERS)"
+fi
+
 log_ok "Total artifacts collected: $artifact_count"
 
 # ─── Phase 5: Generate manifest ─────────────────────────────────────────────
@@ -713,6 +833,16 @@ cat > "$OUTPUT_DIR/manifest.json" <<EOF
     "skipped": $suite_skip,
     "elapsed_ms": $run_elapsed,
     "artifact_count": $artifact_count
+  },
+  "artifact_staging": {
+    "schema": "pi.perf.artifact_staging_manifest.v1",
+    "manifest_path": "$STAGING_MANIFEST_PATH",
+    "pre_refresh_report_path": "$PREFLIGHT_BEFORE_REFRESH_PATH",
+    "post_run_report_path": "$PREFLIGHT_AFTER_RUN_PATH",
+    "status": "$ARTIFACT_STAGING_STATUS",
+    "missing_required_count": $ARTIFACT_STAGING_MISSING_REQUIRED,
+    "stale_required_count": $ARTIFACT_STAGING_STALE_REQUIRED,
+    "blocker_count": $ARTIFACT_STAGING_BLOCKERS
   },
   "suite_results": $suite_results_json,
   "contract_refs": {

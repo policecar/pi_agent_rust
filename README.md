@@ -1836,6 +1836,13 @@ Current checked-in performance evidence state:
 - Before spending time on a definitive refresh, run
   `python3 scripts/perf/preflight_budget_inputs.py` to list missing budget
   inputs, expected artifact paths, and RCH-only refresh commands.
+- Orchestrated perf runs also write
+  `results/perf_budget_preflight_before_refresh.json` before any
+  `budget_summary.json` refresh and `results/perf_artifact_staging_manifest.json`
+  after collection. The staging manifest records each required artifact's source
+  path, RCH remote-source prefix when supplied via `PERF_REMOTE_TARGET_DIR`,
+  retrieved local path, schema, size, mtime, checksum, and explicit blocker
+  status.
 - Regenerate the perf evidence bundle before adding release-facing speed,
   throughput, memory, or startup numbers to this README.
 
