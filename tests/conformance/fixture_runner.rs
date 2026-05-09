@@ -220,8 +220,10 @@ fn cli_details(cli: &Cli, extension_flags: &[ExtensionCliFlag]) -> Value {
         "no_session": cli.no_session,
         "session_durability": cli.session_durability.clone(),
         "no_migrations": cli.no_migrations,
+        "no_mouse_capture": cli.no_mouse_capture,
         "mode": cli.mode.clone(),
         "print": cli.print,
+        "rpc": cli.rpc,
         "acp": cli.acp,
         "verbose": cli.verbose,
         "no_tools": cli.no_tools,
@@ -241,6 +243,7 @@ fn cli_details(cli: &Cli, extension_flags: &[ExtensionCliFlag]) -> Value {
         "theme_path": cli.theme_path.clone(),
         "no_themes": cli.no_themes,
         "hide_cwd_in_prompt": cli.hide_cwd_in_prompt,
+        "max_tool_iterations": cli.max_tool_iterations,
         "export": cli.export.clone(),
         "list_models": list_models_value(cli.list_models.as_ref()),
         "list_providers": cli.list_providers,
@@ -382,13 +385,17 @@ fn run_setup_steps(steps: &[SetupStep], dir: &Path) -> Result<(), String> {
                     .map_err(|e| format!("Failed to create dir {path}: {e}"))?;
             }
             SetupStep::RunCommand { command } => {
-                let (shell, flag) = if cfg!(windows) {
-                    ("cmd", "/C")
-                } else {
-                    ("bash", "-c")
-                };
-                let output = std::process::Command::new(shell)
-                    .arg(flag)
+                #[cfg(windows)]
+                let mut setup_command = std::process::Command::new("cmd");
+                #[cfg(not(windows))]
+                let mut setup_command = std::process::Command::new("bash");
+
+                #[cfg(windows)]
+                setup_command.arg("/C");
+                #[cfg(not(windows))]
+                setup_command.arg("-c");
+
+                let output = setup_command
                     .arg(command)
                     .current_dir(dir)
                     .output()

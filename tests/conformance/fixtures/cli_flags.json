@@ -164,6 +164,7 @@
           "--theme-path",
           "themes/custom",
           "--hide-cwd-in-prompt",
+          "--no-mouse-capture",
           "--list-providers"
         ]
       },
@@ -178,7 +179,44 @@
           "explain_repair_policy": true,
           "theme_path": ["themes/custom"],
           "hide_cwd_in_prompt": true,
+          "no_mouse_capture": true,
           "list_providers": true
+        }
+      }
+    },
+    {
+      "name": "extension_flags_preserve_new_root_flags",
+      "description": "Newer root flags are not extracted as extension flags during mixed CLI parsing",
+      "requirement_ids": ["CLI-FLAGS-EXTENSION-PREPROCESSOR"],
+      "input": {
+        "args": [
+          "--no-mouse-capture",
+          "--max-tool-iterations",
+          "75",
+          "--plan",
+          "ship-it",
+          "--print",
+          "hello"
+        ]
+      },
+      "expected": {
+        "details_exact": {
+          "no_mouse_capture": true,
+          "max_tool_iterations": 75,
+          "print": true,
+          "message_args": ["hello"],
+          "extension_flags": [{ "name": "plan", "value": "ship-it" }]
+        }
+      }
+    },
+    {
+      "name": "rpc_alias_flag",
+      "description": "The RPC alias remains visible in the CLI details contract",
+      "requirement_ids": ["CLI-FLAGS-RPC"],
+      "input": { "args": ["--rpc"] },
+      "expected": {
+        "details_exact": {
+          "rpc": true
         }
       }
     },

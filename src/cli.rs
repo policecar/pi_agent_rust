@@ -48,6 +48,7 @@ fn known_long_option(name: &str) -> Option<LongOptionSpec> {
         | "resume"
         | "no-session"
         | "no-migrations"
+        | "no-mouse-capture"
         | "print"
         | "rpc"
         | "acp"
@@ -1082,6 +1083,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_with_extension_flags_recognizes_no_mouse_capture_as_builtin() {
+        let parsed = parse_with_extension_flags(vec![
+            "pi".to_string(),
+            "--no-mouse-capture".to_string(),
+            "--plan".to_string(),
+            "ship-it".to_string(),
+            "--print".to_string(),
+            "hello".to_string(),
+        ])
+        .expect("parse with no-mouse-capture and extension flag");
+
+        assert!(parsed.cli.no_mouse_capture);
+        assert!(parsed.cli.print);
+        assert_eq!(parsed.cli.message_args(), vec!["hello"]);
+        assert_eq!(parsed.extension_flags.len(), 1);
+        assert_eq!(parsed.extension_flags[0].name, "plan");
+        assert_eq!(parsed.extension_flags[0].value.as_deref(), Some("ship-it"));
+    }
+
+    #[test]
     fn extension_flag_parser_does_not_bypass_subcommand_validation() {
         let result = parse_with_extension_flags(vec![
             "pi".to_string(),
@@ -1610,6 +1631,7 @@ mod tests {
                 flag in prop::sample::select(vec![
                     "--version", "--verbose", "--print", "--no-tools",
                     "--no-extensions", "--no-skills", "--no-prompt-templates",
+                    "--no-mouse-capture", "--rpc", "--list-providers",
                 ]),
             ) {
                 let args: Vec<String> = vec!["pi".to_string(), flag.to_string()];
