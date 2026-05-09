@@ -201,7 +201,7 @@ def artifact_groups(repo_root: Path, target_dir: Path) -> list[ArtifactGroup]:
                 / "criterion/ext_load_init/load_init_cold/hello/new/estimates.json",
             ),
             suggested_commands=(
-                f"{bench_prefix} bench --bench extensions --profile perf ext_load_init",
+                f"{bench_prefix} bench --bench extension_budget_inputs --profile perf ext_load_init",
             ),
             reason="ext_load_init/load_init_cold/hello Criterion estimate required by tests/perf_budgets.rs",
             expected_outputs=(
@@ -226,7 +226,7 @@ def artifact_groups(repo_root: Path, target_dir: Path) -> list[ArtifactGroup]:
             budget_names=("policy_eval_p99",),
             candidates=glob_estimates(target_dir / "criterion/ext_policy/evaluate"),
             suggested_commands=(
-                f"{bench_prefix} bench --bench extensions --profile perf ext_policy",
+                f"{bench_prefix} bench --bench extension_budget_inputs --profile perf ext_policy",
             ),
             reason="ext_policy/evaluate Criterion estimates required by tests/perf_budgets.rs",
             expected_outputs=(target_dir / "criterion/ext_policy/evaluate/*/new/estimates.json",),
@@ -247,7 +247,7 @@ def artifact_groups(repo_root: Path, target_dir: Path) -> list[ArtifactGroup]:
             budget_names=("protocol_parse_p99",),
             candidates=glob_estimates(target_dir / "criterion/ext_protocol/parse_and_validate"),
             suggested_commands=(
-                f"{bench_prefix} bench --bench extensions --profile perf ext_protocol",
+                f"{bench_prefix} bench --bench extension_budget_inputs --profile perf ext_protocol",
             ),
             reason="ext_protocol/parse_and_validate Criterion estimates required by tests/perf_budgets.rs",
             expected_outputs=(
@@ -553,6 +553,21 @@ def run_self_test() -> int:
         item["bead"] == EXTENSION_BLOCKER_BEAD
         for item in blocked_payload["recognized_blockers"]
     ), blocked_payload
+    extension_commands = [
+        command
+        for item in blocked_payload["missing_budget_artifacts"]
+        if item["contract_id"].startswith("extension_criterion_")
+        for command in item["suggested_commands"]
+    ]
+    assert extension_commands, blocked_payload
+    assert all("--bench extension_budget_inputs" in command for command in extension_commands), (
+        blocked_payload,
+        extension_commands,
+    )
+    assert not any("--bench extensions" in command for command in extension_commands), (
+        blocked_payload,
+        extension_commands,
+    )
     return 0
 
 

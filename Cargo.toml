@@ -264,6 +264,10 @@ name = "extensions"
 harness = false
 
 [[bench]]
+name = "extension_budget_inputs"
+harness = false
+
+[[bench]]
 name = "system"
 harness = false
 
