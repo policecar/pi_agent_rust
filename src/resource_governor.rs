@@ -282,6 +282,10 @@ pub const TAIL_LATENCY_REGIME_SCHEMA: &str = "pi.resource_governor.tail_latency_
 /// Stable schema for swarm capacity recommendations.
 pub const SWARM_CAPACITY_PLAN_SCHEMA: &str = "pi.resource_governor.capacity_plan.v1";
 
+/// Stable schema for generated operator budget profile bundles.
+pub const SWARM_OPERATOR_BUDGET_PROFILES_SCHEMA: &str =
+    "pi.resource_governor.operator_budget_profiles.v1";
+
 /// Stable schema for live swarm admission-controller decisions.
 pub const SWARM_ADMISSION_CONTROLLER_SCHEMA: &str =
     "pi.resource_governor.swarm_admission_controller.v1";
@@ -733,6 +737,79 @@ pub fn plan_swarm_capacity_from_jsonl(
     SwarmCapacityPlannerConfig::default().plan_from_jsonl(jsonl, inventory)
 }
 
+/// Representative host classes used to generate operator starting profiles.
+pub const DEFAULT_OPERATOR_HOST_CLASSES: [SwarmOperatorHostClass; 3] = [
+    SwarmOperatorHostClass {
+        id: "cpu16_mem64gib",
+        description: "16 logical CPUs with 64 GiB RAM",
+        inventory: SwarmHostInventory::new(16, 16, 65_536),
+    },
+    SwarmOperatorHostClass {
+        id: "cpu32_mem128gib",
+        description: "32 logical CPUs with 128 GiB RAM",
+        inventory: SwarmHostInventory::new(32, 32, 131_072),
+    },
+    SwarmOperatorHostClass {
+        id: "cpu64_mem256gib",
+        description: "64 logical CPUs with 256 GiB RAM",
+        inventory: SwarmHostInventory::new(64, 64, 262_144),
+    },
+];
+
+/// One host class that should receive an operator budget profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SwarmOperatorHostClass {
+    /// Stable profile identifier.
+    pub id: &'static str,
+    /// Human-readable profile description.
+    pub description: &'static str,
+    /// Host inventory used for the derived plan.
+    pub inventory: SwarmHostInventory,
+}
+
+/// Generate the default operator budget profiles from swarm performance JSONL.
+pub fn generate_operator_budget_profiles_from_jsonl(
+    jsonl: &str,
+    source_inventory: SwarmHostInventory,
+) -> Result<SwarmOperatorBudgetProfiles, SwarmCapacityPlanError> {
+    generate_operator_budget_profiles_from_jsonl_with_host_classes(
+        jsonl,
+        source_inventory,
+        &DEFAULT_OPERATOR_HOST_CLASSES,
+    )
+}
+
+/// Generate operator budget profiles for explicit host classes.
+pub fn generate_operator_budget_profiles_from_jsonl_with_host_classes(
+    jsonl: &str,
+    source_inventory: SwarmHostInventory,
+    host_classes: &[SwarmOperatorHostClass],
+) -> Result<SwarmOperatorBudgetProfiles, SwarmCapacityPlanError> {
+    if host_classes.is_empty() {
+        return Err(SwarmCapacityPlanError::MissingEvidence(
+            "operator_host_classes",
+        ));
+    }
+
+    let source_plan = plan_swarm_capacity_from_jsonl(jsonl, source_inventory)?;
+    let mut profiles = Vec::with_capacity(host_classes.len());
+    for host_class in host_classes {
+        profiles.push(SwarmOperatorBudgetProfile::from_plan(
+            host_class,
+            source_inventory,
+            &source_plan.what_if(host_class.inventory.validate()?)?,
+        ));
+    }
+
+    Ok(SwarmOperatorBudgetProfiles {
+        schema: SWARM_OPERATOR_BUDGET_PROFILES_SCHEMA,
+        source_inventory,
+        source_plan_confidence: source_plan.confidence,
+        evidence: source_plan.evidence,
+        profiles,
+    })
+}
+
 /// Confidence assigned to a generated swarm capacity plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -809,6 +886,98 @@ impl SwarmCapacityPlan {
     /// Re-plan the same evidence summary against a different CPU/RAM inventory.
     pub fn what_if(&self, inventory: SwarmHostInventory) -> Result<Self, SwarmCapacityPlanError> {
         SwarmCapacityPlannerConfig::default().plan_from_summary(self.evidence.clone(), inventory)
+    }
+}
+
+/// Bundle of deterministic operator budget profiles for common host classes.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SwarmOperatorBudgetProfiles {
+    /// Stable schema identifier.
+    pub schema: &'static str,
+    /// Inventory used to read and validate the source evidence.
+    pub source_inventory: SwarmHostInventory,
+    /// Confidence assigned to the source capacity plan before what-if replay.
+    pub source_plan_confidence: SwarmCapacityConfidence,
+    /// Evidence summary shared by all generated profiles.
+    pub evidence: SwarmCapacityEvidenceSummary,
+    /// Derived operator starting profiles.
+    pub profiles: Vec<SwarmOperatorBudgetProfile>,
+}
+
+impl SwarmOperatorBudgetProfiles {
+    /// Render stable JSON telemetry for generated operator budget profiles.
+    #[must_use]
+    pub fn telemetry(&self) -> Value {
+        json!(self)
+    }
+
+    /// Return the profile with the requested stable identifier.
+    #[must_use]
+    pub fn profile(&self, profile_id: &str) -> Option<&SwarmOperatorBudgetProfile> {
+        self.profiles
+            .iter()
+            .find(|profile| profile.profile_id == profile_id)
+    }
+}
+
+/// Operator starting profile derived from a validated capacity plan.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SwarmOperatorBudgetProfile {
+    /// Stable profile identifier.
+    pub profile_id: &'static str,
+    /// Human-readable profile description.
+    pub description: &'static str,
+    /// Host inventory targeted by the profile.
+    pub host_inventory: SwarmHostInventory,
+    /// Recommended number of concurrently active agents.
+    pub recommended_agent_concurrency: u64,
+    /// Recommended tool hostcall concurrency.
+    pub recommended_tool_concurrency: u64,
+    /// Recommended extension hostcall lanes.
+    pub recommended_extension_hostcall_lanes: u64,
+    /// Recommended concurrent RCH verification jobs.
+    pub recommended_rch_verification_fanout: u64,
+    /// Memory pressure threshold used for backpressure.
+    pub memory_pressure_threshold_ratio: f64,
+    /// Initial backoff delay in milliseconds.
+    pub backoff_initial_ms: u64,
+    /// Maximum backoff delay in milliseconds.
+    pub backoff_max_ms: u64,
+    /// Host-resource budgets that can seed [`ResourceGovernor`].
+    pub resource_budgets: HostResourceBudgets,
+    /// Tail-latency guard settings for this host class.
+    pub tail_latency_config: TailLatencyRegimeConfig,
+    /// Confidence for this operator profile.
+    pub confidence: SwarmCapacityConfidence,
+    /// Caveats that must be displayed with the profile.
+    pub caveats: Vec<String>,
+}
+
+impl SwarmOperatorBudgetProfile {
+    fn from_plan(
+        host_class: &SwarmOperatorHostClass,
+        source_inventory: SwarmHostInventory,
+        plan: &SwarmCapacityPlan,
+    ) -> Self {
+        let derived_from_source = plan.host_inventory != source_inventory;
+        let confidence = operator_profile_confidence(plan.confidence, derived_from_source);
+        let caveats = operator_profile_caveats(plan, source_inventory, derived_from_source);
+        Self {
+            profile_id: host_class.id,
+            description: host_class.description,
+            host_inventory: plan.host_inventory,
+            recommended_agent_concurrency: plan.recommended_agent_concurrency,
+            recommended_tool_concurrency: plan.recommended_tool_concurrency,
+            recommended_extension_hostcall_lanes: plan.recommended_extension_hostcall_lanes,
+            recommended_rch_verification_fanout: plan.recommended_rch_verification_fanout,
+            memory_pressure_threshold_ratio: plan.memory_pressure_threshold_ratio,
+            backoff_initial_ms: plan.backoff_initial_ms,
+            backoff_max_ms: plan.backoff_max_ms,
+            resource_budgets: plan.resource_budgets.clone(),
+            tail_latency_config: plan.tail_latency_config,
+            confidence,
+            caveats,
+        }
     }
 }
 
@@ -1985,6 +2154,33 @@ fn capacity_confidence(
     }
 }
 
+const fn operator_profile_confidence(
+    plan_confidence: SwarmCapacityConfidence,
+    derived_from_source: bool,
+) -> SwarmCapacityConfidence {
+    match (plan_confidence, derived_from_source) {
+        (SwarmCapacityConfidence::High, true) => SwarmCapacityConfidence::Medium,
+        (confidence, _) => confidence,
+    }
+}
+
+fn operator_profile_caveats(
+    plan: &SwarmCapacityPlan,
+    source_inventory: SwarmHostInventory,
+    derived_from_source: bool,
+) -> Vec<String> {
+    let mut caveats = plan.uncertainties.clone();
+    if derived_from_source {
+        caveats.push(format!(
+            "derived_from_{}cpu_{}mib_source_evidence",
+            source_inventory.effective_cpu_cores(),
+            source_inventory.mem_total_mb
+        ));
+    }
+    caveats.push("starting_point_not_release_performance_claim".to_owned());
+    caveats
+}
+
 #[allow(clippy::trivially_copy_pass_by_ref)]
 const fn is_false(value: &bool) -> bool {
     !*value
@@ -2113,11 +2309,14 @@ mod tests {
     use super::{
         AdmissionAction, HostResourceBudgets, HostResourceSample, ResourceDimension,
         ResourceGovernor, ResourceOperationKind, ResourceRequest,
-        SWARM_ADMISSION_CONTROLLER_SCHEMA, SWARM_CAPACITY_PLAN_SCHEMA, SwarmAdmissionController,
-        SwarmCapacityConfidence, SwarmCapacityDimension, SwarmCapacityPlanError,
-        SwarmHostInventory, SwarmLiveLoad, TAIL_LATENCY_REGIME_SCHEMA, TailLatencyFallbackReason,
+        SWARM_ADMISSION_CONTROLLER_SCHEMA, SWARM_CAPACITY_PLAN_SCHEMA,
+        SWARM_OPERATOR_BUDGET_PROFILES_SCHEMA, SwarmAdmissionController, SwarmCapacityConfidence,
+        SwarmCapacityDimension, SwarmCapacityPlanError, SwarmHostInventory, SwarmLiveLoad,
+        SwarmOperatorHostClass, TAIL_LATENCY_REGIME_SCHEMA, TailLatencyFallbackReason,
         TailLatencyRegime, TailLatencyRegimeConfig, TailLatencyRegimeGuard,
-        TailLatencyRegimeSample, plan_swarm_capacity_from_jsonl,
+        TailLatencyRegimeSample, generate_operator_budget_profiles_from_jsonl,
+        generate_operator_budget_profiles_from_jsonl_with_host_classes,
+        plan_swarm_capacity_from_jsonl,
     };
 
     fn budgets() -> HostResourceBudgets {
@@ -2344,6 +2543,129 @@ mod tests {
                 .iter()
                 .any(|uncertainty| uncertainty == "rss_exceeds_memory_headroom")
         );
+    }
+
+    #[test]
+    fn operator_budget_profiles_cover_common_large_hosts() {
+        let profiles = generate_operator_budget_profiles_from_jsonl(
+            capacity_fixture_jsonl(),
+            capacity_inventory(),
+        )
+        .unwrap();
+
+        assert_eq!(profiles.schema, SWARM_OPERATOR_BUDGET_PROFILES_SCHEMA);
+        assert_eq!(
+            profiles.source_plan_confidence,
+            SwarmCapacityConfidence::High
+        );
+        assert_eq!(profiles.evidence.complete_records, 3);
+        assert_eq!(profiles.profiles.len(), 3);
+
+        let small = profiles.profile("cpu16_mem64gib").unwrap();
+        let medium = profiles.profile("cpu32_mem128gib").unwrap();
+        let large = profiles.profile("cpu64_mem256gib").unwrap();
+
+        assert_eq!(
+            small.host_inventory,
+            SwarmHostInventory::new(16, 16, 65_536)
+        );
+        assert_eq!(
+            medium.host_inventory,
+            SwarmHostInventory::new(32, 32, 131_072)
+        );
+        assert_eq!(large.host_inventory, capacity_inventory());
+        assert!(small.recommended_agent_concurrency < medium.recommended_agent_concurrency);
+        assert!(medium.recommended_agent_concurrency < large.recommended_agent_concurrency);
+        assert!(
+            small.recommended_rch_verification_fanout < large.recommended_rch_verification_fanout
+        );
+        assert_eq!(small.confidence, SwarmCapacityConfidence::Medium);
+        assert_eq!(large.confidence, SwarmCapacityConfidence::High);
+        assert!(
+            small
+                .caveats
+                .iter()
+                .any(|caveat| caveat == "starting_point_not_release_performance_claim")
+        );
+        assert!(
+            small
+                .caveats
+                .iter()
+                .any(|caveat| caveat.starts_with("derived_from_64cpu_262144mib"))
+        );
+    }
+
+    #[test]
+    fn operator_budget_profiles_telemetry_contains_stable_schema() {
+        let profiles = generate_operator_budget_profiles_from_jsonl(
+            capacity_fixture_jsonl(),
+            capacity_inventory(),
+        )
+        .unwrap();
+
+        let telemetry = profiles.telemetry();
+
+        assert_eq!(
+            telemetry.get("schema").and_then(serde_json::Value::as_str),
+            Some(SWARM_OPERATOR_BUDGET_PROFILES_SCHEMA)
+        );
+        assert_eq!(
+            telemetry
+                .get("profiles")
+                .and_then(serde_json::Value::as_array)
+                .map(std::vec::Vec::len),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn operator_budget_profiles_fail_closed_for_bad_inventory() {
+        let err = generate_operator_budget_profiles_from_jsonl(
+            capacity_fixture_jsonl(),
+            SwarmHostInventory::new(0, 64, 262_144),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            SwarmCapacityPlanError::InvalidHostInventory("target_cpu_cores")
+        ));
+    }
+
+    #[test]
+    fn operator_budget_profiles_fail_closed_for_empty_host_classes() {
+        let err = generate_operator_budget_profiles_from_jsonl_with_host_classes(
+            capacity_fixture_jsonl(),
+            capacity_inventory(),
+            &[],
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            SwarmCapacityPlanError::MissingEvidence("operator_host_classes")
+        ));
+    }
+
+    #[test]
+    fn operator_budget_profiles_fail_closed_for_malformed_host_class() {
+        let malformed = [SwarmOperatorHostClass {
+            id: "bad",
+            description: "missing observed CPU",
+            inventory: SwarmHostInventory::new(16, 0, 65_536),
+        }];
+
+        let err = generate_operator_budget_profiles_from_jsonl_with_host_classes(
+            capacity_fixture_jsonl(),
+            capacity_inventory(),
+            &malformed,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            err,
+            SwarmCapacityPlanError::InvalidHostInventory("observed_cpu_cores")
+        ));
     }
 
     #[test]

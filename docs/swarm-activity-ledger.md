@@ -57,6 +57,16 @@ Use `SwarmCapacityPlan::what_if` to replay the same evidence summary against sma
 
 Capacity recommendations are starting points, not proof of a safe maximum. Confidence drops or uncertainties are emitted for sparse evidence, host-capacity mismatches, zero reported CPU usage, queue-depth floors, and RSS headroom pressure. File-descriptor limits are still bounded with conservative built-in defaults because the current swarm harness records CPU/RAM inventory but not host fd limits.
 
+`generate_operator_budget_profiles_from_jsonl` replays one validated capacity evidence run into schema `pi.resource_governor.operator_budget_profiles.v1` for common large-host starting points:
+
+- `cpu16_mem64gib`: 16 logical CPUs, 64 GiB RAM.
+- `cpu32_mem128gib`: 32 logical CPUs, 128 GiB RAM.
+- `cpu64_mem256gib`: 64 logical CPUs, 256 GiB RAM.
+
+Each profile carries agent concurrency, tool concurrency, extension hostcall lanes, RCH verification fanout, memory-pressure thresholds, backoff windows, `HostResourceBudgets`, tail-latency guard settings, confidence, and caveats. Profiles derived from a different source inventory are downgraded from high to medium confidence and include a source-evidence caveat. Every profile also includes `starting_point_not_release_performance_claim` so operator budgets cannot be mistaken for benchmark or release claims.
+
+The profile generator fails closed for empty profile sets, zero CPU/RAM inventories, missing `swarm_metrics`, invalid latency/RSS/queue evidence, or malformed host-class inventories. Use the default profiles as initial swarm-admission inputs, then regenerate them from fresh local evidence before raising ceilings on a production host.
+
 ## Live admission controller
 
 `SwarmAdmissionController` composes a validated `SwarmCapacityPlan`, `ResourceGovernor`, and `TailLatencyRegimeGuard` into schema `pi.resource_governor.swarm_admission_controller.v1`. Each decision takes the request, live host sample, live p99/p999/queue/resource-pressure sample, and current swarm load counts, then returns one final `admit`, `backpressure`, or `deny` action.
