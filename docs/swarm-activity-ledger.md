@@ -121,6 +121,33 @@ The harness writes schema `pi.swarm.smoke_harness.v1` summaries and `pi.swarm.sm
 
 The harness does not delete or reset production files. Generated fixture projects and artifacts are intentionally left under `TMPDIR` or `/data/tmp` so operators can inspect them after a failed smoke run. If the live RCH posture is degraded, the RCH admission scenario records the backoff decision instead of forcing a local heavy cargo fallback.
 
+## Operator runpack wrapper
+
+`scripts/build_swarm_operator_runpack.py` assembles schema `pi.swarm.operator_runpack.v1` from existing source artifacts for a single operator handoff view. It accepts captured JSON from `pi doctor --only swarm --format json`, `scripts/report_swarm_claim_readiness.py`, `scripts/run_swarm_smoke_harness.py`, `scripts/cargo_headroom.sh --admit-only`, Beads JSON, git porcelain output, and the latest `pi.swarm.activity_digest.v1` digest. The script reads only the files passed to it, redacts sensitive fields and token-shaped values, and refuses malformed provided sources instead of emitting partial optimistic evidence.
+
+Safe self-test:
+
+```bash
+python3 scripts/build_swarm_operator_runpack.py --self-test
+```
+
+Example operator capture:
+
+```bash
+python3 scripts/build_swarm_operator_runpack.py \
+  --doctor-json /data/tmp/pi_swarm_runpack/doctor.json \
+  --claim-readiness-json /data/tmp/pi_swarm_runpack/claim-readiness.json \
+  --smoke-summary-json /data/tmp/pi_swarm_runpack/smoke-summary.json \
+  --activity-digest-json tests/full_suite_gate/swarm_activity_digest.json \
+  --cargo-admission-json /data/tmp/pi_swarm_runpack/cargo-admission.json \
+  --beads-json /data/tmp/pi_swarm_runpack/beads.json \
+  --git-status-file /data/tmp/pi_swarm_runpack/git-status.txt \
+  --out-json /data/tmp/pi_swarm_runpack/operator-runpack.json \
+  --out-md /data/tmp/pi_swarm_runpack/operator-runpack.md
+```
+
+The runpack is deliberately not a new source of truth. Beads remains authoritative for task ownership, Agent Mail remains authoritative for reservations and messages, doctor remains authoritative for live swarm diagnostics, and claim-readiness remains authoritative for release-facing evidence status. Treat the runpack as a bounded, redacted index that tells the next operator which source artifacts to inspect first.
+
 Example row:
 
 ```json
