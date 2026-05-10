@@ -280,7 +280,7 @@
         "mitigation": "Keep excluded from user-facing pass-rate decisions.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.14.3"
       },
       {
         "id": "community/nicobailon-interview-tool",
@@ -445,7 +445,7 @@
         "mitigation": "Package prompt assets in-root or extend safe packaged-asset mapping.",
         "owner": "pi-policy-runtime",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.4"
+        "tracking_issue": "bd-8t27h.20"
       },
       {
         "id": "third-party/ogulcancelik-pi-sketch",
@@ -478,7 +478,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "community/prateekmedia-lsp",
@@ -489,7 +489,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/aliou-pi-linkup",
@@ -500,7 +500,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/aliou-pi-synthetic",
@@ -511,7 +511,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/lsp-pi",
@@ -522,7 +522,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/marckrenn-pi-sub-bar",
@@ -533,7 +533,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/mitsupi",
@@ -544,7 +544,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/pi-amplike",
@@ -555,7 +555,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/pi-bash-confirm",
@@ -566,7 +566,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/pi-extensions",
@@ -577,7 +577,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/pi-package-test",
@@ -588,7 +588,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/shitty-extensions",
@@ -599,7 +599,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/tmustier-pi-arcade",
@@ -610,7 +610,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "npm/vaayne-agent-kit",
@@ -621,7 +621,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "third-party/aliou-pi-extensions",
@@ -632,7 +632,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "third-party/ben-vargas-pi-packages",
@@ -643,7 +643,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "third-party/charles-cooper-pi-extensions",
@@ -654,7 +654,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "third-party/marckrenn-pi-sub",
@@ -665,7 +665,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "third-party/openclaw-openclaw",
@@ -676,7 +676,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "third-party/pasky-pi-amplike",
@@ -687,7 +687,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       },
       {
         "id": "third-party/w-winter-dot314",
@@ -698,7 +698,7 @@
         "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
         "owner": "pi-conformance-team",
         "review_by": "2026-06-30",
-        "tracking_issue": "bd-k5q5.2.7"
+        "tracking_issue": "bd-8t27h.19"
       }
     ]
   }

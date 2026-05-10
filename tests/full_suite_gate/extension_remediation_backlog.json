@@ -318,9 +318,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -347,9 +347,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -377,9 +377,9 @@
         "/exception_policy/entries",
         "canonical_223_failure_trio"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": true
     },
     {
@@ -407,9 +407,9 @@
         "/exception_policy/entries",
         "canonical_223_failure_trio"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": true
     },
     {
@@ -436,9 +436,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -465,9 +465,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -494,9 +494,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -523,9 +523,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -552,9 +552,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -581,9 +581,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -611,9 +611,9 @@
         "/exception_policy/entries",
         "canonical_223_failure_trio"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": true
     },
     {
@@ -640,9 +640,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -669,9 +669,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -698,9 +698,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -727,9 +727,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -756,9 +756,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -785,9 +785,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -814,9 +814,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -843,9 +843,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -872,9 +872,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -901,9 +901,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-k5q5.2.7; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
+      "follow_up_bead": "bd-8t27h.19",
+      "tracking_issue": "bd-8t27h.19",
+      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
       "canonical_failure": false
     },
     {
@@ -930,9 +930,9 @@
         "/remediation_buckets/missing_fixture/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.4",
-      "fallback_validation": "exception_policy status=temporary cause_code=policy_blocked review_by=2026-03-31 tracking_issue=bd-k5q5.4; rationale=Reads prompt artifact outside extension root and is blocked by path policy.",
+      "follow_up_bead": "bd-8t27h.20",
+      "tracking_issue": "bd-8t27h.20",
+      "fallback_validation": "exception_policy status=temporary cause_code=policy_blocked review_by=2026-06-30 tracking_issue=bd-8t27h.20; rationale=Reads prompt artifact outside extension root and is blocked by path policy.",
       "canonical_failure": false
     },
     {
@@ -959,9 +959,9 @@
         "/remediation_buckets/intentionally_unsupported/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.2.7",
-      "fallback_validation": "exception_policy status=approved cause_code=test_fixture review_by=2026-03-31 tracking_issue=bd-k5q5.2.7; rationale=Fixture-only manifest sentinel; not a user-installable extension.",
+      "follow_up_bead": "bd-8t27h.14.3",
+      "tracking_issue": "bd-8t27h.14.3",
+      "fallback_validation": "exception_policy status=approved cause_code=test_fixture review_by=2026-06-30 tracking_issue=bd-8t27h.14.3; rationale=Fixture-only manifest sentinel; not a user-installable extension.",
       "canonical_failure": false
     },
     {
