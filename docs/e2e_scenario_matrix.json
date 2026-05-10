@@ -1,7 +1,7 @@
 {
   "schema": "pi.e2e.scenario_matrix.v2",
   "bead_id": "bd-1f42.8.5.1",
-  "updated_at": "2026-02-13",
+  "updated_at": "2026-05-10",
   "source_inputs": [
     "tests/suite_classification.toml",
     "scripts/e2e/run_all.sh",
@@ -481,6 +481,303 @@
         "evidence_contract.json"
       ],
       "replay_command": "./scripts/e2e/run_all.sh --profile ci --suite e2e_interruption_resume_replay"
+    },
+    {
+      "workflow_id": "wf-doctor-and-golden-corpus-governance",
+      "workflow_class": "governance_success_path",
+      "workflow_title": "Doctor JSON temp-dir contract and golden-corpus replay coverage",
+      "status": "covered",
+      "vcr_mode": "vcr-only",
+      "vcr_mode_rationale": "Doctor JSON and golden-corpus scenarios run against deterministic fixtures and local temp directories.",
+      "owner": "bd-8t27h.3",
+      "provider_families": [
+        "core-runtime",
+        "governance"
+      ],
+      "suite_ids": [
+        "doctor_swarm_temp_dir_json",
+        "e2e_golden_corpus"
+      ],
+      "test_paths": [
+        "tests/doctor_swarm_temp_dir_json.rs",
+        "tests/e2e_golden_corpus.rs"
+      ],
+      "sli_ids": [
+        "sli.cli.first_response_ms",
+        "sli.replay.integrity_pct"
+      ],
+      "expected_artifacts": [
+        "output.log",
+        "result.json",
+        "test-log.jsonl",
+        "artifact-index.jsonl",
+        "summary.json",
+        "environment.json",
+        "evidence_contract.json"
+      ],
+      "replay_command": "./scripts/e2e/run_all.sh --profile ci --suite doctor_swarm_temp_dir_json --suite e2e_golden_corpus"
+    },
+    {
+      "workflow_id": "wf-dropin-differential-pack",
+      "workflow_class": "dropin_parity",
+      "workflow_title": "Drop-in extension UI and RPC differential coverage",
+      "status": "covered",
+      "vcr_mode": "vcr-only",
+      "vcr_mode_rationale": "Drop-in differential suites use deterministic local fixtures and VCR-backed provider responses.",
+      "owner": "bd-8t27h.3",
+      "provider_families": [
+        "dropin",
+        "extensions",
+        "rpc"
+      ],
+      "suite_ids": [
+        "dropin_extension_ui_differential",
+        "dropin_rpc_differential"
+      ],
+      "test_paths": [
+        "tests/dropin_extension_ui_differential.rs",
+        "tests/dropin_rpc_differential.rs"
+      ],
+      "sli_ids": [
+        "sli.rpc.roundtrip_ms",
+        "sli.extension.action_latency_ms"
+      ],
+      "expected_artifacts": [
+        "output.log",
+        "result.json",
+        "test-log.jsonl",
+        "artifact-index.jsonl",
+        "summary.json",
+        "environment.json",
+        "evidence_contract.json"
+      ],
+      "replay_command": "./scripts/e2e/run_all.sh --profile ci --suite dropin_extension_ui_differential --suite dropin_rpc_differential"
+    },
+    {
+      "workflow_id": "wf-extension-lifecycle-contention-and-persistence",
+      "workflow_class": "performance_recovery",
+      "workflow_title": "Extension lifecycle, heterogeneous OCO, and persistence fault-injection coverage",
+      "status": "covered",
+      "vcr_mode": "vcr-only",
+      "vcr_mode_rationale": "Extension lifecycle and persistence scenarios run against local QuickJS fixtures and deterministic fault injectors.",
+      "owner": "bd-8t27h.3",
+      "provider_families": [
+        "extensions",
+        "quickjs",
+        "persistence"
+      ],
+      "suite_ids": [
+        "e2e_extension_lifecycle_perf",
+        "extensions_oco_heterogeneous",
+        "fault_injection_persistence"
+      ],
+      "test_paths": [
+        "tests/e2e_extension_lifecycle_perf.rs",
+        "tests/extensions_oco_heterogeneous.rs",
+        "tests/fault_injection_persistence.rs"
+      ],
+      "sli_ids": [
+        "sli.extension.action_latency_ms",
+        "sli.recovery.time_to_stable_ms"
+      ],
+      "expected_artifacts": [
+        "output.log",
+        "result.json",
+        "test-log.jsonl",
+        "artifact-index.jsonl",
+        "summary.json",
+        "environment.json",
+        "evidence_contract.json"
+      ],
+      "replay_command": "./scripts/e2e/run_all.sh --profile ci --suite e2e_extension_lifecycle_perf --suite extensions_oco_heterogeneous --suite fault_injection_persistence"
+    },
+    {
+      "workflow_id": "wf-provider-failure-injection-pack",
+      "workflow_class": "failure_recovery",
+      "workflow_title": "Provider failure injection and cross-provider error parity coverage",
+      "status": "covered",
+      "vcr_mode": "vcr-only",
+      "vcr_mode_rationale": "Provider failure injection uses local mock HTTP servers and crafted streaming fixtures, with no live credentials required.",
+      "owner": "bd-8t27h.3",
+      "provider_families": [
+        "provider-native",
+        "provider-openai-compatible"
+      ],
+      "suite_ids": [
+        "e2e_provider_failure_injection"
+      ],
+      "test_paths": [
+        "tests/e2e_provider_failure_injection.rs"
+      ],
+      "sli_ids": [
+        "sli.provider.first_token_ms",
+        "sli.recovery.time_to_stable_ms"
+      ],
+      "expected_artifacts": [
+        "output.log",
+        "result.json",
+        "test-log.jsonl",
+        "artifact-index.jsonl",
+        "summary.json",
+        "environment.json",
+        "evidence_contract.json"
+      ],
+      "replay_command": "./scripts/e2e/run_all.sh --profile ci --suite e2e_provider_failure_injection"
+    },
+    {
+      "workflow_id": "wf-ollama-local-live-provider-smoke",
+      "workflow_class": "live_boundary",
+      "workflow_title": "Ollama local-live provider smoke coverage",
+      "status": "waived",
+      "vcr_mode": "live-only",
+      "vcr_mode_rationale": "Ollama coverage requires a locally running Ollama service and is not deterministic in default CI.",
+      "owner": "bd-8t27h.3",
+      "provider_families": [
+        "provider-local-live",
+        "provider-openai-compatible"
+      ],
+      "suite_ids": [
+        "e2e_ollama_live"
+      ],
+      "test_paths": [
+        "tests/e2e_ollama_live.rs"
+      ],
+      "sli_ids": [
+        "sli.live.auth_success_rate_pct",
+        "sli.provider.first_token_ms"
+      ],
+      "expected_artifacts": [
+        "output.log",
+        "result.json",
+        "test-log.jsonl",
+        "artifact-index.jsonl",
+        "summary.json",
+        "environment.json",
+        "evidence_contract.json"
+      ],
+      "replay_command": "PI_E2E_TESTS=1 ./scripts/e2e/run_all.sh --profile full --suite e2e_ollama_live",
+      "live_skip_policy": {
+        "skip_reason": "Requires a local Ollama daemon and model availability; non-blocking in default CI.",
+        "skip_env_var": "PI_SKIP_LIVE_E2E",
+        "required_credentials": [],
+        "budget_controls": {
+          "max_api_calls": 50,
+          "max_cost_usd": 0.0,
+          "rate_limit_delay_ms": 500,
+          "timeout_per_test_secs": 60
+        },
+        "ci_gate_behavior": "skip_with_warning"
+      },
+      "waiver_reason": "Requires a local Ollama daemon/model and remains non-blocking in default CI.",
+      "waiver_issue_id": "bd-8t27h.3"
+    },
+    {
+      "workflow_id": "wf-runtime-risk-and-security-scenarios",
+      "workflow_class": "security_recovery",
+      "workflow_title": "Runtime risk telemetry and security scenario coverage",
+      "status": "covered",
+      "vcr_mode": "vcr-only",
+      "vcr_mode_rationale": "Security scenarios use deterministic fixtures and local policy/runtime telemetry without live provider calls.",
+      "owner": "bd-8t27h.3",
+      "provider_families": [
+        "security",
+        "policy",
+        "runtime-risk"
+      ],
+      "suite_ids": [
+        "e2e_runtime_risk_telemetry",
+        "e2e_security_scenario_sec66",
+        "e2e_security_scenarios"
+      ],
+      "test_paths": [
+        "tests/e2e_runtime_risk_telemetry.rs",
+        "tests/e2e_security_scenario_sec66.rs",
+        "tests/e2e_security_scenarios.rs"
+      ],
+      "sli_ids": [
+        "sli.policy.preflight_decision_ms",
+        "sli.recovery.time_to_stable_ms"
+      ],
+      "expected_artifacts": [
+        "output.log",
+        "result.json",
+        "test-log.jsonl",
+        "artifact-index.jsonl",
+        "summary.json",
+        "environment.json",
+        "evidence_contract.json"
+      ],
+      "replay_command": "./scripts/e2e/run_all.sh --profile ci --suite e2e_runtime_risk_telemetry --suite e2e_security_scenario_sec66 --suite e2e_security_scenarios"
+    },
+    {
+      "workflow_id": "wf-tui-feature-and-performance-pack",
+      "workflow_class": "success_path",
+      "workflow_title": "TUI feature and performance coverage",
+      "status": "covered",
+      "vcr_mode": "vcr-only",
+      "vcr_mode_rationale": "TUI feature and performance tests use deterministic terminal fixtures and VCR playback for provider responses.",
+      "owner": "bd-8t27h.3",
+      "provider_families": [
+        "tui",
+        "provider-openai-compatible"
+      ],
+      "suite_ids": [
+        "e2e_tui_features",
+        "e2e_tui_perf"
+      ],
+      "test_paths": [
+        "tests/e2e_tui_features.rs",
+        "tests/e2e_tui_perf.rs"
+      ],
+      "sli_ids": [
+        "sli.tui.input_to_render_ms",
+        "sli.provider.first_token_ms"
+      ],
+      "expected_artifacts": [
+        "output.log",
+        "result.json",
+        "test-log.jsonl",
+        "artifact-index.jsonl",
+        "summary.json",
+        "environment.json",
+        "evidence_contract.json"
+      ],
+      "replay_command": "./scripts/e2e/run_all.sh --profile ci --suite e2e_tui_features --suite e2e_tui_perf"
+    },
+    {
+      "workflow_id": "wf-soak-and-performance-regression-pack",
+      "workflow_class": "performance_recovery",
+      "workflow_title": "Soak stability and E2E performance regression coverage",
+      "status": "covered",
+      "vcr_mode": "vcr-only",
+      "vcr_mode_rationale": "Soak and perf suites use bounded local workloads and structured artifacts under the CI evidence contract.",
+      "owner": "bd-8t27h.3",
+      "provider_families": [
+        "performance",
+        "core-runtime"
+      ],
+      "suite_ids": [
+        "e2e_soak_stability",
+        "perf_e2e"
+      ],
+      "test_paths": [
+        "tests/e2e_soak_stability.rs",
+        "tests/perf_e2e.rs"
+      ],
+      "sli_ids": [
+        "sli.agent.turn_completion_ms",
+        "sli.recovery.time_to_stable_ms"
+      ],
+      "expected_artifacts": [
+        "output.log",
+        "result.json",
+        "test-log.jsonl",
+        "artifact-index.jsonl",
+        "summary.json",
+        "environment.json",
+        "evidence_contract.json"
+      ],
+      "replay_command": "./scripts/e2e/run_all.sh --profile ci --suite e2e_soak_stability --suite perf_e2e"
     }
   ]
 }

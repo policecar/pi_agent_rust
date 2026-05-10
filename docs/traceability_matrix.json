@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "program_issue_id": "bd-k5q5.7",
   "program_title": "Comprehensive Verification Program: unit tests, end-to-end scripts, and detailed diagnostics logging",
-  "updated_at": "2026-02-09",
+  "updated_at": "2026-05-10",
   "ci_policy": {
     "required_categories": [
       "unit_tests",
@@ -412,6 +412,394 @@
         {
           "path": "tests/tui_snapshot.rs",
           "justification": "TUI snapshot stability checks for interactive rendering behavior."
+        },
+        {
+          "path": "tests/agent_tools_coverage.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/algorithms.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/branch_edge_failure_coverage.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/ci_artifact_retention.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/ci_strict_gates_validation.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/config_edge_cases.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/crash_consistency.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/cooperative_priority_lane_evaluation.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/cross_surface_parity.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/cli_edge_cases.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/dropin_config_differential.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/dropin_session_error_parity.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_artifact_retention_triage.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_replay_bundle_validation.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/edit_repro.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/extension_flag_passthrough.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/extension_flag_passthrough_fixtures.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/extension_scoring_voi_meanfield.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_benchmark_resource_gate_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_claim_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_compat_harness.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_compatibility_doctor_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_executable_conformance_harness_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_kernel_extraction_boundary_manifest.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_multi_tier_execution_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_package_interop_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_runtime_substrate_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_security_sandbox_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_semantic_compat_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_shadow_canary_rollout_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_remediation_backlog_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_unified_test_certification_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_runtime_integration_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_practical_finish_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_event_loop_io_parity_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_deterministic_replay_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/franken_node_migration_assistant_contract.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/fuzz_regression.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/fuzz_regression_generated.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/hostcall_queue_ebr.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/hostcall_queue_loom.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/hostcall_s3_fifo_policy.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/extension_scoring_ope.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/extensions_auth_error_coverage.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/non_mock_compliance_gate.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/non_mock_rubric_gate.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/phase3_cross_module_integration.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/phase3_security_invariants.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/perf_regression.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_backward_lock.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_closure_truth_table.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_discrepancy_classification.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_registry_guardrails.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_session_coverage.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_unit_checklist.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/qa_docs_policy_validation.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/redaction_test.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/resource_edge_cases.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/repro_edit_newline_shift.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/repro_exec_mediation_bypass.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/repro_read_large_file.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/repro_symlink_monotonicity.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/reproduce_index_gap.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/rpc_extension_ui_scenarios.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/interactive_commands_unit.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/json_mode_parity.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/sec_compatibility_conformance.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/security_conformance_benign.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/session_store_v2.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/validate_e2e_artifact_schema.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/vcr_parity_validation.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/edit_empty_string_repro.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/sdk_api.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/sdk_unit.rs",
+          "justification": "Classified unit suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/agent_context_filtering.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/cargo_headroom_admission.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/ci_cross_platform_matrix.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/ci_evidence_bundle.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/ci_full_suite_gate.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_golden_transcript_diff.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_replay_bundles.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/counting_taxonomy_contract.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/dropin_slash_differential.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/dropin_tool_io_differential.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/graduated_rollout_integration_sec72.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/perf_baseline_variance.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_contract.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_metadata_comprehensive.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_native_contract.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_native_verify.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_smoke_matrix.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/vcr_redaction_scan.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/qa_certification_dossier.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/repro_ext_path_traversal.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/rpc_edge_cases.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/session_store_v2_contract.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/sdk_integration.rs",
+          "justification": "Classified vcr suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
         }
       ],
       "e2e_scripts": [
@@ -422,6 +810,74 @@
         {
           "path": "tests/run_e2e.sh",
           "justification": "Existing E2E invocation wrapper."
+        },
+        {
+          "path": "tests/doctor_swarm_temp_dir_json.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/dropin_extension_ui_differential.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/dropin_rpc_differential.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_golden_corpus.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_extension_lifecycle_perf.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_failure_injection_recovery.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_interruption_resume_replay.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_provider_failure_injection.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_provider_scenarios.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_soak_stability.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_tui_features.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_tui_perf.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/extensions_oco_heterogeneous.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/fault_injection_persistence.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/e2e_ollama_live.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/perf_e2e.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
+        },
+        {
+          "path": "tests/provider_live_verify.rs",
+          "justification": "Classified e2e suite included in the bd-8t27h.3 traceability backfill so CI governance covers all registered tests."
         }
       ],
       "evidence_logs": [
@@ -959,7 +1415,18 @@
           "justification": "Preflight validation exercises manifest v2 fields in real extension pipelines."
         }
       ],
-      "evidence_logs": []
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-3br2a",
@@ -981,7 +1448,18 @@
           "justification": "Preflight exercises lockfile provenance checks end-to-end."
         }
       ],
-      "evidence_logs": []
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-21vng",
@@ -1003,7 +1481,18 @@
           "justification": "Preflight exercises scanner in real extension install flows."
         }
       ],
-      "evidence_logs": []
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-21nj4",
@@ -1015,8 +1504,24 @@
           "justification": "37 tests: quarantine state transitions, promotion criteria, and trust escalation paths."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_security_scenarios.rs",
+          "justification": "Security scenarios exercise quarantine/promotion boundaries in an end-to-end workflow."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-2a9ll",
@@ -1034,7 +1539,18 @@
           "justification": "E2E telemetry pipeline with benign/adversarial/recovery flows."
         }
       ],
-      "evidence_logs": []
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-153pv",
@@ -1054,8 +1570,24 @@
           "justification": "8 tests: quantile validation across scoring pipeline."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_runtime_risk_telemetry.rs",
+          "justification": "Runtime risk telemetry scenarios validate baseline feature extraction under E2E conditions."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-3f1ab",
@@ -1079,8 +1611,24 @@
           "justification": "6 tests: quantile evidence with budget enforcement."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_runtime_risk_telemetry.rs",
+          "justification": "Runtime telemetry scenarios exercise deterministic risk explanations and reason-code output."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-3tb30",
@@ -1092,8 +1640,24 @@
           "justification": "16 tests: state transitions, hysteresis, and edge-case enforcement paths."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_security_scenarios.rs",
+          "justification": "Security scenarios cover enforcement-state behavior across real workflow paths."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-3i9da",
@@ -1105,8 +1669,24 @@
           "justification": "15 tests: hash chain integrity, calibration thresholds, and offline replay."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_security_scenarios.rs",
+          "justification": "Security scenarios provide replayable decision-ledger evidence through workflow execution."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-b1d7o",
@@ -1122,8 +1702,24 @@
           "justification": "19 tests: security budget threshold enforcement and evidence emission."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_extension_lifecycle_perf.rs",
+          "justification": "Extension lifecycle performance scenarios collect quota and hostcall-budget diagnostics."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-wzzp4",
@@ -1147,8 +1743,24 @@
           "justification": "26 tests: denial matrix and policy interaction validation."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_security_scenarios.rs",
+          "justification": "Security scenarios exercise filesystem/network capability boundaries end to end."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-zh0hj",
@@ -1164,8 +1776,24 @@
           "justification": "45 tests: adversarial extension scenarios targeting mediation bypass."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_security_scenario_sec66.rs",
+          "justification": "SEC-6.6 adversarial scenarios cover exec and secret mediation bypass resistance."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-2vbax",
@@ -1181,8 +1809,24 @@
           "justification": "34 tests: policy model precedence and hardening integration."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_security_scenarios.rs",
+          "justification": "Security scenarios exercise dangerous-capability opt-in and hardened policy profiles."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-qudx1",
@@ -1194,8 +1838,24 @@
           "justification": "30 tests: alert generation, severity, category, and reason code validation."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_runtime_risk_telemetry.rs",
+          "justification": "Runtime risk telemetry scenarios emit alert and reason-code evidence for control-center surfaces."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-ww5br",
@@ -1207,8 +1867,24 @@
           "justification": "13 tests: onboarding wizard steps, kill-switch activation, and recovery paths."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_security_scenarios.rs",
+          "justification": "Security scenarios cover trust onboarding and emergency intervention workflows."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-11mqo",
@@ -1224,8 +1900,24 @@
           "justification": "15 tests: bundle integration with real extension manager state."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/e2e_security_scenarios.rs",
+          "justification": "Security scenarios provide forensic replay and incident-evidence bundle coverage."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     },
     {
       "id": "bd-8lppo",
@@ -1237,8 +1929,24 @@
           "justification": "45 tests: phase transitions, rollback triggers (FP/error rate/latency), window statistics, serde roundtrips, lifecycle scenarios, operator overrides."
         }
       ],
-      "e2e_scripts": [],
-      "evidence_logs": []
+      "e2e_scripts": [
+        {
+          "path": "tests/graduated_rollout_integration_sec72.rs",
+          "justification": "Graduated rollout integration coverage validates rollback guard behavior."
+        }
+      ],
+      "evidence_logs": [
+        {
+          "path": "tests/e2e_results/**/*.jsonl",
+          "generated_by_ci": true,
+          "justification": "Structured JSONL E2E logs generated by CI for traceability evidence and failure triage."
+        },
+        {
+          "path": "tests/ext_conformance/reports/**/*.json",
+          "generated_by_ci": true,
+          "justification": "Structured extension conformance reports generated by CI for security and runtime evidence."
+        }
+      ]
     }
   ]
 }
