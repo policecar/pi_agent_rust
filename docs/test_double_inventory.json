@@ -32,6 +32,153 @@
     ],
     "notes": "Entries are deduplicated by (file,module,test_case,double_identifier,double_type) and then aggregated into risk/suite cluster summaries."
   },
+  "extension_stub_placeholder_reconciliation": {
+    "schema": "pi.qa.extension_stub_placeholder_reconciliation.v1",
+    "bead_id": "bd-8t27h.14",
+    "generated_at_utc": "2026-05-10T10:19:00Z",
+    "purpose": "Classify extension-related stubs, mocks, placeholders, and temporary compatibility gaps against current conformance evidence without treating test fixtures as production placeholders.",
+    "source_artifacts": [
+      "docs/test_double_inventory.json",
+      "docs/non-mock-rubric.json",
+      "tests/full_suite_gate/extension_remediation_backlog.json",
+      "tests/ext_conformance/reports/conformance_summary.json",
+      "tests/ext_conformance/reports/gate/must_pass_gate_verdict.json"
+    ],
+    "mock_code_finder_methods": [
+      {
+        "method": "identifier_inventory",
+        "command": "rg --line-number --glob '*.rs' '(Mock[A-Za-z0-9_]+|Fake[A-Za-z0-9_]+|Stub[A-Za-z0-9_]+|PackageCommandStubs|RecordingSession|RecordingHostActions|DummyProvider|NullSession|NullUiHandler|start_mock_http_server)' src tests"
+      },
+      {
+        "method": "production_stub_text_scan",
+        "command": "rg -n 'stub|placeholder|mock|TODO|unimplemented|not implemented|fake' src docs tests examples scripts -g '!target/' -g '!tests/ext_conformance/corpus/**'"
+      },
+      {
+        "method": "conformance_backlog_grouping",
+        "command": "jq '[.entries[] | {root_cause_family, owner, severity, status, tracking_issue, follow_up_bead}] | group_by(.root_cause_family)' tests/full_suite_gate/extension_remediation_backlog.json"
+      }
+    ],
+    "current_conformance_snapshot": {
+      "conformance_summary": {
+        "artifact": "tests/ext_conformance/reports/conformance_summary.json",
+        "total": 224,
+        "tested": 60,
+        "pass": 60,
+        "fail": 0,
+        "not_applicable_or_not_run": 164
+      },
+      "extension_remediation_backlog": {
+        "artifact": "tests/full_suite_gate/extension_remediation_backlog.json",
+        "total_non_pass_extensions": 36,
+        "actionable": 31,
+        "non_actionable": 5,
+        "families": {
+          "runtime_crash": 4,
+          "runtime_api_gap": 5,
+          "fixture_manifest_drift": 22,
+          "packaging_gap": 4,
+          "fixture_exclusion": 1
+        }
+      }
+    },
+    "disposition_policy": {
+      "test_fixture": "Allowed only when the double is confined to tests or in-module test code, is covered by docs/non-mock-rubric.json, and remains visible in this inventory.",
+      "production_compatibility_stub": "Allowed only when fail-closed behavior, explicit policy gating, or conformance evidence proves it is intentional and observable.",
+      "temporary_conformance_exception": "Allowed only with owner, rationale, review expiry, and a tracking bead in the conformance artifact set.",
+      "active_child_bead": "Required when current conformance evidence still reports a real runtime, packaging, or fixture-drift gap."
+    },
+    "dispositions": [
+      {
+        "category": "test_fixture_doubles",
+        "status": "backed_by_non_mock_inventory",
+        "inventory_entries": 267,
+        "evidence_refs": [
+          "docs/test_double_inventory.json#/summary",
+          "docs/non-mock-rubric.json",
+          "tests/non_mock_compliance_gate.rs",
+          "tests/non_mock_rubric_gate.rs"
+        ],
+        "rationale": "The inventory entries are test doubles or in-module test fixtures; production placeholder conclusions require separate caller tracing."
+      },
+      {
+        "category": "extension_dispatcher_and_runtime_test_doubles",
+        "status": "historically_reduced_and_still_visible",
+        "inventory_modules": [
+          "src/extension_dispatcher",
+          "src/extensions"
+        ],
+        "evidence_refs": [
+          "bd-1f42.8.2.1",
+          "bd-1f42.8.2.2",
+          "docs/test_double_inventory.json#/summary/top_risk_clusters"
+        ],
+        "rationale": "Closed non-mock remediation beads replaced earlier stub-heavy paths with deterministic real-session/UI harnesses; remaining entries stay inventoried for future burn-down."
+      },
+      {
+        "category": "pi_wasm_compatibility_stubs",
+        "status": "intentional_fail_closed_compatibility_stubs",
+        "inventory_entries": 0,
+        "evidence_refs": [
+          "src/pi_wasm.rs:441",
+          "src/pi_wasm.rs:481",
+          "src/pi_wasm.rs:2612"
+        ],
+        "rationale": "PiWasm compatibility imports are explicit allowlist stubs; unsupported imports fail closed instead of creating ambient defaults."
+      },
+      {
+        "category": "extension_auto_repair_proxy_stubs",
+        "status": "policy_gated_repair_behavior",
+        "inventory_entries": 0,
+        "evidence_refs": [
+          "src/extensions_js.rs:829",
+          "src/extensions_js.rs:2543",
+          "src/extensions_js.rs:5273",
+          "src/extensions_js.rs:5335"
+        ],
+        "rationale": "QuickJS proxy stubs are auto-repair proposals or policy-gated virtual modules, not silent production placeholders; current unsupported package gaps are tracked below."
+      },
+      {
+        "category": "runtime_api_gap",
+        "status": "active_child_bead",
+        "backlog_entries": 5,
+        "child_bead": "bd-8t27h.14.1",
+        "evidence_refs": [
+          "tests/full_suite_gate/extension_remediation_backlog.json#/entries"
+        ],
+        "rationale": "Current high-severity missing npm package stubs need active implementation or explicit waivers because the backlog references closed historical tracking."
+      },
+      {
+        "category": "runtime_crash",
+        "status": "active_child_bead",
+        "backlog_entries": 4,
+        "child_bead": "bd-8t27h.14.2",
+        "evidence_refs": [
+          "tests/full_suite_gate/extension_remediation_backlog.json#/entries"
+        ],
+        "rationale": "Current high-severity runtime crash rows need active runtime/shim/asset remediation or explicit waivers."
+      },
+      {
+        "category": "fixture_manifest_drift_and_exclusion",
+        "status": "active_child_bead",
+        "backlog_entries": 23,
+        "child_bead": "bd-8t27h.14.3",
+        "evidence_refs": [
+          "tests/full_suite_gate/extension_remediation_backlog.json#/entries"
+        ],
+        "rationale": "Current manifest-drift and exclusion rows need active owner beads or refreshed time-boxed exceptions instead of closed historical refs."
+      },
+      {
+        "category": "packaging_gap",
+        "status": "active_child_bead",
+        "backlog_entries": 4,
+        "child_bead": "bd-8t27h.14.4",
+        "evidence_refs": [
+          "tests/full_suite_gate/extension_remediation_backlog.json#/entries"
+        ],
+        "rationale": "Current packaging gap rows need active package/asset remediation or explicit waivers."
+      }
+    ]
+  },
   "summary": {
     "entry_count": 267,
     "module_count": 21,

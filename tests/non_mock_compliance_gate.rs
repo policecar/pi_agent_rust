@@ -9,6 +9,7 @@
 // when the COMPLIANCE_REPORT=1 env var is set.
 
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 fn project_root() -> PathBuf {
@@ -27,6 +28,10 @@ fn load_rubric() -> Value {
 
 fn load_inventory() -> Value {
     load_json("docs/test_double_inventory.json")
+}
+
+fn load_extension_remediation_backlog() -> Value {
+    load_json("tests/full_suite_gate/extension_remediation_backlog.json")
 }
 
 fn load_testing_policy() -> String {
@@ -183,6 +188,118 @@ fn inventory_exists_and_has_entries() {
         count > 0,
         "Test double inventory must have at least one entry"
     );
+}
+
+#[test]
+fn extension_stub_reconciliation_declares_disposition_policy() {
+    let inventory = load_inventory();
+    let reconciliation = &inventory["extension_stub_placeholder_reconciliation"];
+
+    assert_eq!(
+        reconciliation["schema"].as_str(),
+        Some("pi.qa.extension_stub_placeholder_reconciliation.v1"),
+        "extension stub reconciliation must declare a stable schema"
+    );
+    assert_eq!(
+        reconciliation["bead_id"].as_str(),
+        Some("bd-8t27h.14"),
+        "extension stub reconciliation must identify the owning bead"
+    );
+
+    let policy = reconciliation["disposition_policy"]
+        .as_object()
+        .expect("disposition_policy must be an object");
+    for key in [
+        "test_fixture",
+        "production_compatibility_stub",
+        "temporary_conformance_exception",
+        "active_child_bead",
+    ] {
+        assert!(
+            policy
+                .get(key)
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty()),
+            "disposition_policy.{key} must explain how findings are resolved"
+        );
+    }
+}
+
+#[test]
+fn extension_stub_reconciliation_dispositions_have_evidence() {
+    let inventory = load_inventory();
+    let dispositions = inventory["extension_stub_placeholder_reconciliation"]["dispositions"]
+        .as_array()
+        .expect("reconciliation.dispositions must be an array");
+
+    assert!(
+        !dispositions.is_empty(),
+        "extension stub reconciliation must include dispositions"
+    );
+
+    for disposition in dispositions {
+        let category = disposition["category"]
+            .as_str()
+            .expect("disposition.category must be a string");
+        let status = disposition["status"]
+            .as_str()
+            .expect("disposition.status must be a string");
+        let rationale = disposition["rationale"]
+            .as_str()
+            .expect("disposition.rationale must be a string");
+        assert!(
+            !rationale.is_empty(),
+            "disposition {category} needs rationale"
+        );
+
+        let evidence = disposition["evidence_refs"]
+            .as_array()
+            .expect("disposition.evidence_refs must be an array");
+        assert!(
+            !evidence.is_empty(),
+            "disposition {category} needs evidence refs"
+        );
+
+        if status == "active_child_bead" {
+            let child = disposition["child_bead"]
+                .as_str()
+                .expect("active child bead disposition must name child_bead");
+            assert!(
+                child.starts_with("bd-8t27h.14."),
+                "active child bead for {category} must stay under bd-8t27h.14"
+            );
+        }
+    }
+}
+
+#[test]
+fn extension_stub_reconciliation_matches_current_backlog_families() {
+    let inventory = load_inventory();
+    let backlog = load_extension_remediation_backlog();
+    let entries = backlog["entries"]
+        .as_array()
+        .expect("extension remediation backlog entries must be an array");
+
+    let mut family_counts = BTreeMap::<String, u64>::new();
+    for entry in entries {
+        let family = entry["root_cause_family"]
+            .as_str()
+            .expect("backlog entry root_cause_family must be a string");
+        *family_counts.entry(family.to_string()).or_insert(0) += 1;
+    }
+
+    let recorded_families = inventory["extension_stub_placeholder_reconciliation"]
+        ["current_conformance_snapshot"]["extension_remediation_backlog"]["families"]
+        .as_object()
+        .expect("recorded backlog family counts must be an object");
+
+    for (family, count) in family_counts {
+        assert_eq!(
+            recorded_families.get(&family).and_then(Value::as_u64),
+            Some(count),
+            "reconciliation count for {family} must match extension remediation backlog"
+        );
+    }
 }
 
 #[test]
