@@ -8,8 +8,8 @@
   },
   "summary": {
     "total_non_pass_extensions": 36,
-    "actionable": 31,
-    "non_actionable": 5,
+    "actionable": 26,
+    "non_actionable": 10,
     "by_severity": {
       "high": 9,
       "low": 5,
@@ -141,7 +141,7 @@
     {
       "rank": 5,
       "extension_id": "npm/pi-search-agent",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_api_gap",
@@ -160,17 +160,19 @@
         "tests/ext_conformance/reports/conformance_baseline.json",
         "/failure_classification/missing_npm_package/extensions",
         "/remediation_buckets/missing_runtime_api/cause_codes",
-        "/exception_policy/entries"
+        "/exception_policy/entries",
+        "src/extensions_js.rs#virtual_module:openai",
+        "tests/npm_module_stubs.rs#openai_imports"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Depends on unsupported package specifier (`openai`).",
+      "follow_up_bead": "bd-8t27h.14.1",
+      "tracking_issue": "bd-8t27h.14.1",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `openai` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::openai_imports.",
       "canonical_failure": false
     },
     {
       "rank": 6,
       "extension_id": "npm/pi-wakatime",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_api_gap",
@@ -189,17 +191,19 @@
         "tests/ext_conformance/reports/conformance_baseline.json",
         "/failure_classification/missing_npm_package/extensions",
         "/remediation_buckets/missing_runtime_api/cause_codes",
-        "/exception_policy/entries"
+        "/exception_policy/entries",
+        "src/extensions_js.rs#virtual_module:adm-zip",
+        "tests/npm_module_stubs.rs#adm_zip_import"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Depends on unsupported package specifier (`adm-zip`).",
+      "follow_up_bead": "bd-8t27h.14.1",
+      "tracking_issue": "bd-8t27h.14.1",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `adm-zip` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::adm_zip_import.",
       "canonical_failure": false
     },
     {
       "rank": 7,
       "extension_id": "npm/pi-web-access",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_api_gap",
@@ -218,17 +222,19 @@
         "tests/ext_conformance/reports/conformance_baseline.json",
         "/failure_classification/missing_npm_package/extensions",
         "/remediation_buckets/missing_runtime_api/cause_codes",
-        "/exception_policy/entries"
+        "/exception_policy/entries",
+        "src/extensions_js.rs#virtual_module:linkedom",
+        "tests/npm_module_stubs.rs#linkedom_parse_html"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Depends on unsupported package specifier (`linkedom`).",
+      "follow_up_bead": "bd-8t27h.14.1",
+      "tracking_issue": "bd-8t27h.14.1",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `linkedom` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::linkedom_parse_html.",
       "canonical_failure": false
     },
     {
       "rank": 8,
       "extension_id": "npm/qualisero-pi-agent-scip",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_api_gap",
@@ -247,17 +253,19 @@
         "tests/ext_conformance/reports/conformance_baseline.json",
         "/failure_classification/missing_npm_package/extensions",
         "/remediation_buckets/missing_runtime_api/cause_codes",
-        "/exception_policy/entries"
+        "/exception_policy/entries",
+        "src/extensions_js.rs#virtual_module:@sourcegraph/scip-typescript",
+        "tests/npm_module_stubs.rs#scip_typescript_import"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Depends on unsupported package specifier (`@sourcegraph/scip-typescript`).",
+      "follow_up_bead": "bd-8t27h.14.1",
+      "tracking_issue": "bd-8t27h.14.1",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stub for `@sourcegraph/scip-typescript` is implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::scip_typescript_import.",
       "canonical_failure": false
     },
     {
       "rank": 9,
       "extension_id": "third-party/qualisero-pi-agent-scip",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_api_gap",
@@ -276,11 +284,14 @@
         "tests/ext_conformance/reports/conformance_baseline.json",
         "/failure_classification/missing_npm_package/extensions",
         "/remediation_buckets/missing_runtime_api/cause_codes",
-        "/exception_policy/entries"
+        "/exception_policy/entries",
+        "src/extensions_js.rs#virtual_module:@sourcegraph/scip-typescript",
+        "tests/npm_module_stubs.rs#scip_typescript_subpath_import",
+        "tests/npm_module_stubs.rs#scip_typescript_main_import"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Depends on unsupported package specifier (`@sourcegraph/scip-typescript`).",
+      "follow_up_bead": "bd-8t27h.14.1",
+      "tracking_issue": "bd-8t27h.14.1",
+      "fallback_validation": "exception_policy status=approved cause_code=missing_npm_package review_by=2026-06-30 tracking_issue=bd-8t27h.14.1; rationale=Virtual module stubs for `@sourcegraph/scip-typescript` and its dist entrypoints are implemented in src/extensions_js.rs and covered by tests/npm_module_stubs.rs::scip_typescript_subpath_import and ::scip_typescript_main_import.",
       "canonical_failure": false
     },
     {

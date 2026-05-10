@@ -70,8 +70,8 @@
       "extension_remediation_backlog": {
         "artifact": "tests/full_suite_gate/extension_remediation_backlog.json",
         "total_non_pass_extensions": 36,
-        "actionable": 31,
-        "non_actionable": 5,
+        "actionable": 26,
+        "non_actionable": 10,
         "families": {
           "runtime_crash": 4,
           "runtime_api_gap": 5,
@@ -139,13 +139,23 @@
       },
       {
         "category": "runtime_api_gap",
-        "status": "active_child_bead",
+        "status": "production_compatibility_stub",
         "backlog_entries": 5,
-        "child_bead": "bd-8t27h.14.1",
+        "resolved_by_bead": "bd-8t27h.14.1",
         "evidence_refs": [
-          "tests/full_suite_gate/extension_remediation_backlog.json#/entries"
+          "tests/full_suite_gate/extension_remediation_backlog.json#/entries",
+          "src/extensions_js.rs#virtual_module:openai",
+          "src/extensions_js.rs#virtual_module:adm-zip",
+          "src/extensions_js.rs#virtual_module:linkedom",
+          "src/extensions_js.rs#virtual_module:@sourcegraph/scip-typescript",
+          "tests/npm_module_stubs.rs#openai_imports",
+          "tests/npm_module_stubs.rs#adm_zip_import",
+          "tests/npm_module_stubs.rs#linkedom_parse_html",
+          "tests/npm_module_stubs.rs#scip_typescript_import",
+          "tests/npm_module_stubs.rs#scip_typescript_subpath_import",
+          "tests/npm_module_stubs.rs#scip_typescript_main_import"
         ],
-        "rationale": "Current high-severity missing npm package stubs need active implementation or explicit waivers because the backlog references closed historical tracking."
+        "rationale": "Current high-severity missing npm package rows are backed by audited QuickJS virtual module stubs and focused import tests; the backlog keeps them visible as tracked non-actionable evidence until the conformance corpus is regenerated."
       },
       {
         "category": "runtime_crash",

@@ -232,7 +232,7 @@ Interpretation notes:
 - High counts in `unit-inline` represent strict audit hotspots and should be reviewed against no-mock policy intent.
 - `tests/common` is intentionally helper-only and not part of direct `tests/*.rs` suite classification entries.
 - Allowlisted exceptions in this document remain the policy source of truth; the JSON report is the searchable evidence index.
-- The inventory now includes `extension_stub_placeholder_reconciliation` for `bd-8t27h.14`. That section separates test fixtures from production compatibility stubs, ties current extension non-pass rows to conformance artifacts, and points active runtime/packaging/fixture gaps at child beads `bd-8t27h.14.1` through `bd-8t27h.14.4`.
+- The inventory now includes `extension_stub_placeholder_reconciliation` for `bd-8t27h.14`. That section separates test fixtures from production compatibility stubs, ties current extension non-pass rows to conformance artifacts, records the audited runtime API stubs resolved by `bd-8t27h.14.1`, and points remaining active runtime crash, packaging, and fixture gaps at child beads `bd-8t27h.14.2` through `bd-8t27h.14.4`.
 
 ---
 

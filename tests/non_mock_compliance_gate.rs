@@ -303,6 +303,110 @@ fn extension_stub_reconciliation_matches_current_backlog_families() {
 }
 
 #[test]
+fn runtime_api_gap_rows_point_to_audited_virtual_module_stubs() {
+    let backlog = load_extension_remediation_backlog();
+    let entries = backlog["entries"]
+        .as_array()
+        .expect("extension remediation backlog entries must be an array");
+    let mut expected = BTreeMap::from([
+        ("npm/pi-search-agent", ("openai", "openai_imports")),
+        ("npm/pi-wakatime", ("adm-zip", "adm_zip_import")),
+        ("npm/pi-web-access", ("linkedom", "linkedom_parse_html")),
+        (
+            "npm/qualisero-pi-agent-scip",
+            ("@sourcegraph/scip-typescript", "scip_typescript_import"),
+        ),
+        (
+            "third-party/qualisero-pi-agent-scip",
+            (
+                "@sourcegraph/scip-typescript",
+                "scip_typescript_subpath_import",
+            ),
+        ),
+    ]);
+    let mut unexpected = Vec::new();
+
+    for entry in entries
+        .iter()
+        .filter(|entry| entry["root_cause_family"].as_str() == Some("runtime_api_gap"))
+    {
+        let extension_id = entry["extension_id"]
+            .as_str()
+            .expect("runtime API gap entry must name extension_id");
+        let Some((package, test_name)) = expected.remove(extension_id) else {
+            unexpected.push(extension_id);
+            continue;
+        };
+
+        assert_eq!(
+            entry["status"].as_str(),
+            Some("tracked_non_actionable"),
+            "{extension_id} should stop being actionable once the virtual module stub is audited"
+        );
+        assert_eq!(
+            entry["tracking_issue"].as_str(),
+            Some("bd-8t27h.14.1"),
+            "{extension_id} should point at the current runtime API stub bead"
+        );
+        assert_eq!(
+            entry["follow_up_bead"].as_str(),
+            Some("bd-8t27h.14.1"),
+            "{extension_id} should keep follow-up ownership with the runtime API stub bead"
+        );
+
+        let fallback_validation = entry["fallback_validation"]
+            .as_str()
+            .expect("runtime API gap entry must have fallback_validation");
+        assert!(
+            fallback_validation.contains("tracking_issue=bd-8t27h.14.1"),
+            "{extension_id} fallback validation must name the current child bead"
+        );
+        assert!(
+            !fallback_validation.contains("bd-k5q5.3.9"),
+            "{extension_id} fallback validation must not point at the closed historical bead"
+        );
+        assert!(
+            fallback_validation.contains(package),
+            "{extension_id} fallback validation must name the audited package"
+        );
+
+        let evidence_refs = entry["evidence_refs"]
+            .as_array()
+            .expect("runtime API gap entry must have evidence_refs");
+        let has_impl_ref = evidence_refs
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|evidence| evidence.contains("src/extensions_js.rs"));
+        let has_stub_test_ref = evidence_refs
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|evidence| evidence.contains("tests/npm_module_stubs.rs"));
+        let has_package_test_ref = evidence_refs
+            .iter()
+            .filter_map(Value::as_str)
+            .any(|evidence| evidence.contains(test_name));
+        assert!(
+            has_impl_ref,
+            "{extension_id} must cite the production virtual module implementation"
+        );
+        assert!(
+            has_stub_test_ref,
+            "{extension_id} must cite focused npm module stub coverage"
+        );
+        assert!(has_package_test_ref, "{extension_id} must cite {test_name}");
+    }
+
+    assert!(
+        unexpected.is_empty(),
+        "runtime API gap backlog has unexpected entries: {unexpected:?}"
+    );
+    assert!(
+        expected.is_empty(),
+        "runtime API gap backlog is missing audited entries for: {expected:?}"
+    );
+}
+
+#[test]
 fn high_risk_doubles_are_in_allowlist_or_vcr_suite() {
     let inventory = load_inventory();
     let policy = load_testing_policy();

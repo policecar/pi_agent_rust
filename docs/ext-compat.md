@@ -129,6 +129,17 @@ without runtime errors, even when the real package is not installed.
 | `diff` | `diffChars`, `diffLines`, `createPatch` |
 | `glob` | `glob`, `globSync` |
 
+### Runtime API Compatibility Modules
+
+| Package | Key exports |
+|---------|-------------|
+| `openai` | `OpenAI`, default `OpenAI`, `chat.completions.create` |
+| `adm-zip` | default `AdmZip`, `getEntries`, `readAsText`, `extractAllTo`, `addFile`, `writeZip` |
+| `linkedom` | `parseHTML` with document/window shape used by corpus extensions |
+| `@sourcegraph/scip-typescript` | `scip.Index`, default `{ scip }` |
+| `@sourcegraph/scip-typescript/dist/src/scip.js` | `scip.Index`, default `{ scip }` |
+| `@sourcegraph/scip-typescript/dist/src/main.js` | `main`, `run`, default `main` |
+
 ### Terminal and UI Modules
 
 | Package | Key exports |

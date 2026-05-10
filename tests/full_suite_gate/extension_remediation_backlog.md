@@ -8,8 +8,8 @@
 | Metric | Value |
 |--------|-------|
 | Total non-pass extensions | 36 |
-| Actionable | 31 |
-| Non-actionable | 5 |
+| Actionable | 26 |
+| Non-actionable | 10 |
 
 ## Entries
 
@@ -19,11 +19,11 @@
 | 2 | `npm/aliou-pi-guardrails` | high | pi-parity-runtime | actionable | runtime_crash | bd-k5q5.3.9 | no | bd-1f42.4.4 |
 | 3 | `npm/aliou-pi-toolchain` | high | pi-parity-runtime | actionable | runtime_crash | bd-k5q5.3.9 | no | bd-1f42.4.4 |
 | 4 | `npm/marckrenn-pi-sub-core` | high | pi-parity-runtime | actionable | runtime_crash | bd-k5q5.3.9 | no | bd-1f42.4.4 |
-| 5 | `npm/pi-search-agent` | high | pi-parity-runtime | actionable | runtime_api_gap | bd-k5q5.3.9 | no | bd-1f42.4.4 |
-| 6 | `npm/pi-wakatime` | high | pi-parity-runtime | actionable | runtime_api_gap | bd-k5q5.3.9 | no | bd-1f42.4.4 |
-| 7 | `npm/pi-web-access` | high | pi-parity-runtime | actionable | runtime_api_gap | bd-k5q5.3.9 | no | bd-1f42.4.4 |
-| 8 | `npm/qualisero-pi-agent-scip` | high | pi-parity-runtime | actionable | runtime_api_gap | bd-k5q5.3.9 | no | bd-1f42.4.4 |
-| 9 | `third-party/qualisero-pi-agent-scip` | high | pi-parity-runtime | actionable | runtime_api_gap | bd-k5q5.3.9 | no | bd-1f42.4.4 |
+| 5 | `npm/pi-search-agent` | high | pi-parity-runtime | tracked_non_actionable | runtime_api_gap | bd-8t27h.14.1 | no | bd-8t27h.14.1 |
+| 6 | `npm/pi-wakatime` | high | pi-parity-runtime | tracked_non_actionable | runtime_api_gap | bd-8t27h.14.1 | no | bd-8t27h.14.1 |
+| 7 | `npm/pi-web-access` | high | pi-parity-runtime | tracked_non_actionable | runtime_api_gap | bd-8t27h.14.1 | no | bd-8t27h.14.1 |
+| 8 | `npm/qualisero-pi-agent-scip` | high | pi-parity-runtime | tracked_non_actionable | runtime_api_gap | bd-8t27h.14.1 | no | bd-8t27h.14.1 |
+| 9 | `third-party/qualisero-pi-agent-scip` | high | pi-parity-runtime | tracked_non_actionable | runtime_api_gap | bd-8t27h.14.1 | no | bd-8t27h.14.1 |
 | 10 | `agents-mikeastock/extensions` | medium | pi-conformance-team | actionable | fixture_manifest_drift | bd-k5q5.2.7 | no | bd-1f42.4.4 |
 | 11 | `community/prateekmedia-lsp` | medium | pi-conformance-team | actionable | fixture_manifest_drift | bd-k5q5.2.7 | no | bd-1f42.4.4 |
 | 12 | `npm/aliou-pi-linkup` | medium | pi-conformance-team | actionable | fixture_manifest_drift | bd-k5q5.2.7 | yes | bd-1f42.4.4 |

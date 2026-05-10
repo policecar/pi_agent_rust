@@ -163,14 +163,17 @@ fn load_manifest() -> &'static Manifest {
 }
 
 fn hermetic_conformance_env(cwd: &Path) -> std::collections::HashMap<String, String> {
+    let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
     let home = cwd.join("home");
     let tmp = cwd.join("tmp");
     std::fs::create_dir_all(&home).expect("create conformance home");
     std::fs::create_dir_all(&tmp).expect("create conformance tmp");
 
+    let cwd = cwd.display().to_string();
     let home = home.display().to_string();
     let tmp = tmp.display().to_string();
     std::collections::HashMap::from([
+        ("PI_DETERMINISTIC_CWD".to_string(), cwd),
         ("HOME".to_string(), home.clone()),
         ("USERPROFILE".to_string(), home.clone()),
         ("PI_DETERMINISTIC_HOME".to_string(), home),
@@ -178,6 +181,12 @@ fn hermetic_conformance_env(cwd: &Path) -> std::collections::HashMap<String, Str
         ("TEMP".to_string(), tmp.clone()),
         ("TMP".to_string(), tmp),
     ])
+}
+
+fn conformance_work_dir(name: impl AsRef<str>) -> PathBuf {
+    let dir = std::env::temp_dir().join(name.as_ref());
+    std::fs::create_dir_all(&dir).expect("create conformance work dir");
+    std::fs::canonicalize(&dir).unwrap_or(dir)
 }
 
 // ─── Core conformance test runner ───────────────────────────────────────────
@@ -414,11 +423,10 @@ fn try_conformance(ext_id: &str) -> ExtensionConformanceResult {
     };
 
     let start = std::time::Instant::now();
-    let cwd = std::env::temp_dir().join(format!(
+    let cwd = conformance_work_dir(format!(
         "pi-conformance-report-{}",
         ext_id.replace('/', "_")
     ));
-    let _ = std::fs::create_dir_all(&cwd);
 
     let entry_file = artifacts_dir().join(&entry.entry_path);
     if !entry_file.exists() {
@@ -1571,8 +1579,7 @@ fn try_conformance_detailed(
     };
 
     let start = std::time::Instant::now();
-    let cwd = std::env::temp_dir().join(format!("pi-dossier-{}", ext_id.replace('/', "_")));
-    let _ = std::fs::create_dir_all(&cwd);
+    let cwd = conformance_work_dir(format!("pi-dossier-{}", ext_id.replace('/', "_")));
 
     let entry_file = artifacts_dir().join(&entry.entry_path);
     if !entry_file.exists() {
@@ -2692,8 +2699,7 @@ fn try_conformance_with_env(
     };
 
     let start = std::time::Instant::now();
-    let cwd = std::env::temp_dir().join(format!("pi-compat-matrix-{}", ext_id.replace('/', "_")));
-    let _ = std::fs::create_dir_all(&cwd);
+    let cwd = conformance_work_dir(format!("pi-compat-matrix-{}", ext_id.replace('/', "_")));
 
     let entry_file = artifacts_dir().join(&entry.entry_path);
     if !entry_file.exists() {
@@ -3401,8 +3407,7 @@ fn run_category_journey(
     category: JourneyCategory,
 ) -> (Option<(String, String)>, usize, serde_json::Value) {
     // Re-load extension to get fresh registration state for journey checks.
-    let cwd = std::env::temp_dir().join(format!("pi-journey-{}", ext_id.replace('/', "_")));
-    let _ = std::fs::create_dir_all(&cwd);
+    let cwd = conformance_work_dir(format!("pi-journey-{}", ext_id.replace('/', "_")));
 
     let entry_file = artifacts_dir().join(&entry.entry_path);
     let spec = match JsExtensionLoadSpec::from_entry_path(&entry_file) {
