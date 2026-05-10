@@ -163,7 +163,11 @@ pub fn build_system_prompt(
     let custom_prompt = resolve_prompt_input(cli.system_prompt.as_deref(), "system prompt")?;
     let append_prompt =
         resolve_prompt_input(cli.append_system_prompt.as_deref(), "append system prompt")?;
-    let context_files = load_project_context_files(cwd, global_dir);
+    let context_files = if test_mode {
+        Vec::new()
+    } else {
+        load_project_context_files(cwd, global_dir)
+    };
 
     let mut prompt =
         custom_prompt.unwrap_or_else(|| default_system_prompt(enabled_tools, package_dir));

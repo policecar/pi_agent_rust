@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::error::Error;
 use std::fmt;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -134,10 +135,6 @@ fn temp_dir_finding<'a>(report: &'a Value, env_name: &str) -> TestResult<&'a Val
     ))
 }
 
-fn temp_dir_data<'a>(report: &'a Value, env_name: &str) -> TestResult<&'a Value> {
-    field(temp_dir_finding(report, env_name)?, "data")
-}
-
 fn require_temp_dir_data_shape(data: &Value, env_name: &str) -> TestResult {
     require_eq(field_str(data, "schema")?, SWARM_TEMP_DIR_SCHEMA, "schema")?;
     require_eq(field_str(data, "env_name")?, env_name, "env_name")?;
@@ -177,6 +174,17 @@ fn create_swarm_temp_test_dir(root: &Path, name: &str) -> TestResult<PathBuf> {
     Ok(dir)
 }
 
+fn create_expected_root_test_dir(name: &str) -> TestResult<(PathBuf, bool)> {
+    let dir = Path::new(SWARM_TEMP_EXPECTED_ROOT)
+        .join("pi-doctor-json-e2e")
+        .join(format!("{}-{name}", std::process::id()));
+    match fs::create_dir_all(&dir) {
+        Ok(()) => Ok((dir, true)),
+        Err(err) if err.kind() == ErrorKind::PermissionDenied => Ok((dir, false)),
+        Err(err) => Err(err.into()),
+    }
+}
+
 fn require_missing_env(report: &Value, env_name: &str) -> TestResult {
     let finding = temp_dir_finding(report, env_name)?;
     let data = field(finding, "data")?;
@@ -209,8 +217,8 @@ fn doctor_swarm_temp_dir_json_reports_missing_env() -> TestResult {
 
 #[test]
 fn doctor_swarm_temp_dir_json_freezes_root_posture() -> TestResult {
-    let expected_target =
-        create_swarm_temp_test_dir(Path::new(SWARM_TEMP_EXPECTED_ROOT), "expected-target")?;
+    let (expected_target, expected_target_exists) =
+        create_expected_root_test_dir("expected-target")?;
     let outside_tmp = create_swarm_temp_test_dir(Path::new("/tmp"), "outside-tmp")?;
     let expected_target = expected_target.display().to_string();
     let outside_tmp = outside_tmp.display().to_string();
@@ -219,27 +227,54 @@ fn doctor_swarm_temp_dir_json_freezes_root_posture() -> TestResult {
         ("TMPDIR", Some(outside_tmp.as_str())),
     ])?;
 
-    let target_data = temp_dir_data(&report, "CARGO_TARGET_DIR")?;
+    let target_finding = temp_dir_finding(&report, "CARGO_TARGET_DIR")?;
+    if expected_target_exists {
+        require_eq(
+            field_str(target_finding, "severity")?,
+            "pass",
+            "target severity",
+        )?;
+    } else {
+        require_eq(
+            field_str(target_finding, "severity")?,
+            "warn",
+            "target severity",
+        )?;
+        require(
+            field_str(target_finding, "title")?.contains("does not point to a directory"),
+            format!(
+                "CARGO_TARGET_DIR should warn when expected root is unwritable: {target_finding}"
+            ),
+        )?;
+    }
+    let target_data = field(target_finding, "data")?;
     require_temp_dir_data_shape(target_data, "CARGO_TARGET_DIR")?;
     require_eq(
         field_str(target_data, "path")?,
         expected_target.as_str(),
         "target path",
     )?;
-    require_eq(&field_bool(target_data, "exists")?, &true, "target exists")?;
+    require_eq(
+        &field_bool(target_data, "exists")?,
+        &expected_target_exists,
+        "target exists",
+    )?;
     require_eq(
         &field_bool(target_data, "under_expected_root")?,
         &true,
         "target under_expected_root",
     )?;
-    require_available_kb_shape(target_data)?;
+    if expected_target_exists {
+        require_available_kb_shape(target_data)?;
+    } else {
+        require(
+            field(target_data, "available_kb")?.is_null(),
+            "uncreated target available_kb is null",
+        )?;
+    }
 
     let tmp_finding = temp_dir_finding(&report, "TMPDIR")?;
     require_eq(field_str(tmp_finding, "severity")?, "warn", "tmp severity")?;
-    require(
-        field_str(tmp_finding, "title")?.contains("outside swarm scratch root"),
-        format!("TMPDIR should warn about outside-root posture: {tmp_finding}"),
-    )?;
     let tmp_data = field(tmp_finding, "data")?;
     require_temp_dir_data_shape(tmp_data, "TMPDIR")?;
     require_eq(

@@ -330,6 +330,12 @@ strip = true
 opt-level = 0
 debug = true
 
+[profile.test]
+# Full-suite RCH workers have limited artifact storage; keep test binaries
+# debuggable enough for line traces without emitting full debug sections.
+debug = "line-tables-only"
+incremental = false
+
 # Performance benchmarking profile: opt-level=3, with debug info.
 [profile.perf]
 inherits = "release"
