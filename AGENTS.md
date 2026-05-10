@@ -534,6 +534,7 @@ bv --robot-insights | jq '.Cycles'                         # Circular deps (must
 
 ```bash
 ubs --staged --only=rust .              # Staged Rust changes — USE THIS
+python3 scripts/check_ubs_staged_delta.py # Changed-line gate when staged UBS is noisy
 ubs --diff --only=rust .                # Unstaged+staged Rust changes vs HEAD
 ubs --only=rust,toml .                  # Language-filtered project scan
 ubs --ci --fail-on-warning .            # CI mode — before PR
@@ -552,13 +553,31 @@ Exit code: 1
 
 Parse: `file:line:col` → location | 💡 → how to fix | Exit 0/1 → pass/fail
 
+### Noisy Staged-File Baseline
+
+UBS scans whole staged Rust files, so large modules can report old findings on
+unchanged lines. If raw `ubs --staged --only=rust .` is non-actionable because
+it is dominated by unchanged-file baseline noise, run:
+
+```bash
+python3 scripts/check_ubs_staged_delta.py
+```
+
+That gate still runs UBS on the staged Rust files, then fails only when warning
+or critical findings land on lines added or modified in the staged diff. If it
+passes, treat remaining whole-file findings as baseline inventory and file or
+link owner beads for that inventory instead of blocking the current patch on
+unrelated legacy findings.
+
 ### Fix Workflow
 
 1. Read finding → category + fix suggestion
 2. Navigate `file:line:col` → view context
 3. Verify real issue (not false positive)
 4. Fix root cause (not symptom)
-5. Re-stage and re-run `ubs --staged --only=rust .` → exit 0
+5. Re-stage and re-run `ubs --staged --only=rust .`; if it is noisy from
+   unchanged baseline findings, run `python3 scripts/check_ubs_staged_delta.py`
+   and fix any changed-line failures
 6. Commit
 
 ### Bug Severity
