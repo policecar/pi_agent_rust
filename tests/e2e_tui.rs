@@ -1759,7 +1759,7 @@ fn e2e_tui_basic_chat_vcr() {
 
         // Print pane content to test output for visibility
         eprintln!("=== VCR MISMATCH DEBUG ===");
-        eprintln!("System prompt: {:?}", &system_prompt);
+        eprintln!("System prompt: {system_prompt:?}");
         eprintln!(
             "Expected body:\n{}",
             serde_json::to_string_pretty(&expected_body).unwrap()

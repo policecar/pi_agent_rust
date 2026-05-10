@@ -110,6 +110,141 @@ fn on_disk_test_stems(root: &Path) -> BTreeSet<String> {
     stems
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct SourceInventoryDiff {
+    missing_from_matrix: Vec<String>,
+    stale_matrix_entries: Vec<String>,
+}
+
+impl SourceInventoryDiff {
+    fn is_empty(&self) -> bool {
+        self.missing_from_matrix.is_empty() && self.stale_matrix_entries.is_empty()
+    }
+}
+
+fn collect_source_files(repo_root: &Path, dir: &Path, files: &mut BTreeSet<String>) {
+    let entries = std::fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("cannot read source directory {}: {e}", dir.display()));
+
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|e| {
+            panic!(
+                "cannot read source directory entry in {}: {e}",
+                dir.display()
+            )
+        });
+        let path = entry.path();
+        if path.is_dir() {
+            collect_source_files(repo_root, &path, files);
+            continue;
+        }
+        if path.extension().is_some_and(|ext| ext == "rs") {
+            let relative = path
+                .strip_prefix(repo_root)
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "source path {} is not under repo root {}: {e}",
+                        path.display(),
+                        repo_root.display()
+                    )
+                })
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.insert(relative);
+        }
+    }
+}
+
+fn on_disk_source_files(root: &Path) -> BTreeSet<String> {
+    let mut files = BTreeSet::new();
+    collect_source_files(root, &root.join("src"), &mut files);
+    files
+}
+
+fn load_coverage_matrix_source_files(root: &Path) -> BTreeSet<String> {
+    let path = root.join("docs/TEST_COVERAGE_MATRIX.md");
+    let content = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+
+    content
+        .lines()
+        .filter_map(|line| {
+            let rest = line.strip_prefix("| `src/")?;
+            let (path_after_src, _) = rest.split_once('`')?;
+            Some(format!("src/{path_after_src}"))
+        })
+        .collect()
+}
+
+fn source_inventory_diff(
+    on_disk: &BTreeSet<String>,
+    documented: &BTreeSet<String>,
+) -> SourceInventoryDiff {
+    SourceInventoryDiff {
+        missing_from_matrix: on_disk.difference(documented).cloned().collect(),
+        stale_matrix_entries: documented.difference(on_disk).cloned().collect(),
+    }
+}
+
+fn format_source_inventory_diff(diff: &SourceInventoryDiff) -> String {
+    let mut sections = Vec::new();
+    if !diff.missing_from_matrix.is_empty() {
+        sections.push(format!(
+            "source files missing from docs/TEST_COVERAGE_MATRIX.md:\n{}",
+            diff.missing_from_matrix
+                .iter()
+                .map(|path| format!("  - {path}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+    }
+    if !diff.stale_matrix_entries.is_empty() {
+        sections.push(format!(
+            "stale docs/TEST_COVERAGE_MATRIX.md source rows:\n{}",
+            diff.stale_matrix_entries
+                .iter()
+                .map(|path| format!("  - {path}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+    }
+    sections.join("\n\n")
+}
+
+#[test]
+fn source_coverage_matrix_matches_current_src_inventory() {
+    let root = repo_root();
+    let on_disk = on_disk_source_files(&root);
+    let documented = load_coverage_matrix_source_files(&root);
+    let diff = source_inventory_diff(&on_disk, &documented);
+
+    assert!(diff.is_empty(), "{}", format_source_inventory_diff(&diff));
+    assert_eq!(
+        on_disk.len(),
+        documented.len(),
+        "source coverage matrix row count must match current src/**/*.rs inventory"
+    );
+}
+
+#[test]
+fn source_inventory_diff_reports_missing_and_stale_entries() {
+    let on_disk = BTreeSet::from(["src/a.rs".to_string(), "src/b.rs".to_string()]);
+    let documented = BTreeSet::from(["src/a.rs".to_string(), "src/stale.rs".to_string()]);
+
+    let diff = source_inventory_diff(&on_disk, &documented);
+
+    assert_eq!(
+        diff,
+        SourceInventoryDiff {
+            missing_from_matrix: vec!["src/b.rs".to_string()],
+            stale_matrix_entries: vec!["src/stale.rs".to_string()],
+        }
+    );
+    let message = format_source_inventory_diff(&diff);
+    assert!(message.contains("source files missing"));
+    assert!(message.contains("stale docs/TEST_COVERAGE_MATRIX.md source rows"));
+}
+
 #[test]
 fn no_unclassified_test_files() {
     let root = repo_root();

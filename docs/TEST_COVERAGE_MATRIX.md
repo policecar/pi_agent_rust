@@ -12,6 +12,7 @@ This document is the current source-file coverage inventory for `src/**/*.rs`. I
 - `rg -n '#\\[cfg\\(test\\)|mod tests' src -g '*.rs'` -> in-source unit-test inventory used for the `Unit` status below.
 - `python3 scripts/check_traceability_matrix.py` still fails on traceability/governance drift: 58.99% classified trace coverage, 57.89% E2E scenario coverage, and 114 classified-but-untraced test files. That broader repair is tracked by `bd-8t27h.3`.
 - `docs/coverage-baseline-map.json` is historical coverage evidence from 2026-02-14 and covers 107 source files; this markdown inventory now reflects the 110-file current tree.
+- Drift guard: `cargo test --test traceability_staleness source_coverage_matrix_matches_current_src_inventory`.
 
 ### Current Drift Check
 
