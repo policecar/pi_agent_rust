@@ -8,8 +8,8 @@
   },
   "summary": {
     "total_non_pass_extensions": 36,
-    "actionable": 26,
-    "non_actionable": 10,
+    "actionable": 22,
+    "non_actionable": 14,
     "by_severity": {
       "high": 9,
       "low": 5,
@@ -25,7 +25,7 @@
     {
       "rank": 1,
       "extension_id": "community/nicobailon-interview-tool",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_crash",
@@ -46,15 +46,15 @@
         "/remediation_buckets/missing_runtime_api/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Bundle expects local HTML artifact not currently packaged in runtime artifact set.",
+      "follow_up_bead": "bd-8t27h.14.2",
+      "tracking_issue": "bd-8t27h.14.2",
+      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-8t27h.14.2; rationale=Required form assets are packaged in tests/ext_conformance/artifacts/community/nicobailon-interview-tool/form and covered by focused ext_conformance_generated validation.",
       "canonical_failure": false
     },
     {
       "rank": 2,
       "extension_id": "npm/aliou-pi-guardrails",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_crash",
@@ -75,15 +75,15 @@
         "/remediation_buckets/missing_runtime_api/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Expected runtime shape diverges from shim implementation (`not a function`).",
+      "follow_up_bead": "bd-8t27h.14.2",
+      "tracking_issue": "bd-8t27h.14.2",
+      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-8t27h.14.2; rationale=Focused ignored conformance validation passes for npm/aliou-pi-guardrails under the current runtime shim.",
       "canonical_failure": false
     },
     {
       "rank": 3,
       "extension_id": "npm/aliou-pi-toolchain",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_crash",
@@ -104,15 +104,15 @@
         "/remediation_buckets/missing_runtime_api/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Runtime shim mismatch triggers callable-shape failure at activation.",
+      "follow_up_bead": "bd-8t27h.14.2",
+      "tracking_issue": "bd-8t27h.14.2",
+      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-8t27h.14.2; rationale=Focused ignored conformance validation passes for npm/aliou-pi-toolchain under the current runtime shim.",
       "canonical_failure": false
     },
     {
       "rank": 4,
       "extension_id": "npm/marckrenn-pi-sub-core",
-      "status": "actionable",
+      "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
       "severity": "high",
       "root_cause_family": "runtime_crash",
@@ -133,9 +133,9 @@
         "/remediation_buckets/missing_runtime_api/cause_codes",
         "/exception_policy/entries"
       ],
-      "follow_up_bead": "bd-1f42.4.4",
-      "tracking_issue": "bd-k5q5.3.9",
-      "fallback_validation": "exception_policy status=temporary cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-k5q5.3.9; rationale=Extension expects provider detection shape not fully represented in runtime stubs.",
+      "follow_up_bead": "bd-8t27h.14.2",
+      "tracking_issue": "bd-8t27h.14.2",
+      "fallback_validation": "exception_policy status=approved cause_code=runtime_error review_by=2026-06-30 tracking_issue=bd-8t27h.14.2; rationale=Virtual module stub for @marckrenn/pi-sub-shared now exposes provider/model detection arrays and the default-load manifest expectation matches conditional tool registration.",
       "canonical_failure": false
     },
     {

@@ -3710,7 +3710,7 @@
       "entry_path": "npm/marckrenn-pi-sub-core/index.ts",
       "source_tier": "npm-registry",
       "capabilities": {
-        "registers_tools": true,
+        "registers_tools": false,
         "registers_commands": true,
         "registers_flags": false,
         "registers_providers": false,

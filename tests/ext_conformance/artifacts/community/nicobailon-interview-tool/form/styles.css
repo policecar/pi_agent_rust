@@ -1,0 +1,48 @@
+:root {
+  --bg-body: #101418;
+  --bg-elevated: #182028;
+  --fg: #f4f7f9;
+  --fg-muted: #a8b4bd;
+  --fg-dim: #6e7b86;
+  --border-muted: #2e3a44;
+  --success: #66d19e;
+  --warning: #f5c86b;
+  --spacing: 24px;
+  --radius: 6px;
+  color-scheme: dark light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-body);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+
+#app {
+  min-height: 100vh;
+  padding: var(--spacing);
+}
+
+.interview-shell {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.question {
+  margin: 0 0 16px;
+  padding: 16px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+
+.question h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}

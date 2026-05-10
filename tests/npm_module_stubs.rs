@@ -373,6 +373,22 @@ fn marckrenn_shared_model_multipliers() {
     assert_eq!(result, "true");
 }
 
+#[test]
+fn marckrenn_shared_provider_metadata_detection_fields() {
+    let result = eval_ext(
+        r#"import { PROVIDERS, PROVIDER_METADATA } from "@marckrenn/pi-sub-shared";"#,
+        r#"(() => {
+            return PROVIDERS.every((provider) => {
+                const detection = PROVIDER_METADATA[provider] && PROVIDER_METADATA[provider].detection;
+                return detection &&
+                    Array.isArray(detection.providerTokens) &&
+                    Array.isArray(detection.modelTokens);
+            });
+        })()"#,
+    );
+    assert_eq!(result, "true");
+}
+
 // ─── turndown ───────────────────────────────────────────────────────────────
 
 #[test]

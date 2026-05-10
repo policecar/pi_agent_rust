@@ -1,0 +1,10 @@
+:root {
+  --bg-body: #fffff8;
+  --bg-elevated: #fbf8ef;
+  --fg: #111111;
+  --fg-muted: #55514a;
+  --fg-dim: #8a857a;
+  --border-muted: #d8d2c2;
+  --success: #207a54;
+  --warning: #996600;
+}

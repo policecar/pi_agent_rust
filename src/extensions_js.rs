@@ -13419,7 +13419,12 @@ export const PROVIDERS = ["anthropic", "openai", "google", "aws", "azure"];
 export const MODEL_MULTIPLIERS = {};
 const _meta = (name) => ({
     name, displayName: name.charAt(0).toUpperCase() + name.slice(1),
-    detection: { envVars: [], configPaths: [] },
+    detection: {
+        envVars: [],
+        configPaths: [],
+        providerTokens: [name],
+        modelTokens: [name],
+    },
     status: { operational: true },
 });
 export const PROVIDER_METADATA = Object.fromEntries(PROVIDERS.map(p => [p, _meta(p)]));
