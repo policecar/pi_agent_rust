@@ -879,7 +879,7 @@ fn agent_event_lifecycle_ordering() {
 
     harness
         .log()
-        .info("result", format!("Event sequence: {:?}", &*event_list));
+        .info("result", format!("Event sequence: {:?}", *event_list));
     write_jsonl_artifacts(&harness, test_name);
 }
 
