@@ -7,16 +7,16 @@
     "conformance_baseline": "tests/ext_conformance/reports/conformance_baseline.json"
   },
   "summary": {
-    "total_non_pass_extensions": 35,
-    "actionable": 21,
+    "total_non_pass_extensions": 32,
+    "actionable": 18,
     "non_actionable": 14,
     "by_severity": {
       "high": 9,
       "low": 5,
-      "medium": 21
+      "medium": 18
     },
     "by_owner": {
-      "pi-conformance-team": 22,
+      "pi-conformance-team": 19,
       "pi-parity-runtime": 13
     }
   },
@@ -353,66 +353,6 @@
     },
     {
       "rank": 12,
-      "extension_id": "npm/aliou-pi-linkup",
-      "status": "actionable",
-      "owner": "pi-conformance-team",
-      "severity": "medium",
-      "root_cause_family": "fixture_manifest_drift",
-      "root_cause_codes": [
-        "manifest_mismatch"
-      ],
-      "remediation": "Audit fixture expectations and extension registrations to restore parity.",
-      "fallback_guidance": "Regenerate expected registration fixtures so manifest and runtime outputs agree.",
-      "verification_tests": [
-        "cargo test --test conformance_regression_gate -- --nocapture",
-        "cargo test --test conformance_report -- --nocapture",
-        "cargo test --test ext_conformance_generated --features ext-conformance -- conformance_must_pass_gate --nocapture --exact",
-        "cargo test --test ext_conformance_generated --features ext-conformance -- conformance_provider_compat_matrix --nocapture --exact"
-      ],
-      "evidence_refs": [
-        "tests/ext_conformance/reports/conformance_baseline.json",
-        "/failure_classification/manifest_mismatch/extensions",
-        "/remediation_buckets/missing_fixture/cause_codes",
-        "/exception_policy/entries",
-        "canonical_223_failure_trio"
-      ],
-      "follow_up_bead": "bd-8t27h.19",
-      "tracking_issue": "bd-8t27h.19",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
-      "canonical_failure": true
-    },
-    {
-      "rank": 13,
-      "extension_id": "npm/aliou-pi-synthetic",
-      "status": "actionable",
-      "owner": "pi-conformance-team",
-      "severity": "medium",
-      "root_cause_family": "fixture_manifest_drift",
-      "root_cause_codes": [
-        "manifest_mismatch"
-      ],
-      "remediation": "Audit fixture expectations and extension registrations to restore parity.",
-      "fallback_guidance": "Regenerate expected registration fixtures so manifest and runtime outputs agree.",
-      "verification_tests": [
-        "cargo test --test conformance_regression_gate -- --nocapture",
-        "cargo test --test conformance_report -- --nocapture",
-        "cargo test --test ext_conformance_generated --features ext-conformance -- conformance_must_pass_gate --nocapture --exact",
-        "cargo test --test ext_conformance_generated --features ext-conformance -- conformance_provider_compat_matrix --nocapture --exact"
-      ],
-      "evidence_refs": [
-        "tests/ext_conformance/reports/conformance_baseline.json",
-        "/failure_classification/manifest_mismatch/extensions",
-        "/remediation_buckets/missing_fixture/cause_codes",
-        "/exception_policy/entries",
-        "canonical_223_failure_trio"
-      ],
-      "follow_up_bead": "bd-8t27h.19",
-      "tracking_issue": "bd-8t27h.19",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
-      "canonical_failure": true
-    },
-    {
-      "rank": 14,
       "extension_id": "npm/lsp-pi",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -441,7 +381,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 15,
+      "rank": 13,
       "extension_id": "npm/marckrenn-pi-sub-bar",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -470,7 +410,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 16,
+      "rank": 14,
       "extension_id": "npm/mitsupi",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -499,7 +439,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 17,
+      "rank": 15,
       "extension_id": "npm/pi-amplike",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -528,7 +468,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 18,
+      "rank": 16,
       "extension_id": "npm/pi-bash-confirm",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -557,7 +497,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 19,
+      "rank": 17,
       "extension_id": "npm/pi-extensions",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -586,37 +526,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 20,
-      "extension_id": "npm/pi-package-test",
-      "status": "actionable",
-      "owner": "pi-conformance-team",
-      "severity": "medium",
-      "root_cause_family": "fixture_manifest_drift",
-      "root_cause_codes": [
-        "manifest_mismatch"
-      ],
-      "remediation": "Audit fixture expectations and extension registrations to restore parity.",
-      "fallback_guidance": "Regenerate expected registration fixtures so manifest and runtime outputs agree.",
-      "verification_tests": [
-        "cargo test --test conformance_regression_gate -- --nocapture",
-        "cargo test --test conformance_report -- --nocapture",
-        "cargo test --test ext_conformance_generated --features ext-conformance -- conformance_must_pass_gate --nocapture --exact",
-        "cargo test --test ext_conformance_generated --features ext-conformance -- conformance_provider_compat_matrix --nocapture --exact"
-      ],
-      "evidence_refs": [
-        "tests/ext_conformance/reports/conformance_baseline.json",
-        "/failure_classification/manifest_mismatch/extensions",
-        "/remediation_buckets/missing_fixture/cause_codes",
-        "/exception_policy/entries",
-        "canonical_223_failure_trio"
-      ],
-      "follow_up_bead": "bd-8t27h.19",
-      "tracking_issue": "bd-8t27h.19",
-      "fallback_validation": "exception_policy status=temporary cause_code=manifest_mismatch review_by=2026-06-30 tracking_issue=bd-8t27h.19; rationale=Registered command set diverges from manifest expectation in current fixture corpus.",
-      "canonical_failure": true
-    },
-    {
-      "rank": 21,
+      "rank": 18,
       "extension_id": "npm/shitty-extensions",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -645,7 +555,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 22,
+      "rank": 19,
       "extension_id": "npm/tmustier-pi-arcade",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -674,7 +584,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 23,
+      "rank": 20,
       "extension_id": "npm/vaayne-agent-kit",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -703,7 +613,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 24,
+      "rank": 21,
       "extension_id": "third-party/aliou-pi-extensions",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -732,7 +642,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 25,
+      "rank": 22,
       "extension_id": "third-party/ben-vargas-pi-packages",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -761,7 +671,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 26,
+      "rank": 23,
       "extension_id": "third-party/charles-cooper-pi-extensions",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -790,7 +700,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 27,
+      "rank": 24,
       "extension_id": "third-party/marckrenn-pi-sub",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -819,7 +729,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 28,
+      "rank": 25,
       "extension_id": "third-party/openclaw-openclaw",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -848,7 +758,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 29,
+      "rank": 26,
       "extension_id": "third-party/pasky-pi-amplike",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -877,7 +787,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 30,
+      "rank": 27,
       "extension_id": "third-party/w-winter-dot314",
       "status": "actionable",
       "owner": "pi-conformance-team",
@@ -906,7 +816,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 31,
+      "rank": 28,
       "extension_id": "base_fixtures",
       "status": "tracked_non_actionable",
       "owner": "pi-conformance-team",
@@ -935,7 +845,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 32,
+      "rank": 29,
       "extension_id": "community/qualisero-background-notify",
       "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
@@ -964,7 +874,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 33,
+      "rank": 30,
       "extension_id": "community/qualisero-pi-agent-scip",
       "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
@@ -993,7 +903,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 34,
+      "rank": 31,
       "extension_id": "community/qualisero-safe-git",
       "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",
@@ -1022,7 +932,7 @@
       "canonical_failure": false
     },
     {
-      "rank": 35,
+      "rank": 32,
       "extension_id": "npm/aliou-pi-processes",
       "status": "tracked_non_actionable",
       "owner": "pi-parity-runtime",

@@ -5,20 +5,20 @@
   "extension_conformance": {
     "manifest_count": 223,
     "tested": 223,
-    "passed": 188,
-    "failed": 35,
-    "pass_rate_pct": 84.3,
+    "passed": 191,
+    "failed": 32,
+    "pass_rate_pct": 85.7,
     "by_tier": {
       "1": { "pass": 38, "fail": 0, "total": 38, "rate_pct": 100.0 },
       "2": { "pass": 85, "fail": 2, "total": 87, "rate_pct": 97.7 },
-      "3": { "pass": 60, "fail": 30, "total": 90, "rate_pct": 66.7 },
+      "3": { "pass": 63, "fail": 27, "total": 90, "rate_pct": 70.0 },
       "4": { "pass": 2, "fail": 1, "total": 3, "rate_pct": 66.7 },
       "5": { "pass": 3, "fail": 2, "total": 5, "rate_pct": 60.0 }
     },
     "by_source": {
       "official-pi-mono": { "pass": 60, "fail": 1, "total": 61, "rate_pct": 98.4, "note": "1 failure is base_fixtures (test fixture)" },
       "community": { "pass": 52, "fail": 6, "total": 58, "rate_pct": 89.7 },
-      "npm-registry": { "pass": 48, "fail": 27, "total": 75, "rate_pct": 64.0 },
+      "npm-registry": { "pass": 51, "fail": 24, "total": 75, "rate_pct": 68.0 },
       "third-party-github": { "pass": 17, "fail": 6, "total": 23, "rate_pct": 73.9 },
       "agents": { "pass": 0, "fail": 1, "total": 1, "rate_pct": 0.0 }
     }
@@ -51,20 +51,17 @@
   },
   "failure_classification": {
     "manifest_mismatch": {
-      "count": 21,
+      "count": 18,
       "description": "Extension loads but registers different commands/tools than manifest expects.",
       "extensions": [
         "agents-mikeastock/extensions",
         "community/prateekmedia-lsp",
-        "npm/aliou-pi-linkup",
-        "npm/aliou-pi-synthetic",
         "npm/lsp-pi",
         "npm/marckrenn-pi-sub-bar",
         "npm/mitsupi",
         "npm/pi-amplike",
         "npm/pi-bash-confirm",
         "npm/pi-extensions",
-        "npm/pi-package-test",
         "npm/shitty-extensions",
         "npm/tmustier-pi-arcade",
         "npm/vaayne-agent-kit",
@@ -134,22 +131,19 @@
       "scenarios": ["scn-status-line-001", "scn-git-checkpoint-001", "scn-antigravity-image-gen-002"]
     },
     "missing_fixture": {
-      "count": 21,
+      "count": 18,
       "description": "No test fixture (manifest/expected-output snapshot) matches actual registrations.",
       "remediation": "Audit manifests and author correct expected-output fixture files.",
       "cause_codes": ["manifest_mismatch"],
       "extensions": [
         "agents-mikeastock/extensions",
         "community/prateekmedia-lsp",
-        "npm/aliou-pi-linkup",
-        "npm/aliou-pi-synthetic",
         "npm/lsp-pi",
         "npm/marckrenn-pi-sub-bar",
         "npm/mitsupi",
         "npm/pi-amplike",
         "npm/pi-bash-confirm",
         "npm/pi-extensions",
-        "npm/pi-package-test",
         "npm/shitty-extensions",
         "npm/tmustier-pi-arcade",
         "npm/vaayne-agent-kit",
@@ -201,17 +195,17 @@
       ]
     },
     "summary": {
-      "total_classified": 35,
-      "actionable": 33,
+      "total_classified": 32,
+      "actionable": 30,
       "non_actionable": 5,
-      "note": "3 scenario failures overlap with extension failures. 35 = 21 + 9 + 5 extension failures; 3 scenario failures are all harness_gap."
+      "note": "3 scenario failures overlap with extension failures. 32 = 18 + 9 + 5 extension failures; 3 scenario failures are all harness_gap."
     }
   },
   "actionable_improvements": [
     {
       "category": "manifest_mismatch",
-      "action": "Audit manifests for 21 extensions where expected registrations don't match actual.",
-      "impact": "Would improve ext pass rate from 83.9% to 93.7%"
+      "action": "Audit manifests for 18 extensions where expected registrations don't match actual.",
+      "impact": "Would improve ext pass rate from 85.7% to 93.7%"
     },
     {
       "category": "missing_npm_package",
@@ -479,28 +473,6 @@
         "tracking_issue": "bd-8t27h.19"
       },
       {
-        "id": "npm/aliou-pi-linkup",
-        "kind": "extension",
-        "status": "temporary",
-        "cause_code": "manifest_mismatch",
-        "rationale": "Registered command set diverges from manifest expectation in current fixture corpus.",
-        "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
-        "owner": "pi-conformance-team",
-        "review_by": "2026-06-30",
-        "tracking_issue": "bd-8t27h.19"
-      },
-      {
-        "id": "npm/aliou-pi-synthetic",
-        "kind": "extension",
-        "status": "temporary",
-        "cause_code": "manifest_mismatch",
-        "rationale": "Registered command set diverges from manifest expectation in current fixture corpus.",
-        "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
-        "owner": "pi-conformance-team",
-        "review_by": "2026-06-30",
-        "tracking_issue": "bd-8t27h.19"
-      },
-      {
         "id": "npm/lsp-pi",
         "kind": "extension",
         "status": "temporary",
@@ -557,17 +529,6 @@
       },
       {
         "id": "npm/pi-extensions",
-        "kind": "extension",
-        "status": "temporary",
-        "cause_code": "manifest_mismatch",
-        "rationale": "Registered command set diverges from manifest expectation in current fixture corpus.",
-        "mitigation": "Audit fixture expectations and extension registrations to restore parity.",
-        "owner": "pi-conformance-team",
-        "review_by": "2026-06-30",
-        "tracking_issue": "bd-8t27h.19"
-      },
-      {
-        "id": "npm/pi-package-test",
         "kind": "extension",
         "status": "temporary",
         "cause_code": "manifest_mismatch",
