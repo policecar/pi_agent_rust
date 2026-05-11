@@ -6,7 +6,7 @@
     {
       "request": {
         "method": "POST",
-        "url": "https://test-resource.openai.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-02-15-preview",
+        "url": "https://test-resource.openai.azure.com/openai/deployments/gpt-4o-mini/chat/completions?api-version=2024-12-01-preview",
         "headers": [
           [
             "api-key",
