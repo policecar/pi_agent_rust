@@ -69,6 +69,20 @@ missing, saturated, or unhealthy for a heavy command, the wrapper returns a
 machine-readable `backoff` decision instead of silently starting a broad local
 Cargo run.
 
+Before an RCH-backed gate consumes checked-in test artifacts or emits report
+bundles, run the artifact sync preflight:
+
+```bash
+python3 scripts/check_rch_artifact_sync.py --json
+```
+
+The preflight is a dry run over `.rchignore`. It fails when required artifact
+paths such as `tests/ext_conformance/artifacts/` would be excluded from the
+worker mirror, and the JSON output reports each required path, matched rule, and
+the exact ignore line that caused a failure. Root artifact excludes must stay
+anchored as `/artifacts/` and `/artifacts/**` so they do not hide nested
+test-owned artifact directories.
+
 ### Conformance Tests
 
 Conformance tests validate that Pi behaves identically to the legacy TypeScript implementation for tools, extensions, and core logic. Tests are organized in tiers:
