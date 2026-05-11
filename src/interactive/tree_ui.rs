@@ -336,8 +336,6 @@ impl PiApp {
                 .unwrap_or_else(|| "root".to_string());
             drop(session_guard);
 
-            self.spawn_save_session();
-
             if let Ok(mut agent_guard) = self.agent.try_lock() {
                 agent_guard.replace_messages(agent_messages);
             }
@@ -354,6 +352,7 @@ impl PiApp {
             if let Err(message) = self.sync_runtime_selection_from_session_header() {
                 self.status_message = Some(message);
             }
+            self.spawn_save_session();
             self.scroll_to_bottom();
 
             if let Some(text) = pending.editor_text {

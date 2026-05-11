@@ -32,7 +32,7 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -247,6 +247,31 @@ fn parse_scroll_percent(pane: &str) -> Option<u32> {
     let open = marker.find('[')?;
     let close = marker[open + 1..].find('%')?;
     marker[open + 1..open + 1 + close].parse::<u32>().ok()
+}
+
+fn wait_for_scroll_percent(
+    session: &TuiSession,
+    timeout: Duration,
+    predicate: impl Fn(u32) -> bool,
+) -> (u32, String) {
+    let start = Instant::now();
+    let mut last_percent = None;
+
+    loop {
+        let pane = session.tmux.capture_pane();
+        if let Some(percent) = parse_scroll_percent(&pane) {
+            last_percent = Some(percent);
+            if predicate(percent) {
+                return (percent, pane);
+            }
+        }
+
+        assert!(
+            start.elapsed() <= timeout,
+            "Timed out waiting for scroll percentage transition; last percent: {last_percent:?}\nPane:\n{pane}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn vcr_scroll_finalize_response() -> String {
@@ -1894,16 +1919,21 @@ fn e2e_tui_stream_scroll_and_finalize_vcr() {
     );
 
     session.harness.section("scroll interaction");
-    let page_up = session.send_key_and_wait("page-up", "PageUp", "PgUp/PgDn", COMMAND_TIMEOUT);
-    let page_up_percent = parse_scroll_percent(&page_up).expect("expected scroll indicator");
+    session.send_key_and_wait("page-up", "PageUp", "PgUp/PgDn", COMMAND_TIMEOUT);
+    let (page_up_percent, page_up) =
+        wait_for_scroll_percent(&session, COMMAND_TIMEOUT, |percent| percent < 100);
+    assert!(
+        page_up.contains("PgUp/PgDn") && page_up.contains("to scroll"),
+        "Expected scroll indicator after PageUp.\nPane:\n{page_up}"
+    );
     assert!(
         page_up_percent < 100,
         "Expected PageUp to move away from bottom, got {page_up_percent}%"
     );
 
-    let page_down =
-        session.send_key_and_wait("page-down", "PageDown", "PgUp/PgDn", COMMAND_TIMEOUT);
-    let page_down_percent = parse_scroll_percent(&page_down).expect("expected scroll indicator");
+    session.send_key_and_wait("page-down", "PageDown", "PgUp/PgDn", COMMAND_TIMEOUT);
+    let (page_down_percent, _page_down) =
+        wait_for_scroll_percent(&session, COMMAND_TIMEOUT, |percent| percent == 100);
     assert_eq!(
         page_down_percent, 100,
         "Expected PageDown to return to bottom"
