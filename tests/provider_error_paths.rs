@@ -303,7 +303,7 @@ fn gemini_http_500_is_reported() {
     let model = "gemini-test";
     let credential = "test-key";
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={credential}"
+        "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
     );
     let (client, _dir) = vcr_client(
         "gemini_http_500_is_reported",
@@ -474,7 +474,7 @@ fn gemini_invalid_json_event_fails_stream() {
     let model = "gemini-test";
     let credential = "test-key";
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={credential}"
+        "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse"
     );
     let (client, _dir) = vcr_client(
         "gemini_invalid_json_event_fails_stream",
@@ -521,7 +521,7 @@ fn openai_invalid_utf8_in_sse_is_reported() {
         openai_body("gpt-test", "Trigger invalid utf8."),
         200,
         sse_headers(),
-        vec![b"data: \xFF\xFF\n\n".to_vec()],
+        vec![b"\xFF\xFF\n\n".to_vec()],
     );
 
     common::run_async(async move {

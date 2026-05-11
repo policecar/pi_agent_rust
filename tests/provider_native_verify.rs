@@ -3787,7 +3787,7 @@ mod azure_smoke {
 
     const TEST_RESOURCE: &str = "test-resource";
     const TEST_DEPLOYMENT: &str = "gpt-4o-mini";
-    const TEST_API_VERSION: &str = "2024-02-15-preview";
+    const TEST_API_VERSION: &str = "2024-12-01-preview";
 
     fn azure_url() -> String {
         format!(
@@ -4613,12 +4613,10 @@ mod gemini_smoke {
     use pi::providers::gemini::GeminiProvider;
 
     const TEST_MODEL: &str = "gemini-1.5-flash";
-    // Must match the api_key used in StreamOptions during VCR playback.
-    const TEST_API_KEY: &str = "vcr-playback";
 
     fn gemini_url() -> String {
         format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{TEST_MODEL}:streamGenerateContent?alt=sse&key={TEST_API_KEY}"
+            "https://generativelanguage.googleapis.com/v1beta/models/{TEST_MODEL}:streamGenerateContent?alt=sse"
         )
     }
 

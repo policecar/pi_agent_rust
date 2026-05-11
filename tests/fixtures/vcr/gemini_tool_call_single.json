@@ -6,7 +6,7 @@
     {
       "request": {
         "method": "POST",
-        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key=test-key",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse",
         "headers": [
           ["Content-Type", "application/json"],
           ["Accept", "text/event-stream"]

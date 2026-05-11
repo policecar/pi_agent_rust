@@ -973,7 +973,7 @@ fn setup_gemini(
     response: MockHttpResponse,
 ) -> (Arc<dyn pi::provider::Provider>, common::MockHttpServer) {
     let server = harness.start_mock_http_server();
-    // Gemini uses /models/<model>:streamGenerateContent?alt=sse&key=<key>
+    // Gemini sends the API key in x-goog-api-key and keeps only alt=sse in the URL.
     server.add_route("POST", "/models/fail-test:streamGenerateContent", response);
     let base_url = server.base_url();
     let mut entry = make_entry("google", "fail-test", &base_url);
