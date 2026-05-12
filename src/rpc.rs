@@ -220,6 +220,7 @@ fn rpc_agent_event_handler(
     extensions: Option<ExtensionManager>,
 ) -> impl Fn(AgentEvent) + Send + Sync + 'static {
     let coalescer = extensions.map(crate::extensions::EventCoalescer::new);
+    let output_pressure = Arc::new(std::sync::Mutex::new(RpcOutputPressureState::default()));
 
     move |event: AgentEvent| {
         let serialized = if let AgentEvent::AgentEnd {
@@ -241,10 +242,130 @@ fn rpc_agent_event_handler(
                 .to_string()
             })
         };
-        let _ = out_tx.send(serialized);
+        output_pressure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .send_agent_event(&out_tx, &event, serialized);
         if let Some(coalescer) = &coalescer {
             coalescer.dispatch_agent_event_lazy(&event, &runtime_handle);
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RpcOutputPressureClass {
+    Semantic,
+    MessageDelta,
+    ToolUpdate,
+}
+
+#[derive(Debug)]
+struct PendingRpcPressureEvent {
+    class: RpcOutputPressureClass,
+    serialized: String,
+}
+
+#[derive(Debug, Default)]
+struct RpcOutputPressureState {
+    pending: Vec<PendingRpcPressureEvent>,
+    coalesced_message_delta_count: u64,
+    coalesced_tool_update_count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RpcOutputPressureSnapshot {
+    pending: usize,
+    message_deltas_coalesced: u64,
+    tool_updates_coalesced: u64,
+}
+
+impl RpcOutputPressureState {
+    fn send_agent_event(
+        &mut self,
+        tx: &std::sync::mpsc::SyncSender<String>,
+        event: &AgentEvent,
+        serialized: String,
+    ) {
+        match rpc_output_pressure_class(event) {
+            RpcOutputPressureClass::Semantic => {
+                self.flush_pending(tx);
+                let _ = tx.send(serialized);
+            }
+            class => self.try_send_or_coalesce(tx, class, serialized),
+        }
+    }
+
+    fn try_send_or_coalesce(
+        &mut self,
+        tx: &std::sync::mpsc::SyncSender<String>,
+        class: RpcOutputPressureClass,
+        serialized: String,
+    ) {
+        match tx.try_send(serialized) {
+            Ok(()) => {}
+            Err(std::sync::mpsc::TrySendError::Full(serialized)) => {
+                self.coalesce(class, serialized);
+            }
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                self.pending.clear();
+            }
+        }
+    }
+
+    fn coalesce(&mut self, class: RpcOutputPressureClass, serialized: String) {
+        match class {
+            RpcOutputPressureClass::MessageDelta => {
+                self.coalesced_message_delta_count =
+                    self.coalesced_message_delta_count.saturating_add(1);
+            }
+            RpcOutputPressureClass::ToolUpdate => {
+                self.coalesced_tool_update_count =
+                    self.coalesced_tool_update_count.saturating_add(1);
+            }
+            RpcOutputPressureClass::Semantic => {}
+        }
+
+        if let Some(pending) = self
+            .pending
+            .iter_mut()
+            .find(|pending| pending.class == class)
+        {
+            pending.serialized = serialized;
+        } else {
+            self.pending
+                .push(PendingRpcPressureEvent { class, serialized });
+        }
+    }
+
+    fn flush_pending(&mut self, tx: &std::sync::mpsc::SyncSender<String>) {
+        let pending = std::mem::take(&mut self.pending);
+        for event in pending {
+            if tx.send(event.serialized).is_err() {
+                break;
+            }
+        }
+    }
+
+    fn snapshot(&self) -> RpcOutputPressureSnapshot {
+        RpcOutputPressureSnapshot {
+            pending: self.pending.len(),
+            message_deltas_coalesced: self.coalesced_message_delta_count,
+            tool_updates_coalesced: self.coalesced_tool_update_count,
+        }
+    }
+}
+
+const fn rpc_output_pressure_class(event: &AgentEvent) -> RpcOutputPressureClass {
+    match event {
+        AgentEvent::MessageUpdate {
+            assistant_message_event:
+                crate::model::AssistantMessageEvent::TextDelta { .. }
+                | crate::model::AssistantMessageEvent::ThinkingDelta { .. }
+                | crate::model::AssistantMessageEvent::ToolCallDelta { .. },
+            ..
+        } => RpcOutputPressureClass::MessageDelta,
+        AgentEvent::ToolExecutionUpdate { .. } => RpcOutputPressureClass::ToolUpdate,
+        _ => RpcOutputPressureClass::Semantic,
     }
 }
 
@@ -5170,8 +5291,8 @@ mod tests {
     use crate::agent::{Agent, AgentConfig};
     use crate::auth::AuthCredential;
     use crate::model::{
-        AssistantMessage, ContentBlock, ImageContent, StopReason, TextContent, ThinkingLevel,
-        Usage, UserContent, UserMessage,
+        AssistantMessage, AssistantMessageEvent, ContentBlock, ImageContent, Message, StopReason,
+        TextContent, ThinkingLevel, Usage, UserContent, UserMessage,
     };
     use crate::package_manager::PackageManager;
     use crate::provider::{InputType, Model, ModelCost, Provider};
@@ -5188,6 +5309,9 @@ mod tests {
     use std::sync::mpsc::{Receiver, TryRecvError};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
+
+    const RPC_OUTPUT_PRESSURE_SCHEMA_V1: &str = "pi.rpc_output_pressure.v1";
+    const RPC_OUTPUT_PRESSURE_DEBUG_BUDGET_US: u64 = 50_000;
 
     // -----------------------------------------------------------------------
     // Helper builders
@@ -5392,6 +5516,110 @@ mod tests {
     fn build_test_agent_session(session: Session) -> AgentSession {
         let provider: Arc<dyn Provider> = Arc::new(NoopProvider);
         build_test_agent_session_with_provider(session, provider)
+    }
+
+    fn rpc_test_assistant_message(text: &str) -> Arc<AssistantMessage> {
+        Arc::new(AssistantMessage {
+            content: vec![ContentBlock::Text(TextContent::new(text.to_string()))],
+            api: "test-api".to_string(),
+            provider: "test-provider".to_string(),
+            model: "test-model".to_string(),
+            usage: Usage::default(),
+            stop_reason: StopReason::Stop,
+            error_message: None,
+            timestamp: 0,
+        })
+    }
+
+    fn rpc_text_delta_event(full_text: &str, delta: &str) -> AgentEvent {
+        let partial = rpc_test_assistant_message(full_text);
+        AgentEvent::MessageUpdate {
+            message: Message::Assistant(Arc::clone(&partial)),
+            assistant_message_event: AssistantMessageEvent::TextDelta {
+                content_index: 0,
+                delta: delta.to_string(),
+                partial,
+            },
+        }
+    }
+
+    fn rpc_tool_update_event(output: &str) -> AgentEvent {
+        AgentEvent::ToolExecutionUpdate {
+            tool_call_id: "tool-1".to_string(),
+            tool_name: "bash".to_string(),
+            args: json!({ "cmd": "printf hi" }),
+            partial_result: crate::tools::ToolOutput {
+                content: vec![ContentBlock::Text(TextContent::new(output.to_string()))],
+                details: None,
+                is_error: false,
+            },
+        }
+    }
+
+    fn rpc_agent_end_event(final_text: &str) -> AgentEvent {
+        let message = rpc_test_assistant_message(final_text);
+        AgentEvent::AgentEnd {
+            session_id: Arc::from("rpc-pressure-session"),
+            messages: vec![Message::Assistant(message)],
+            error: None,
+        }
+    }
+
+    fn write_rpc_pressure_evidence(entry: &Value) {
+        let path = std::env::var_os("PI_RPC_OUTPUT_PRESSURE_EVIDENCE")
+            .filter(|path| !path.as_os_str().is_empty())
+            .map_or_else(
+                || {
+                    let base = std::env::var_os("CARGO_TARGET_DIR")
+                        .map(PathBuf::from)
+                        .filter(|path| !path.as_os_str().is_empty())
+                        .unwrap_or_else(|| {
+                            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target")
+                        });
+                    base.join("perf").join("rpc_output_pressure.jsonl")
+                },
+                |path| {
+                    let path = PathBuf::from(path);
+                    if path.is_absolute() {
+                        path
+                    } else {
+                        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(path)
+                    }
+                },
+            );
+
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).expect("create rpc pressure evidence dir");
+        }
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("rpc_output_pressure.jsonl");
+        let temp_id = uuid::Uuid::new_v4();
+        let temp_path = path.with_file_name(format!(".{file_name}.{temp_id}.tmp"));
+        let serialized = format!(
+            "{}\n",
+            serde_json::to_string(entry).expect("serialize evidence")
+        );
+        let mut file =
+            std::fs::File::create_new(&temp_path).expect("create rpc pressure evidence temp file");
+        std::io::Write::write_all(&mut file, serialized.as_bytes())
+            .expect("write rpc pressure evidence temp file");
+        file.sync_all()
+            .expect("sync rpc pressure evidence temp file");
+        drop(file);
+        std::fs::rename(&temp_path, &path).expect("persist rpc pressure evidence");
+    }
+
+    fn rpc_percentile_index(len: usize, numerator: usize, denominator: usize) -> usize {
+        if len == 0 {
+            return 0;
+        }
+        let rank = len
+            .saturating_mul(numerator)
+            .saturating_add(denominator.saturating_sub(1))
+            / denominator.max(1);
+        rank.saturating_sub(1).min(len - 1)
     }
 
     fn build_test_rpc_options(
@@ -6528,6 +6756,131 @@ export default function init(pi) {
         assert!(try_send_line_with_backpressure(&tx, partial_json));
         drop(tx);
         recv_handle.join().expect("receiver thread should finish");
+    }
+
+    // -----------------------------------------------------------------------
+    // RpcOutputPressureState
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rpc_output_pressure_classifies_only_low_value_updates_as_sheddable() {
+        assert_eq!(
+            rpc_output_pressure_class(&rpc_text_delta_event("hello", "o")),
+            RpcOutputPressureClass::MessageDelta
+        );
+        assert_eq!(
+            rpc_output_pressure_class(&rpc_tool_update_event("partial output")),
+            RpcOutputPressureClass::ToolUpdate
+        );
+        assert_eq!(
+            rpc_output_pressure_class(&rpc_agent_end_event("final")),
+            RpcOutputPressureClass::Semantic
+        );
+    }
+
+    #[test]
+    fn rpc_output_pressure_coalesces_stream_deltas_without_blocking() {
+        let (tx, _rx) = std::sync::mpsc::sync_channel::<String>(1);
+        tx.try_send("occupied".to_string())
+            .expect("seed occupied output slot");
+        let mut pressure = RpcOutputPressureState::default();
+        let mut latencies_us = Vec::new();
+
+        for idx in 0..256 {
+            let event = rpc_text_delta_event(&format!("full-{idx}"), &format!("delta-{idx}"));
+            let serialized = agent_event(event.clone());
+            let start = Instant::now();
+            pressure.send_agent_event(&tx, &event, serialized);
+            latencies_us.push(u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX));
+        }
+
+        let mut sorted = latencies_us.clone();
+        sorted.sort_unstable();
+        let p99_us = sorted[rpc_percentile_index(sorted.len(), 99, 100)];
+        let snapshot = pressure.snapshot();
+        assert_eq!(snapshot.pending, 1);
+        assert_eq!(snapshot.message_deltas_coalesced, 256);
+        assert_eq!(snapshot.tool_updates_coalesced, 0);
+        assert!(
+            p99_us <= RPC_OUTPUT_PRESSURE_DEBUG_BUDGET_US,
+            "coalescable RPC updates should not block on a full output channel: p99={p99_us}us"
+        );
+
+        write_rpc_pressure_evidence(&json!({
+            "schema": RPC_OUTPUT_PRESSURE_SCHEMA_V1,
+            "case": "coalesce_stream_deltas_full_output_channel",
+            "input_events": 256,
+            "pending_events": snapshot.pending,
+            "coalesced_message_delta_count": snapshot.message_deltas_coalesced,
+            "coalesced_tool_update_count": snapshot.tool_updates_coalesced,
+            "latency_budget_us": RPC_OUTPUT_PRESSURE_DEBUG_BUDGET_US,
+            "p99_us": p99_us,
+            "verdict": "pass",
+            "semantic_events_preserved_by": "pending update flushed before next semantic event and final agent_end carries complete messages",
+        }));
+    }
+
+    #[test]
+    fn rpc_output_pressure_flushes_latest_update_before_semantic_event() {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<String>(1);
+        tx.try_send("occupied".to_string())
+            .expect("seed occupied output slot");
+        let mut pressure = RpcOutputPressureState::default();
+
+        let first = rpc_text_delta_event("first", "first");
+        pressure.send_agent_event(&tx, &first, agent_event(first.clone()));
+        let latest = rpc_text_delta_event("latest full content", "latest");
+        pressure.send_agent_event(&tx, &latest, agent_event(latest.clone()));
+
+        let recv_handle = std::thread::spawn(move || {
+            let mut received = Vec::new();
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while received.len() < 3 && Instant::now() < deadline {
+                match rx.try_recv() {
+                    Ok(line) => received.push(line),
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                }
+            }
+            received
+        });
+
+        let done = rpc_agent_end_event("latest full content");
+        pressure.send_agent_event(&tx, &done, agent_event(done.clone()));
+        drop(tx);
+
+        let received = recv_handle.join().expect("receiver thread should finish");
+        assert_eq!(
+            received.first().map(String::as_str),
+            Some("occupied"),
+            "seeded output should remain first"
+        );
+        assert_eq!(
+            received.len(),
+            3,
+            "latest update plus semantic end must flush"
+        );
+
+        let update: Value = serde_json::from_str(&received[1]).expect("parse flushed update");
+        assert_eq!(update["type"], "message_update");
+        assert_eq!(
+            update["message"]["content"][0]["text"],
+            "latest full content"
+        );
+        assert_eq!(
+            update["assistantMessageEvent"]["delta"], "latest",
+            "the newest live delta should replace stale pending deltas"
+        );
+
+        let done: Value = serde_json::from_str(&received[2]).expect("parse semantic end");
+        assert_eq!(done["type"], "agent_end");
+        assert_eq!(
+            done["messages"][0]["content"][0]["text"],
+            "latest full content"
+        );
+        assert_eq!(pressure.snapshot().pending, 0);
     }
 
     // -----------------------------------------------------------------------

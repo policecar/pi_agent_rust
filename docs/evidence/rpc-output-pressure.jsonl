@@ -1,0 +1,1 @@
+{"case":"coalesce_stream_deltas_full_output_channel","coalesced_message_delta_count":256,"coalesced_tool_update_count":0,"input_events":256,"latency_budget_us":50000,"p99_us":0,"pending_events":1,"schema":"pi.rpc_output_pressure.v1","semantic_events_preserved_by":"pending update flushed before next semantic event and final agent_end carries complete messages","verdict":"pass"}
