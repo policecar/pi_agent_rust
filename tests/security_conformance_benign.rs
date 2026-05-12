@@ -956,7 +956,10 @@ fn security_gate_waiver_rejects_missing_bead() {
 const WAIVER_MAX_DURATION_DAYS: i64 = 30;
 const WAIVER_VALID_SCOPES: &[&str] = &["full", "preflight", "both"];
 
-fn waiver_dates_relative_to_today(created_offset_days: i64, expires_offset_days: i64) -> (String, String) {
+fn waiver_dates_relative_to_today(
+    created_offset_days: i64,
+    expires_offset_days: i64,
+) -> (String, String) {
     let today = chrono::Utc::now().date_naive();
     (
         format_waiver_date(today + chrono::Duration::days(created_offset_days)),

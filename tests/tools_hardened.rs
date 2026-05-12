@@ -690,10 +690,7 @@ mod bash_hardened {
                 .expect("exit 1 should return a tool error output");
             assert!(output.is_error, "exit 1 must set is_error");
             let message = get_text(&output.content);
-            assert!(
-                message.contains("code 1"),
-                "should report exit code 1"
-            );
+            assert!(message.contains("code 1"), "should report exit code 1");
 
             // Exit 127 (command not found convention)
             let input = serde_json::json!({"command": "exit 127"});
@@ -703,10 +700,7 @@ mod bash_hardened {
                 .expect("exit 127 should return a tool error output");
             assert!(output.is_error, "exit 127 must set is_error");
             let message = get_text(&output.content);
-            assert!(
-                message.contains("127"),
-                "should report exit code 127"
-            );
+            assert!(message.contains("127"), "should report exit code 127");
 
             h.log().info("verify", "all exit code boundaries passed");
         });

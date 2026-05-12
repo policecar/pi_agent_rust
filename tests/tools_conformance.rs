@@ -284,11 +284,17 @@ mod read_tool {
             let subset_text = get_text_content(&subset.content);
             let full_lines: Vec<&str> = full_text
                 .lines()
-                .filter(|line| line.split_once(':').is_some_and(|(tag, _)| tag.contains('#')))
+                .filter(|line| {
+                    line.split_once(':')
+                        .is_some_and(|(tag, _)| tag.contains('#'))
+                })
                 .collect();
             let subset_lines: Vec<&str> = subset_text
                 .lines()
-                .filter(|line| line.split_once(':').is_some_and(|(tag, _)| tag.contains('#')))
+                .filter(|line| {
+                    line.split_once(':')
+                        .is_some_and(|(tag, _)| tag.contains('#'))
+                })
                 .collect();
             let start = 2; // offset 3 => 0-indexed 2
             let end = start + 2;
