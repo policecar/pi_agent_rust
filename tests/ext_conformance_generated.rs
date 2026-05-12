@@ -366,6 +366,7 @@ fn snapshot_registrations(manager: &ExtensionManager) -> Value {
     let flags = manager.list_flags();
     let providers = manager.extension_providers();
     let tool_defs = manager.extension_tool_defs();
+    let event_hooks = manager.list_event_hooks();
     let models: Vec<Value> = manager
         .extension_model_entries()
         .into_iter()
@@ -378,6 +379,8 @@ fn snapshot_registrations(manager: &ExtensionManager) -> Value {
         "flags": flags,
         "providers": providers,
         "tool_defs": tool_defs,
+        "event_handlers": event_hooks.clone(),
+        "event_hooks": event_hooks,
         "models": models,
     })
 }
