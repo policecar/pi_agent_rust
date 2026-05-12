@@ -46,6 +46,8 @@ AUTOPILOT_INPUT_PACK_CONTRACT_SCHEMA = "pi.swarm.autopilot_input_pack_contract.v
 AUTOPILOT_PLAN_SCHEMA = "pi.swarm.autopilot_plan.v1"
 AUTOPILOT_PLAN_CONTRACT_SCHEMA = "pi.swarm.autopilot_plan_contract.v1"
 BUDGET_DRIFT_SCHEMA = "pi.swarm.budget_drift.v1"
+AUTOPILOT_E2E_SCHEMA = "pi.swarm.autopilot_e2e.v1"
+AUTOPILOT_E2E_EVENT_SCHEMA = "pi.swarm.autopilot_e2e.event.v1"
 RUNPACK_CONTRACT_PATH = Path("docs/contracts/swarm-operator-runpack-contract.json")
 AUTOPILOT_INPUT_PACK_CONTRACT_PATH = Path(
     "docs/contracts/swarm-autopilot-input-pack-contract.json"
@@ -166,6 +168,15 @@ AUTOPILOT_PLAN_DANGEROUS_COMMAND_FRAGMENTS = (
     "git reset --hard",
     "git clean -fd",
     "rm -rf",
+)
+AUTOPILOT_E2E_REQUIRED_SCENARIOS = (
+    "healthy_ready_claim",
+    "empty_ready_queue",
+    "degraded_agent_mail_soft_lock",
+    "saturated_rch_queue",
+    "stale_in_progress_bead",
+    "unrelated_dirty_worktree",
+    "malformed_source_fail_closed",
 )
 WORK_PARTITION_INSPECT_SENTINEL = "<inspect-bead-before-reserving>"
 WORK_SURFACE_RULES: tuple[dict[str, Any], ...] = (
@@ -5042,6 +5053,878 @@ def assert_autopilot_plan_golden(plan: dict[str, Any], workspace: Path) -> None:
         )
 
 
+def assert_no_dangerous_runnable_commands(commands: list[dict[str, Any]]) -> None:
+    for command in commands:
+        text = str(command.get("command") or "").lower()
+        for fragment in AUTOPILOT_PLAN_DANGEROUS_COMMAND_FRAGMENTS:
+            assert fragment not in text, (
+                f"autopilot E2E attempted a dangerous command fragment: {fragment}"
+            )
+
+
+def append_autopilot_e2e_event(events_path: Path, event: dict[str, Any]) -> None:
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    with events_path.open("a", encoding="utf-8") as handle:
+        handle.write(json_dumps(event) + "\n")
+
+
+def autopilot_e2e_event(
+    *,
+    scenario_id: str,
+    phase: str,
+    event: str,
+    status: str,
+    generated_at: str,
+    correlation_id: str,
+    command_provenance: list[dict[str, Any]] | None = None,
+    selected_action: str | None = None,
+    evidence_paths: list[str] | None = None,
+    redaction_summary: dict[str, Any] | None = None,
+    budget_state: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "schema": AUTOPILOT_E2E_EVENT_SCHEMA,
+        "generated_at": generated_at,
+        "correlation_id": correlation_id,
+        "scenario_id": scenario_id,
+        "phase": phase,
+        "event": event,
+        "status": status,
+        "command_provenance": command_provenance or [],
+        "selected_action": selected_action,
+        "evidence_paths": evidence_paths or [],
+        "redaction_summary": redaction_summary or {"redacted_count": 0, "fields": []},
+        "budget_state": budget_state or {},
+        "details": details or {},
+    }
+
+
+def autopilot_e2e_preflight(generated_at: str) -> dict[str, Any]:
+    return {
+        "schema": HOST_PREFLIGHT_SCHEMA,
+        "generated_at": generated_at,
+        "status": "pass",
+        "cpu": {
+            "logical_cores": 16,
+            "effective_cores": 8,
+            "cgroup_quota": {"quota_cores": 8.0, "unlimited": False},
+            "cpuset": {"cpu_count": 8},
+        },
+        "numa": {"node_count": 2, "nodes": [0, 1]},
+        "memory": {
+            "cgroup_limit_bytes": 34359738368,
+            "effective_limit_bytes": 34359738368,
+            "unlimited": False,
+        },
+        "tmpfs_headroom": {
+            "expected_root": "/data/tmp/pi_agent_rust_cargo",
+            "paths": [
+                {
+                    "env_name": "CARGO_TARGET_DIR",
+                    "path": "/data/tmp/pi_agent_rust_cargo/e2e/target",
+                    "ready": True,
+                    "available_kb": 52428800,
+                },
+                {
+                    "env_name": "TMPDIR",
+                    "path": "/data/tmp/pi_agent_rust_cargo/e2e/tmp",
+                    "ready": True,
+                    "available_kb": 52428800,
+                },
+            ],
+        },
+        "recommended_budgets": {
+            "agent_concurrency": 4,
+            "tool_concurrency": 8,
+            "extension_hostcall_lanes": 16,
+            "rch_verification_fanout": 2,
+            "max_queue_depth": 2,
+            "max_rss_bytes": 17179869184,
+            "plan_confidence": "high",
+        },
+        "critical_failures": [],
+        "source_errors": [],
+    }
+
+
+def autopilot_e2e_doctor_payload(
+    generated_at: str,
+    preflight: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "overall": "pass",
+        "summary": {"pass": 2, "info": 0, "warn": 0, "fail": 0},
+        "findings": [
+            {
+                "category": "swarm",
+                "severity": "pass",
+                "title": "Agent Mail probe fixture",
+                "detail": "token=super-secret-value must be redacted",
+                "remediation": None,
+                "data": {"schema": "pi.doctor.agent_mail_build_slots.v1", "active": 0},
+                "fixability": "not_fixable",
+            },
+            {
+                "category": "swarm",
+                "severity": "pass",
+                "title": "Swarm resource preflight ready",
+                "detail": "resource profile accepted",
+                "remediation": None,
+                "data": preflight,
+                "fixability": "not_fixable",
+            },
+        ],
+    }
+
+
+def autopilot_e2e_cargo_payload(
+    *,
+    decision: str = "admit",
+    queue_action: str = "proceed",
+    slot_pressure: str = "available",
+    queue_depth: int = 0,
+) -> dict[str, Any]:
+    return {
+        "schema": "pi.cargo_headroom.admission.v1",
+        "decision": decision,
+        "reason": "autopilot_e2e_fixture",
+        "requested_runner": "rch",
+        "resolved_runner": "rch" if decision == "admit" else "none",
+        "command_class": "heavy",
+        "allow_local_fallback": False,
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/e2e/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/e2e/tmp",
+        "rch_queue_forecast": {
+            "schema": "pi.cargo_headroom.rch_queue_forecast.v1",
+            "status": "ok",
+            "recommended_action": queue_action,
+            "reason": f"e2e_{queue_action}",
+            "slot_pressure": slot_pressure,
+            "queue_depth": queue_depth,
+            "active_builds": queue_depth,
+            "queued_builds": max(0, queue_depth - 2),
+            "slots_available": 0 if slot_pressure == "saturated" else 8,
+            "slots_total": 8,
+            "workers_healthy": 8,
+            "workers_total": 8,
+            "estimated_wait_seconds": 240 if queue_action == "backoff" else 0,
+        },
+    }
+
+
+def autopilot_e2e_agent_mail_status(
+    generated_at: str,
+    *,
+    status: str = "ok",
+    health_level: str = "green",
+    issue: str | None = None,
+) -> dict[str, Any]:
+    payload = {
+        "schema": "pi.agent_mail.robot_status.v1",
+        "generated_at": generated_at,
+        "status": status,
+        "health_level": health_level,
+        "registration_token": "super-secret-registration-token",
+    }
+    if issue is not None:
+        payload["issue"] = issue
+    return payload
+
+
+def autopilot_e2e_agent_mail_reservations(generated_at: str) -> dict[str, Any]:
+    return {
+        "schema": "pi.agent_mail.robot_reservations.v1",
+        "generated_at": generated_at,
+        "status": "ok",
+        "reservations": [],
+    }
+
+
+def autopilot_e2e_clean_git_payload(generated_at: str) -> dict[str, Any]:
+    return {
+        "schema": GIT_CONTEXT_SCHEMA,
+        "generated_at": generated_at,
+        "branch": "main",
+        "head": "autopilote2e",
+        "upstream": {"name": "origin/main", "ahead": 0, "behind": 0, "status": "ok"},
+        "porcelain_lines": [],
+        "recent_commits": ["autopilote2e fixture"],
+        "recent_remote_commits": ["autopilote2e origin/main fixture"],
+    }
+
+
+def autopilot_e2e_source_paths(
+    scenario_dir: Path,
+    *,
+    generated_at: str,
+    preflight: dict[str, Any],
+    cargo_payload: dict[str, Any],
+    beads_payload: Any,
+    beads_ready_payload: Any,
+    agent_mail_status_payload: dict[str, Any],
+    agent_mail_reservations_payload: dict[str, Any],
+    git_payload: dict[str, Any] | None,
+    git_status_file: Path | None = None,
+) -> dict[str, Path]:
+    paths = {
+        "doctor_json": write_json(
+            scenario_dir / "doctor.json",
+            autopilot_e2e_doctor_payload(generated_at, preflight),
+        ),
+        "host_preflight_json": write_json(scenario_dir / "host-preflight.json", preflight),
+        "cargo_admission_json": write_json(scenario_dir / "cargo-admission.json", cargo_payload),
+        "beads_json": write_json(scenario_dir / "beads.json", beads_payload),
+        "beads_ready_json": write_json(scenario_dir / "beads-ready.json", beads_ready_payload),
+        "agent_mail_status_json": write_json(
+            scenario_dir / "agent-mail-status.json",
+            agent_mail_status_payload,
+        ),
+        "agent_mail_reservations_json": write_json(
+            scenario_dir / "agent-mail-reservations.json",
+            agent_mail_reservations_payload,
+        ),
+    }
+    if git_status_file is not None:
+        paths["git_status_file"] = git_status_file
+    else:
+        paths["git_status_file"] = write_json(
+            scenario_dir / "git-status.json",
+            git_payload or autopilot_e2e_clean_git_payload(generated_at),
+        )
+    return paths
+
+
+def autopilot_e2e_args(
+    *,
+    paths: dict[str, Path],
+    commands: list[dict[str, Any]],
+    scenario_dir: Path,
+    generated_at: str,
+    max_items: int,
+    stale_after_hours: int,
+) -> argparse.Namespace:
+    return argparse.Namespace(
+        doctor_json=paths["doctor_json"],
+        claim_readiness_json=None,
+        smoke_summary_json=None,
+        activity_digest_json=None,
+        cargo_admission_json=paths["cargo_admission_json"],
+        beads_json=paths["beads_json"],
+        beads_ready_json=paths["beads_ready_json"],
+        agent_mail_status_json=paths["agent_mail_status_json"],
+        agent_mail_reservations_json=paths["agent_mail_reservations_json"],
+        git_status_file=paths["git_status_file"],
+        tail_latency_json=None,
+        flight_recorder_report_json=None,
+        host_preflight_json=paths["host_preflight_json"],
+        hostcall_swarm_profile_json=None,
+        session_recovery_swarm_profile_json=None,
+        rpc_swarm_e2e_json=None,
+        rch_artifact_sync_json=None,
+        validation_outputs=[],
+        operator_runpack_json=None,
+        out_json=None,
+        out_md=None,
+        out_autopilot_input_pack_json=None,
+        out_autopilot_plan_json=None,
+        print_autopilot_input_pack=False,
+        print_autopilot_plan=False,
+        generated_at=generated_at,
+        stale_after_hours=stale_after_hours,
+        max_items=max_items,
+        capture_manifest={
+            "schema": RUNPACK_CAPTURE_SCHEMA,
+            "mode": "autopilot_e2e",
+            "status": "degraded"
+            if any(command.get("status") in {"failed", "timeout"} for command in commands)
+            else "ok",
+            "generated_at": generated_at,
+            "capture_dir": str(scenario_dir),
+            "project_root": str(scenario_dir),
+            "generated_source_paths": {
+                key: str(path) for key, path in paths.items()
+            },
+            "commands": commands,
+        },
+        capture_dir=scenario_dir,
+    )
+
+
+def capture_autopilot_e2e_command(
+    commands: list[dict[str, Any]],
+    command_id: str,
+    command: list[str],
+    *,
+    cwd: Path,
+    timeout_seconds: int,
+) -> str:
+    result, stdout = capture_command(
+        command_id,
+        command,
+        cwd=cwd,
+        timeout_seconds=timeout_seconds,
+    )
+    commands.append(result)
+    if result.get("status") != "ok":
+        raise RunpackError(
+            f"autopilot E2E command {command_id} failed: {result.get('issue')}"
+        )
+    return stdout
+
+
+def build_real_beads_sources(
+    scenario_dir: Path,
+    *,
+    scenario_id: str,
+    issues: list[dict[str, Any]],
+    timeout_seconds: int,
+) -> tuple[Any, Any, list[dict[str, Any]]]:
+    if shutil.which("br") is None:
+        raise RunpackError("autopilot E2E requires br on PATH")
+    commands: list[dict[str, Any]] = []
+    workspace = scenario_dir / "beads-workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    capture_autopilot_e2e_command(
+        commands,
+        f"{scenario_id}:beads_init",
+        ["br", "init", "--prefix", "e2e", "--json"],
+        cwd=workspace,
+        timeout_seconds=timeout_seconds,
+    )
+    for index, issue in enumerate(issues, start=1):
+        create_command = [
+            "br",
+            "create",
+            "--title",
+            str(issue["title"]),
+            "--type",
+            str(issue.get("type", "task")),
+            "--priority",
+            str(issue.get("priority", 2)),
+            "--description",
+            str(issue.get("description", issue["title"])),
+            "--json",
+        ]
+        labels = issue.get("labels")
+        if labels:
+            create_command.extend(["--labels", ",".join(str(label) for label in labels)])
+        capture_autopilot_e2e_command(
+            commands,
+            f"{scenario_id}:beads_create_{index}",
+            create_command,
+            cwd=workspace,
+            timeout_seconds=timeout_seconds,
+        )
+    list_stdout = capture_autopilot_e2e_command(
+        commands,
+        "beads_list",
+        ["br", "list", "--json"],
+        cwd=workspace,
+        timeout_seconds=timeout_seconds,
+    )
+    ready_stdout = capture_autopilot_e2e_command(
+        commands,
+        "beads_ready",
+        ["br", "ready", "--json"],
+        cwd=workspace,
+        timeout_seconds=timeout_seconds,
+    )
+    beads_payload = json_payload_from_stdout(list_stdout)
+    ready_payload = json_payload_from_stdout(ready_stdout)
+    if beads_payload is None or ready_payload is None:
+        raise RunpackError("autopilot E2E could not parse br JSON output")
+    return beads_payload, ready_payload, commands
+
+
+def build_real_dirty_git_source(
+    scenario_dir: Path,
+    *,
+    scenario_id: str,
+    generated_at: str,
+    timeout_seconds: int,
+) -> tuple[Path, list[dict[str, Any]]]:
+    commands: list[dict[str, Any]] = []
+    workspace = scenario_dir / "git-workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    capture_autopilot_e2e_command(
+        commands,
+        f"{scenario_id}:git_init",
+        ["git", "init", "-b", "main"],
+        cwd=workspace,
+        timeout_seconds=timeout_seconds,
+    )
+    capture_autopilot_e2e_command(
+        commands,
+        f"{scenario_id}:git_config_email",
+        ["git", "config", "user.email", "autopilot-e2e@example.invalid"],
+        cwd=workspace,
+        timeout_seconds=timeout_seconds,
+    )
+    capture_autopilot_e2e_command(
+        commands,
+        f"{scenario_id}:git_config_name",
+        ["git", "config", "user.name", "Autopilot E2E"],
+        cwd=workspace,
+        timeout_seconds=timeout_seconds,
+    )
+    (workspace / "README.md").write_text("autopilot e2e fixture\n", encoding="utf-8")
+    capture_autopilot_e2e_command(
+        commands,
+        f"{scenario_id}:git_add_initial",
+        ["git", "add", "README.md"],
+        cwd=workspace,
+        timeout_seconds=timeout_seconds,
+    )
+    capture_autopilot_e2e_command(
+        commands,
+        f"{scenario_id}:git_commit_initial",
+        ["git", "commit", "-m", "init autopilot e2e fixture"],
+        cwd=workspace,
+        timeout_seconds=timeout_seconds,
+    )
+    (workspace / "README.md").write_text(
+        "autopilot e2e fixture\nunrelated dirty line\n",
+        encoding="utf-8",
+    )
+    git_context, git_commands = capture_git_context(
+        workspace,
+        scenario_dir,
+        timeout_seconds,
+    )
+    git_context["generated_at"] = generated_at
+    (scenario_dir / "git-status.json").write_text(
+        json_dumps(git_context, pretty=True),
+        encoding="utf-8",
+    )
+    commands.extend(git_commands)
+    assert git_context["porcelain_lines"], "dirty git fixture must report a changed path"
+    return scenario_dir / "git-status.json", commands
+
+
+def autopilot_e2e_result_from_plan(
+    *,
+    scenario_id: str,
+    scenario_dir: Path,
+    generated_at: str,
+    correlation_id: str,
+    input_pack: dict[str, Any],
+    plan: dict[str, Any],
+    expected_actions: list[str],
+    events_path: Path,
+) -> dict[str, Any]:
+    assert_autopilot_input_pack_contract(input_pack)
+    assert_autopilot_plan_contract(plan)
+    assert_autopilot_plan_commands_are_safe(plan)
+    command_provenance = input_pack.get("command_provenance")
+    assert isinstance(command_provenance, list) and command_provenance
+    assert_no_dangerous_runnable_commands(command_provenance)
+    action_names = [str(action.get("action")) for action in plan.get("actions", [])]
+    for action in expected_actions:
+        assert action in action_names, f"{scenario_id} missing action {action}: {action_names}"
+    selected_action = action_names[0] if action_names else None
+    first_action = plan["actions"][0]
+    budget_state = plan.get("budget_drift") if isinstance(plan.get("budget_drift"), dict) else {}
+    event = autopilot_e2e_event(
+        scenario_id=scenario_id,
+        phase="assert",
+        event="scenario_result",
+        status="pass",
+        generated_at=generated_at,
+        correlation_id=correlation_id,
+        command_provenance=command_provenance,
+        selected_action=selected_action,
+        evidence_paths=list(first_action.get("evidence_paths") or []),
+        redaction_summary=plan.get("redaction_summary"),
+        budget_state={
+            "status": budget_state.get("status"),
+            "profile_status": budget_state.get("profile_status"),
+            "recommended_adjustments": budget_state.get("recommended_adjustments"),
+            "signals": budget_state.get("signals"),
+        },
+        details={
+            "plan_status": plan.get("status"),
+            "input_pack_status": input_pack.get("status"),
+            "actions": action_names,
+        },
+    )
+    append_autopilot_e2e_event(events_path, event)
+    return {
+        "scenario_id": scenario_id,
+        "status": "pass",
+        "selected_action": selected_action,
+        "actions": action_names,
+        "plan_status": plan.get("status"),
+        "input_pack_status": input_pack.get("status"),
+        "evidence_paths": event["evidence_paths"],
+        "redaction_summary": plan.get("redaction_summary"),
+        "budget_state": event["budget_state"],
+        "command_count": len(command_provenance),
+        "artifact_dir": str(scenario_dir),
+    }
+
+
+def build_autopilot_e2e_summary(
+    *,
+    output_dir: Path | None,
+    events_path: Path | None,
+    generated_at: str,
+    max_items: int,
+    stale_after_hours: int,
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    workspace = (
+        output_dir.resolve()
+        if output_dir is not None
+        else Path(tempfile.mkdtemp(prefix="pi_swarm_autopilot_e2e_")).resolve()
+    )
+    workspace.mkdir(parents=True, exist_ok=True)
+    events_path = events_path or (workspace / "autopilot-e2e-events.jsonl")
+    if events_path.exists():
+        raise RunpackError(f"refusing to overwrite autopilot E2E events: {events_path}")
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    events_path.write_text("", encoding="utf-8")
+    correlation_id = f"autopilot-e2e-{generated_at.replace(':', '').replace('+', 'Z')}"
+    preflight = autopilot_e2e_preflight(generated_at)
+    clean_git = autopilot_e2e_clean_git_payload(generated_at)
+    agent_mail_ok = autopilot_e2e_agent_mail_status(generated_at)
+    reservations_ok = autopilot_e2e_agent_mail_reservations(generated_at)
+    results: list[dict[str, Any]] = []
+
+    def run_plan_scenario(
+        scenario_id: str,
+        *,
+        beads_payload: Any,
+        beads_ready_payload: Any,
+        commands: list[dict[str, Any]],
+        expected_actions: list[str],
+        cargo_payload: dict[str, Any] | None = None,
+        agent_mail_payload: dict[str, Any] | None = None,
+        git_payload: dict[str, Any] | None = None,
+        git_status_file: Path | None = None,
+        current_preflight: dict[str, Any] | None = None,
+    ) -> None:
+        scenario_dir = workspace / scenario_id
+        scenario_dir.mkdir(parents=True, exist_ok=True)
+        append_autopilot_e2e_event(
+            events_path,
+            autopilot_e2e_event(
+                scenario_id=scenario_id,
+                phase="setup",
+                event="scenario_start",
+                status="running",
+                generated_at=generated_at,
+                correlation_id=correlation_id,
+                details={"expected_actions": expected_actions},
+            ),
+        )
+        paths = autopilot_e2e_source_paths(
+            scenario_dir,
+            generated_at=generated_at,
+            preflight=current_preflight or preflight,
+            cargo_payload=cargo_payload or autopilot_e2e_cargo_payload(),
+            beads_payload=beads_payload,
+            beads_ready_payload=beads_ready_payload,
+            agent_mail_status_payload=agent_mail_payload or agent_mail_ok,
+            agent_mail_reservations_payload=reservations_ok,
+            git_payload=git_payload or clean_git,
+            git_status_file=git_status_file,
+        )
+        args = autopilot_e2e_args(
+            paths=paths,
+            commands=commands,
+            scenario_dir=scenario_dir,
+            generated_at=generated_at,
+            max_items=max_items,
+            stale_after_hours=stale_after_hours,
+        )
+        input_pack = build_autopilot_input_pack(args)
+        plan = build_autopilot_plan(input_pack, max_items=max_items)
+        results.append(
+            autopilot_e2e_result_from_plan(
+                scenario_id=scenario_id,
+                scenario_dir=scenario_dir,
+                generated_at=generated_at,
+                correlation_id=correlation_id,
+                input_pack=input_pack,
+                plan=plan,
+                expected_actions=expected_actions,
+                events_path=events_path,
+            )
+        )
+
+    ready_beads, ready_queue, ready_commands = build_real_beads_sources(
+        workspace / "healthy_ready_claim",
+        scenario_id="healthy_ready_claim",
+        issues=[
+            {
+                "title": "Add OpenAI provider streaming parity",
+                "description": "provider streaming body",
+                "priority": 2,
+                "labels": ["provider", "openai"],
+            }
+        ],
+        timeout_seconds=timeout_seconds,
+    )
+    run_plan_scenario(
+        "healthy_ready_claim",
+        beads_payload=ready_beads,
+        beads_ready_payload=ready_queue,
+        commands=ready_commands,
+        expected_actions=["claim_ready_bead"],
+    )
+
+    empty_beads, empty_ready, empty_commands = build_real_beads_sources(
+        workspace / "empty_ready_queue",
+        scenario_id="empty_ready_queue",
+        issues=[],
+        timeout_seconds=timeout_seconds,
+    )
+    run_plan_scenario(
+        "empty_ready_queue",
+        beads_payload=empty_beads,
+        beads_ready_payload=empty_ready,
+        commands=empty_commands,
+        expected_actions=["run_docs_only_work"],
+    )
+
+    degraded_mail_commands = list(ready_commands) + [
+        {
+            "id": "agent_mail_status",
+            "command": "am robot status --format json",
+            "cwd": str(workspace),
+            "status": "failed",
+            "exit_code": 2,
+            "issue": "database schema missing required tables",
+            "stdout_path": None,
+            "stderr_snippet": "database schema missing required tables",
+            "redaction_summary": {"redacted_count": 0, "fields": []},
+        }
+    ]
+    run_plan_scenario(
+        "degraded_agent_mail_soft_lock",
+        beads_payload=ready_beads,
+        beads_ready_payload=ready_queue,
+        commands=degraded_mail_commands,
+        expected_actions=["use_beads_soft_lock"],
+        agent_mail_payload=autopilot_e2e_agent_mail_status(
+            generated_at,
+            status="error",
+            health_level="red",
+            issue="database schema missing required tables",
+        ),
+    )
+
+    run_plan_scenario(
+        "saturated_rch_queue",
+        beads_payload=ready_beads,
+        beads_ready_payload=ready_queue,
+        commands=list(ready_commands)
+        + [
+            {
+                "id": "rch_queue",
+                "command": "rch queue --json",
+                "cwd": str(workspace),
+                "status": "ok",
+                "exit_code": 0,
+                "issue": None,
+                "stdout_path": None,
+                "stderr_snippet": "",
+                "redaction_summary": {"redacted_count": 0, "fields": []},
+            }
+        ],
+        expected_actions=["adjust_swarm_budget", "wait_for_rch"],
+        cargo_payload=autopilot_e2e_cargo_payload(
+            decision="backoff",
+            queue_action="backoff",
+            slot_pressure="saturated",
+            queue_depth=6,
+        ),
+    )
+
+    stale_beads_payload = {
+        "issues": [
+            {
+                "id": "bd-stale-e2e",
+                "title": "Stale autopilot fixture",
+                "status": "in_progress",
+                "assignee": "OldAgent",
+                "priority": 2,
+                "updated_at": "2026-05-08T00:00:00+00:00",
+            }
+        ]
+    }
+    run_plan_scenario(
+        "stale_in_progress_bead",
+        beads_payload=stale_beads_payload,
+        beads_ready_payload=[],
+        commands=[
+            {
+                "id": "beads_list",
+                "command": "br list --status=in_progress --json",
+                "cwd": str(workspace),
+                "status": "ok",
+                "exit_code": 0,
+                "issue": None,
+                "stdout_path": None,
+                "stderr_snippet": "",
+                "redaction_summary": {"redacted_count": 0, "fields": []},
+            }
+        ],
+        expected_actions=["reopen_stale_bead_candidate"],
+    )
+
+    dirty_git_path, dirty_git_commands = build_real_dirty_git_source(
+        workspace / "unrelated_dirty_worktree",
+        scenario_id="unrelated_dirty_worktree",
+        generated_at=generated_at,
+        timeout_seconds=timeout_seconds,
+    )
+    run_plan_scenario(
+        "unrelated_dirty_worktree",
+        beads_payload=empty_beads,
+        beads_ready_payload=empty_ready,
+        commands=dirty_git_commands + empty_commands,
+        expected_actions=["capture_handoff"],
+        git_status_file=dirty_git_path,
+    )
+
+    malformed_dir = workspace / "malformed_source_fail_closed"
+    malformed_dir.mkdir(parents=True, exist_ok=True)
+    malformed_path = malformed_dir / "doctor-malformed.json"
+    malformed_path.write_text("{not valid json", encoding="utf-8")
+    malformed_paths = autopilot_e2e_source_paths(
+        malformed_dir,
+        generated_at=generated_at,
+        preflight=preflight,
+        cargo_payload=autopilot_e2e_cargo_payload(),
+        beads_payload=ready_beads,
+        beads_ready_payload=ready_queue,
+        agent_mail_status_payload=agent_mail_ok,
+        agent_mail_reservations_payload=reservations_ok,
+        git_payload=clean_git,
+    )
+    malformed_paths["doctor_json"] = malformed_path
+    try:
+        build_autopilot_input_pack(
+            autopilot_e2e_args(
+                paths=malformed_paths,
+                commands=ready_commands,
+                scenario_dir=malformed_dir,
+                generated_at=generated_at,
+                max_items=max_items,
+                stale_after_hours=stale_after_hours,
+            )
+        )
+    except RunpackError as exc:
+        event = autopilot_e2e_event(
+            scenario_id="malformed_source_fail_closed",
+            phase="assert",
+            event="scenario_result",
+            status="pass",
+            generated_at=generated_at,
+            correlation_id=correlation_id,
+            command_provenance=command_provenance(
+                {"commands": ready_commands},
+                max_items,
+            ),
+            selected_action="fail_closed",
+            evidence_paths=["source_statuses.doctor_swarm", "doctor_json"],
+            redaction_summary={"redacted_count": 0, "fields": []},
+            budget_state={"status": "not_evaluated"},
+            details={"error": str(exc)},
+        )
+        append_autopilot_e2e_event(events_path, event)
+        results.append(
+            {
+                "scenario_id": "malformed_source_fail_closed",
+                "status": "pass",
+                "selected_action": "fail_closed",
+                "actions": ["fail_closed"],
+                "plan_status": "blocked",
+                "input_pack_status": "not_built",
+                "evidence_paths": event["evidence_paths"],
+                "redaction_summary": event["redaction_summary"],
+                "budget_state": event["budget_state"],
+                "command_count": len(ready_commands),
+                "artifact_dir": str(malformed_dir),
+            }
+        )
+    else:
+        raise AssertionError("malformed autopilot E2E source should fail closed")
+
+    summary = {
+        "schema": AUTOPILOT_E2E_SCHEMA,
+        "generated_at": generated_at,
+        "correlation_id": correlation_id,
+        "status": "pass" if all(item["status"] == "pass" for item in results) else "fail",
+        "purpose": "no_mock_swarm_autopilot_e2e_operator_evidence_not_release_claim",
+        "scenario_count": len(results),
+        "required_scenarios": list(AUTOPILOT_E2E_REQUIRED_SCENARIOS),
+        "scenarios": {item["scenario_id"]: item for item in results},
+        "events_jsonl": str(events_path),
+        "workspace": str(workspace),
+        "guards": {
+            "uses_real_temp_beads": True,
+            "uses_real_temp_git": True,
+            "fixture_captures_degraded_rch_and_agent_mail": True,
+            "dangerous_commands_blocked": True,
+            "heavy_rust_validation_requires_rch": True,
+        },
+    }
+    assert_autopilot_e2e_summary(summary)
+    return summary
+
+
+def assert_autopilot_e2e_summary(summary: dict[str, Any]) -> None:
+    assert summary.get("schema") == AUTOPILOT_E2E_SCHEMA
+    assert summary.get("status") == "pass"
+    scenarios = summary.get("scenarios")
+    assert isinstance(scenarios, dict)
+    missing = set(AUTOPILOT_E2E_REQUIRED_SCENARIOS) - set(scenarios)
+    assert not missing, f"autopilot E2E missing scenarios: {sorted(missing)}"
+    for scenario_id in AUTOPILOT_E2E_REQUIRED_SCENARIOS:
+        scenario = scenarios[scenario_id]
+        assert scenario["status"] == "pass", scenario
+        assert scenario["selected_action"]
+        assert isinstance(scenario["evidence_paths"], list) and scenario["evidence_paths"]
+        assert isinstance(scenario["redaction_summary"], dict)
+        assert isinstance(scenario["budget_state"], dict)
+        assert scenario["command_count"] > 0
+    events_path = Path(str(summary.get("events_jsonl")))
+    assert events_path.exists(), f"missing autopilot E2E events JSONL: {events_path}"
+    events = [
+        json.loads(line)
+        for line in events_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    result_events = [event for event in events if event.get("event") == "scenario_result"]
+    assert len(result_events) == len(AUTOPILOT_E2E_REQUIRED_SCENARIOS)
+    for event in result_events:
+        assert event.get("schema") == AUTOPILOT_E2E_EVENT_SCHEMA
+        assert event.get("scenario_id") in AUTOPILOT_E2E_REQUIRED_SCENARIOS
+        assert event.get("status") == "pass"
+        assert event.get("selected_action")
+        assert isinstance(event.get("command_provenance"), list)
+        assert isinstance(event.get("evidence_paths"), list) and event.get("evidence_paths")
+        assert isinstance(event.get("redaction_summary"), dict)
+        assert isinstance(event.get("budget_state"), dict)
+        assert_no_dangerous_runnable_commands(event["command_provenance"])
+
+
+def write_autopilot_e2e_output(
+    args: argparse.Namespace,
+    summary: dict[str, Any],
+) -> None:
+    output_path = getattr(args, "out_autopilot_e2e_json", None)
+    if output_path is None:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        raise RunpackError(f"refusing to overwrite autopilot E2E summary: {output_path}")
+    output_path.write_text(json_dumps(summary, pretty=True), encoding="utf-8")
+
+
 def run_self_test() -> int:
     workspace = Path(tempfile.mkdtemp(prefix="pi_swarm_runpack_"))
     generated_at = "2026-05-09T09:00:00+00:00"
@@ -6265,6 +7148,38 @@ def run_self_test() -> int:
             assert "malformed JSON" in str(exc)
         else:
             raise AssertionError("malformed autopilot source should fail closed")
+        autopilot_e2e = build_autopilot_e2e_summary(
+            output_dir=workspace / "autopilot-e2e",
+            events_path=workspace / "autopilot-e2e" / "events.jsonl",
+            generated_at=generated_at,
+            max_items=args.max_items,
+            stale_after_hours=args.stale_after_hours,
+            timeout_seconds=DEFAULT_CAPTURE_TIMEOUT_SECONDS,
+        )
+        assert autopilot_e2e["schema"] == AUTOPILOT_E2E_SCHEMA
+        assert autopilot_e2e["status"] == "pass"
+        assert set(autopilot_e2e["scenarios"]) == set(AUTOPILOT_E2E_REQUIRED_SCENARIOS)
+        assert autopilot_e2e["scenarios"]["healthy_ready_claim"][
+            "selected_action"
+        ] == "claim_ready_bead"
+        assert autopilot_e2e["scenarios"]["empty_ready_queue"][
+            "selected_action"
+        ] == "run_docs_only_work"
+        assert autopilot_e2e["scenarios"]["degraded_agent_mail_soft_lock"][
+            "selected_action"
+        ] == "use_beads_soft_lock"
+        assert "wait_for_rch" in autopilot_e2e["scenarios"]["saturated_rch_queue"][
+            "actions"
+        ]
+        assert autopilot_e2e["scenarios"]["stale_in_progress_bead"][
+            "selected_action"
+        ] == "reopen_stale_bead_candidate"
+        assert autopilot_e2e["scenarios"]["unrelated_dirty_worktree"][
+            "selected_action"
+        ] == "capture_handoff"
+        assert autopilot_e2e["scenarios"]["malformed_source_fail_closed"][
+            "selected_action"
+        ] == "fail_closed"
         no_tail_args = argparse.Namespace(**{**vars(args), "tail_latency_json": None})
         no_tail_runpack = build_runpack(no_tail_args)
         assert "tail_latency" not in no_tail_runpack
@@ -6513,6 +7428,26 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         help="write pi.swarm.autopilot_plan.v1 JSON; refuses to overwrite",
     )
+    parser.add_argument(
+        "--run-autopilot-e2e",
+        action="store_true",
+        help="run no-mock swarm autopilot E2E scenarios with JSONL evidence",
+    )
+    parser.add_argument(
+        "--out-autopilot-e2e-json",
+        type=Path,
+        help="write pi.swarm.autopilot_e2e.v1 summary JSON; refuses to overwrite",
+    )
+    parser.add_argument(
+        "--out-autopilot-e2e-events-jsonl",
+        type=Path,
+        help="write pi.swarm.autopilot_e2e.event.v1 JSONL; refuses to overwrite",
+    )
+    parser.add_argument(
+        "--print-autopilot-e2e",
+        action="store_true",
+        help="print the no-mock autopilot E2E summary JSON",
+    )
     parser.add_argument("--generated-at", help="override generated timestamp for deterministic tests")
     parser.add_argument("--stale-after-hours", type=int, default=DEFAULT_STALE_AFTER_HOURS)
     parser.add_argument("--max-items", type=int, default=DEFAULT_MAX_ITEMS)
@@ -6545,6 +7480,19 @@ def main() -> int:
         print("ERROR: --capture-timeout-seconds must be positive", file=sys.stderr)
         return 2
     try:
+        if args.run_autopilot_e2e:
+            summary = build_autopilot_e2e_summary(
+                output_dir=args.capture_dir,
+                events_path=args.out_autopilot_e2e_events_jsonl,
+                generated_at=args.generated_at or utc_now_iso(),
+                max_items=args.max_items,
+                stale_after_hours=args.stale_after_hours,
+                timeout_seconds=args.capture_timeout_seconds,
+            )
+            write_autopilot_e2e_output(args, summary)
+            if args.print_autopilot_e2e or args.out_autopilot_e2e_json is None:
+                print(json_dumps(summary, pretty=True))
+            return 0
         capture_current_sources(args)
         runpack = build_runpack(args)
         write_outputs(args, runpack)

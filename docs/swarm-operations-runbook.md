@@ -208,6 +208,7 @@ The autopilot plan schema is governed by `docs/contracts/swarm-autopilot-plan-co
 The plan also includes `work_partitions` for ready Beads. Those entries recommend reservation globs, likely collision surfaces to avoid, alternate file families, confidence, and degraded caveats. They are diagnostic only; operators still claim through Beads and reserve through Agent Mail when it is healthy.
 The input pack and plan also carry `budget_drift` evidence with schema `pi.swarm.budget_drift.v1`. It compares the last accepted swarm resource preflight profile with live cgroup, memory, scratch-path, RCH queue, and active-owner observations. Status `stable` keeps the current ceiling, `degraded` recommends reduced fanout with hysteresis, and `deny_new_work` recommends admitting no new agents or heavyweight RCH verification until the live signals recover.
 The plan also includes `failure_actions` for common operational blockers. Those entries use stable catalog IDs for RCH artifact retrieval, local Cargo target/TMPDIR pressure, remote compiler failures, Agent Mail schema/read-only degradation, Beads JSONL drift, stale Beads ownership, and unknown operational failures. Unknown entries fail closed with a redacted raw excerpt and safe inspection commands instead of guessing a root cause.
+The no-mock autopilot E2E harness emits `pi.swarm.autopilot_e2e.v1` plus `pi.swarm.autopilot_e2e.event.v1` JSONL events. It uses temp Beads and temp git workspaces where safe, fixture-captured degraded Agent Mail and RCH inputs where live mutation would be unsafe, and verifies healthy claim, empty queue, Beads soft-lock fallback, saturated RCH, stale bead review, unrelated dirty worktree, and malformed-source fail-closed scenarios. This is operator admission evidence only; it is not a release speed, drop-in, or benchmark claim.
 
 ## Completion Checklist
 
@@ -239,6 +240,12 @@ For docs-only changes, use docs-focused validation instead of forcing cargo:
 ```bash
 command -v git br bv rch cargo jq python3
 python3 scripts/build_swarm_operator_runpack.py --self-test
+e2e_dir="/data/tmp/pi_swarm_autopilot_e2e/${AGENT_NAME:-agent}-$(date -u +%Y%m%dT%H%M%SZ)"
+python3 scripts/build_swarm_operator_runpack.py \
+  --run-autopilot-e2e \
+  --capture-dir "$e2e_dir" \
+  --out-autopilot-e2e-json "$e2e_dir/summary.json" \
+  --out-autopilot-e2e-events-jsonl "$e2e_dir/events.jsonl"
 python3 -m json.tool docs/contracts/swarm-operator-runpack-contract.json >/dev/null
 python3 -m json.tool docs/contracts/swarm-autopilot-input-pack-contract.json >/dev/null
 python3 -m json.tool docs/contracts/swarm-autopilot-plan-contract.json >/dev/null
@@ -420,6 +427,33 @@ Autopilot plan evidence:
 }
 ```
 
+Autopilot no-mock E2E evidence:
+
+```json
+{
+  "schema": "pi.swarm.autopilot_e2e.v1",
+  "purpose": "no_mock_swarm_autopilot_e2e_operator_evidence_not_release_claim",
+  "status": "pass",
+  "required_scenarios": [
+    "healthy_ready_claim",
+    "empty_ready_queue",
+    "degraded_agent_mail_soft_lock",
+    "saturated_rch_queue",
+    "stale_in_progress_bead",
+    "unrelated_dirty_worktree",
+    "malformed_source_fail_closed"
+  ],
+  "events_jsonl": "/data/tmp/pi_swarm_autopilot_e2e/<run>/events.jsonl",
+  "guards": {
+    "uses_real_temp_beads": true,
+    "uses_real_temp_git": true,
+    "fixture_captures_degraded_rch_and_agent_mail": true,
+    "dangerous_commands_blocked": true,
+    "heavy_rust_validation_requires_rch": true
+  }
+}
+```
+
 Swarm flight-recorder report evidence:
 
 ```json
@@ -438,6 +472,12 @@ When this runbook changes, run at least:
 ```bash
 command -v git br bv rch cargo jq python3
 python3 scripts/build_swarm_operator_runpack.py --self-test
+e2e_dir="/data/tmp/pi_swarm_autopilot_e2e/${AGENT_NAME:-agent}-$(date -u +%Y%m%dT%H%M%SZ)"
+python3 scripts/build_swarm_operator_runpack.py \
+  --run-autopilot-e2e \
+  --capture-dir "$e2e_dir" \
+  --out-autopilot-e2e-json "$e2e_dir/summary.json" \
+  --out-autopilot-e2e-events-jsonl "$e2e_dir/events.jsonl"
 python3 -m json.tool docs/contracts/swarm-operator-runpack-contract.json >/dev/null
 python3 -m json.tool docs/contracts/swarm-autopilot-input-pack-contract.json >/dev/null
 python3 -m json.tool docs/contracts/swarm-autopilot-plan-contract.json >/dev/null
