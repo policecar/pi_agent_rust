@@ -2018,7 +2018,7 @@ fn resolve_git_head_path(dot_git: &Path) -> Option<PathBuf> {
     None
 }
 
-fn build_startup_welcome_message(config: &Config) -> String {
+fn build_startup_welcome_message(config: &Config, available_models: &[ModelEntry]) -> String {
     if config.quiet_startup.unwrap_or(false) {
         return String::new();
     }
@@ -2026,9 +2026,14 @@ fn build_startup_welcome_message(config: &Config) -> String {
     let mut message = String::from("  Welcome to Pi!\n");
     message.push_str("  Type a message to begin, or /help for commands.\n");
 
-    let auth_path = Config::auth_path();
-    if let Ok(auth) = crate::auth::AuthStorage::load(auth_path) {
-        if should_show_startup_oauth_hint(&auth) {
+    if available_models
+        .iter()
+        .any(crate::models::model_requires_configured_credential)
+    {
+        let auth_path = Config::auth_path();
+        if let Ok(auth) = crate::auth::AuthStorage::load(auth_path)
+            && should_show_startup_oauth_hint(&auth)
+        {
             message.push('\n');
             message.push_str(&format_startup_oauth_hint(&auth));
         }
@@ -2568,7 +2573,7 @@ impl PiApp {
         }
 
         let vcs_info = read_vcs_info(&cwd);
-        let startup_welcome = build_startup_welcome_message(&config);
+        let startup_welcome = build_startup_welcome_message(&config, &available_models);
         let config_override = Config::config_path_override_from_env(&cwd);
         let startup_changelog = prepare_startup_changelog_with_roots(
             &mut config,
