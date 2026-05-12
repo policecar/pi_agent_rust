@@ -46,6 +46,7 @@ AUTOPILOT_INPUT_PACK_CONTRACT_SCHEMA = "pi.swarm.autopilot_input_pack_contract.v
 AUTOPILOT_PLAN_SCHEMA = "pi.swarm.autopilot_plan.v1"
 AUTOPILOT_PLAN_CONTRACT_SCHEMA = "pi.swarm.autopilot_plan_contract.v1"
 BUDGET_DRIFT_SCHEMA = "pi.swarm.budget_drift.v1"
+AUTOPILOT_HANDOFF_SCHEMA = "pi.swarm.autopilot_handoff.v1"
 AUTOPILOT_E2E_SCHEMA = "pi.swarm.autopilot_e2e.v1"
 AUTOPILOT_E2E_EVENT_SCHEMA = "pi.swarm.autopilot_e2e.event.v1"
 RUNPACK_CONTRACT_PATH = Path("docs/contracts/swarm-operator-runpack-contract.json")
@@ -4616,6 +4617,12 @@ def render_markdown(runpack: dict[str, Any]) -> str:
     lines.append(f"- Validation outputs: `{runpack['validation_outputs'].get('status')}`")
     lines.append(f"- Activity saturated: `{runpack['activity_digest'].get('saturated')}`")
     lines.append(f"- Bottleneck attribution: `{runpack['bottleneck_attribution'].get('status')}`")
+    if isinstance(runpack.get("autopilot_handoff"), dict):
+        handoff = runpack["autopilot_handoff"]
+        lines.append(
+            f"- Autopilot handoff: `{handoff.get('status')}` "
+            f"(`{handoff.get('plan', {}).get('selected_action')}`)"
+        )
     git_state = runpack["git_state"]
     lines.extend(["", "## Git Context"])
     lines.append(f"- Branch: `{git_state.get('branch')}`")
@@ -4672,6 +4679,35 @@ def render_markdown(runpack: dict[str, Any]) -> str:
             f"- `{item.get('surface')}` from `{item.get('source')}`: "
             f"{item.get('signal')}"
         )
+    handoff = runpack.get("autopilot_handoff")
+    if isinstance(handoff, dict):
+        lines.extend(["", "## Autopilot Handoff"])
+        lines.append(f"- Schema: `{handoff.get('schema')}`")
+        lines.append(f"- Status: `{handoff.get('status')}`")
+        lines.append(f"- Purpose: `{handoff.get('purpose')}`")
+        input_pack = handoff.get("input_pack") if isinstance(handoff.get("input_pack"), dict) else {}
+        lines.append(
+            f"- Input pack: `{input_pack.get('schema')}` / `{input_pack.get('status')}`"
+            + (f" ({input_pack.get('artifact_path')})" if input_pack.get("artifact_path") else "")
+        )
+        plan = handoff.get("plan") if isinstance(handoff.get("plan"), dict) else {}
+        lines.append(
+            f"- Plan: `{plan.get('schema')}` / `{plan.get('status')}`"
+            + (f" ({plan.get('artifact_path')})" if plan.get("artifact_path") else "")
+        )
+        lines.append(f"- Selected action: `{plan.get('selected_action')}`")
+        for action in plan.get("actions") or []:
+            lines.append(
+                f"- Action `{action.get('rank')}`: `{action.get('action')}` "
+                f"({action.get('severity')}, {action.get('confidence')})"
+            )
+        provenance = (
+            handoff.get("source_provenance")
+            if isinstance(handoff.get("source_provenance"), dict)
+            else {}
+        )
+        for source in provenance.get("source_statuses") or []:
+            lines.append(f"- Source `{source.get('id')}`: `{source.get('status')}`")
     lines.extend(["", "## Resume Commands"])
     for item in runpack.get("resume_commands", []):
         lines.append(f"- {item.get('purpose')}: `{item.get('command')}`")
@@ -4720,6 +4756,101 @@ def write_autopilot_plan_output(
     output_path.write_text(json_dumps(plan, pretty=True), encoding="utf-8")
 
 
+def artifact_path(value: Path | None) -> str | None:
+    return str(value) if value is not None else None
+
+
+def build_autopilot_handoff_summary(
+    args: argparse.Namespace,
+    input_pack: dict[str, Any],
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    actions = [
+        {
+            "rank": action.get("rank"),
+            "action": action.get("action"),
+            "severity": action.get("severity"),
+            "confidence": action.get("confidence"),
+            "evidence_paths": action.get("evidence_paths") or [],
+        }
+        for action in plan.get("actions", [])
+        if isinstance(action, dict)
+    ]
+    source_statuses = [
+        {
+            "id": source.get("id"),
+            "status": source.get("status"),
+            "schema": source.get("schema"),
+            "path": source.get("path"),
+            "sha256": source.get("sha256"),
+        }
+        for source in input_pack.get("source_statuses", [])
+        if isinstance(source, dict)
+    ]
+    return {
+        "schema": AUTOPILOT_HANDOFF_SCHEMA,
+        "status": plan.get("status"),
+        "purpose": "operator_handoff_dry_run_autopilot_summary_not_source_of_truth",
+        "input_pack": {
+            "schema": input_pack.get("schema"),
+            "status": input_pack.get("status"),
+            "purpose": input_pack.get("purpose"),
+            "artifact_path": artifact_path(getattr(args, "out_autopilot_input_pack_json", None)),
+            "degraded_reasons": input_pack.get("degraded_reasons") or [],
+        },
+        "plan": {
+            "schema": plan.get("schema"),
+            "status": plan.get("status"),
+            "purpose": plan.get("purpose"),
+            "artifact_path": artifact_path(getattr(args, "out_autopilot_plan_json", None)),
+            "selected_action": actions[0]["action"] if actions else None,
+            "actions": actions,
+            "budget_drift_status": (plan.get("budget_drift") or {}).get("status")
+            if isinstance(plan.get("budget_drift"), dict)
+            else None,
+            "degraded_reasons": plan.get("degraded_reasons") or [],
+        },
+        "source_provenance": {
+            "source_statuses": source_statuses,
+            "command_count": len(input_pack.get("command_provenance") or []),
+            "capture_status": (input_pack.get("capture") or {}).get("status")
+            if isinstance(input_pack.get("capture"), dict)
+            else None,
+        },
+    }
+
+
+def assert_autopilot_handoff_summary(runpack: dict[str, Any]) -> None:
+    handoff = runpack.get("autopilot_handoff")
+    if handoff is None:
+        return
+    assert isinstance(handoff, dict)
+    assert handoff.get("schema") == AUTOPILOT_HANDOFF_SCHEMA
+    assert handoff.get("purpose") == (
+        "operator_handoff_dry_run_autopilot_summary_not_source_of_truth"
+    )
+    input_pack = handoff.get("input_pack")
+    assert isinstance(input_pack, dict)
+    assert input_pack.get("schema") == AUTOPILOT_INPUT_PACK_SCHEMA
+    assert input_pack.get("purpose") == "dry_run_swarm_autopilot_input_not_source_of_truth"
+    plan = handoff.get("plan")
+    assert isinstance(plan, dict)
+    assert plan.get("schema") == AUTOPILOT_PLAN_SCHEMA
+    assert plan.get("purpose") == "dry_run_swarm_autopilot_plan_not_source_of_truth"
+    actions = plan.get("actions")
+    assert isinstance(actions, list) and actions
+    assert plan.get("selected_action") == actions[0].get("action")
+    provenance = handoff.get("source_provenance")
+    assert isinstance(provenance, dict)
+    source_statuses = provenance.get("source_statuses")
+    assert isinstance(source_statuses, list) and source_statuses
+    for source in source_statuses:
+        assert isinstance(source, dict)
+        assert source.get("id")
+        assert source.get("status")
+    assert isinstance(provenance.get("command_count"), int)
+
+
 def write_json(path: Path, payload: Any) -> Path:
     path.write_text(json_dumps(payload, pretty=True), encoding="utf-8")
     return path
@@ -4766,6 +4897,7 @@ def assert_runpack_contract(runpack: dict[str, Any]) -> None:
         top_level_key = path.split(".", maxsplit=1)[0]
         if top_level_key in runpack:
             get_dotted(runpack, path)
+    assert_autopilot_handoff_summary(runpack)
     scorecard = runpack.get("swarm_scale_safety_scorecard")
     assert isinstance(scorecard, dict)
     assert scorecard.get("schema") == contract.get("scorecard_schema")
@@ -6446,6 +6578,21 @@ def run_self_test() -> int:
         )
         write_autopilot_plan_output(plan_output_args, plan)
         assert plan_output_args.out_autopilot_plan_json.exists()
+        handoff_runpack = {
+            **runpack,
+            "autopilot_handoff": build_autopilot_handoff_summary(
+                plan_output_args,
+                input_pack,
+                plan,
+            ),
+        }
+        assert_autopilot_handoff_summary(handoff_runpack)
+        assert_runpack_contract(handoff_runpack)
+        handoff_markdown = render_markdown(handoff_runpack)
+        assert "Autopilot Handoff" in handoff_markdown
+        assert "pi.swarm.autopilot_input_pack.v1" in handoff_markdown
+        assert "pi.swarm.autopilot_plan.v1" in handoff_markdown
+        assert "adjust_swarm_budget" in handoff_markdown
         missing_agent_mail_args = argparse.Namespace(
             **{
                 **vars(autopilot_args),
@@ -7495,7 +7642,8 @@ def main() -> int:
             return 0
         capture_current_sources(args)
         runpack = build_runpack(args)
-        write_outputs(args, runpack)
+        input_pack: dict[str, Any] | None = None
+        plan: dict[str, Any] | None = None
         if (
             args.out_autopilot_input_pack_json
             or args.print_autopilot_input_pack
@@ -7503,14 +7651,22 @@ def main() -> int:
             or args.print_autopilot_plan
         ):
             input_pack = build_autopilot_input_pack(args)
+            if args.out_autopilot_plan_json or args.print_autopilot_plan:
+                plan = build_autopilot_plan(input_pack, max_items=args.max_items)
+                runpack["autopilot_handoff"] = build_autopilot_handoff_summary(
+                    args,
+                    input_pack,
+                    plan,
+                )
+        write_outputs(args, runpack)
+        if input_pack is not None:
             write_autopilot_input_pack_output(args, input_pack)
             if args.print_autopilot_input_pack:
                 print(json_dumps(input_pack, pretty=True))
-            if args.out_autopilot_plan_json or args.print_autopilot_plan:
-                plan = build_autopilot_plan(input_pack, max_items=args.max_items)
-                write_autopilot_plan_output(args, plan)
-                if args.print_autopilot_plan:
-                    print(json_dumps(plan, pretty=True))
+        if plan is not None:
+            write_autopilot_plan_output(args, plan)
+            if args.print_autopilot_plan:
+                print(json_dumps(plan, pretty=True))
     except (RunpackError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

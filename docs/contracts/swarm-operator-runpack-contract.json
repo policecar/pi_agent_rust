@@ -2,6 +2,7 @@
   "schema": "pi.swarm.operator_runpack_contract.v1",
   "runpack_schema": "pi.swarm.operator_runpack.v1",
   "scorecard_schema": "pi.swarm.safety_scorecard.v1",
+  "autopilot_handoff_schema": "pi.swarm.autopilot_handoff.v1",
   "purpose": "operator_handoff_not_release_performance_claim",
   "minimum_redacted_count": 1,
   "required_top_level_keys": [
@@ -68,7 +69,16 @@
     "tail_latency.schema",
     "tail_latency.telemetry_enabled",
     "tail_latency.redaction_summary",
-    "tail_latency.metrics"
+    "tail_latency.metrics",
+    "autopilot_handoff.schema",
+    "autopilot_handoff.input_pack.schema",
+    "autopilot_handoff.input_pack.status",
+    "autopilot_handoff.plan.schema",
+    "autopilot_handoff.plan.status",
+    "autopilot_handoff.plan.selected_action",
+    "autopilot_handoff.plan.actions",
+    "autopilot_handoff.source_provenance.source_statuses",
+    "autopilot_handoff.source_provenance.command_count"
   ],
   "required_source_status_fields": [
     "size_bytes",
@@ -184,6 +194,14 @@
         "required_summary_paths",
         "optional_source_ids",
         "required_scorecard_dimensions"
+      ]
+    },
+    {
+      "id": "RUNPACK-MUST-010",
+      "description": "When companion autopilot input-pack and plan artifacts are requested, the runpack projects a diagnostic autopilot handoff summary that cites the autopilot schemas, selected dry-run action, artifact paths, and source provenance without replacing the authoritative source artifacts.",
+      "validated_by": [
+        "autopilot_handoff_schema",
+        "optional_summary_paths"
       ]
     }
   ]

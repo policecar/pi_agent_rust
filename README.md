@@ -1913,6 +1913,15 @@ RPC swarm E2E evidence, and RCH artifact-sync preflight. The dashboard is
 operator evidence only; release-facing speed, drop-in, or performance claims
 still require the claim-integrity gates below to pass.
 
+The same runpack command can emit a dry-run swarm autopilot input pack and plan
+beside the handoff bundle. When those companion artifacts are requested, the
+runpack JSON/Markdown includes an `autopilot_handoff` summary with
+`pi.swarm.autopilot_input_pack.v1` and `pi.swarm.autopilot_plan.v1` schema
+references, selected advisory action, artifact paths, and source provenance.
+The autopilot never mutates ownership or replaces Doctor, Beads, Agent Mail,
+RCH, git, or the source artifacts; it only turns those inputs into reproducible
+operator next-action guidance.
+
 For the full launch, throttling, recovery, and handoff workflow for large
 multi-agent runs, see [docs/swarm-operations-runbook.md](docs/swarm-operations-runbook.md).
 
