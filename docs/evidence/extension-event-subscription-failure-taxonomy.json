@@ -1,0 +1,1398 @@
+{
+  "schema": "pi.ext.event_subscription_failure_taxonomy.v1",
+  "generated_at": "2026-05-12T22:16:24Z",
+  "bead": "bd-d7v9g.1",
+  "scope": "Diagnostic taxonomy only. It does not mark any journey or health report green.",
+  "source_reports": [
+    {
+      "path": "tests/ext_conformance/reports/journeys/journey_report.json",
+      "sha256": "07653d8e158578700b8962e5fbdd2e7eff97e01951d4c0e3419b353023ff108a",
+      "generated_at": "2026-05-01T04:07:47.106Z",
+      "schema": "pi.ext.journey_report.v1"
+    },
+    {
+      "path": "tests/ext_conformance/reports/health_delta/health_delta_report.json",
+      "sha256": "7dbd0036cf789b0e34b3f4b0d02b4e1f7d73afd7fc863951177b3e3561402228",
+      "generated_at": "2026-05-01T04:10:28.479Z",
+      "schema": "pi.ext.health_delta.v1"
+    },
+    {
+      "path": "tests/ext_conformance/VALIDATED_MANIFEST.json",
+      "schema": "pi.ext.validated-manifest.v1",
+      "generated_at": "2026-02-05T00:00:00Z"
+    }
+  ],
+  "summary": {
+    "journey": {
+      "tested": 123,
+      "passed": 87,
+      "failed": 36,
+      "skipped": 0,
+      "pass_rate_pct": 70.73170731707317,
+      "by_category": [
+        {
+          "category": "command_provider",
+          "failed": 0,
+          "passed": 33,
+          "skipped": 0
+        },
+        {
+          "category": "event_subscriber",
+          "failed": 35,
+          "passed": 0,
+          "skipped": 0
+        },
+        {
+          "category": "multi_capability",
+          "failed": 1,
+          "passed": 41,
+          "skipped": 0
+        },
+        {
+          "category": "passive",
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        {
+          "category": "tool_provider",
+          "failed": 0,
+          "passed": 11,
+          "skipped": 0
+        }
+      ]
+    },
+    "health_delta": {
+      "current_summary": {
+        "failed": 3,
+        "manifest_count": 224,
+        "pass_rate_pct": 98.66071428571429,
+        "passed": 221,
+        "skipped": 0,
+        "tested": 224
+      },
+      "baseline_summary": {
+        "failed": 36,
+        "pass_rate_pct": 83.9,
+        "passed": 187,
+        "tested": 223
+      },
+      "total_regressions": 0,
+      "total_fixes": 34
+    },
+    "failure_counts": {
+      "journey_event_subscriber": 35,
+      "journey_multi_capability": 1,
+      "health_current_failed": 3
+    }
+  },
+  "source_inspection": [
+    {
+      "path": "tests/ext_conformance_generated.rs",
+      "lines": "363-382",
+      "observation": "snapshot_registrations serializes commands, shortcuts, flags, providers, tool_defs, and models, but no event_handlers/event_hooks field. Event journeys therefore observe no event registrations even after a JS extension registers hooks."
+    },
+    {
+      "path": "tests/ext_conformance_generated.rs",
+      "lines": "3532-3546",
+      "observation": "EventSubscriber journey reads regs.event_handlers and fails with `Manifest expects event subscriptions but none registered` when the key is absent or empty while manifest capabilities.subscribes_events is non-empty."
+    },
+    {
+      "path": "tests/ext_conformance_artifacts.rs",
+      "lines": "968-979,1268-1279",
+      "observation": "The manifest extractor classifies every textual `.on(` as an event handler and copies those names into capabilities.subscribes_events. This catches pi.on hooks but also catches Node/EventEmitter listeners such as proc.stdout.on."
+    },
+    {
+      "path": "src/extensions_js.rs",
+      "lines": "18065-18105,18300-18338,19491",
+      "observation": "pi.on registers hooks in ext.hooks and the JS registration snapshot emits them as event_hooks. pi.events.on registers event-bus hooks separately, and the current snapshot shown here only exports ext.hooks."
+    },
+    {
+      "path": "src/extensions.rs",
+      "lines": "29343-29356,29693-29696,30052-30056",
+      "observation": "ExtensionManager stores RegisterPayload.event_hooks, exposes list_event_hooks, and dispatches event payloads by matching extension event_hooks. Runtime storage exists; the generated journey snapshot is not reading it."
+    }
+  ],
+  "taxonomy": [
+    {
+      "key": "journey_snapshot_missing_event_handlers",
+      "affected_count": 35,
+      "owner_child": "bd-d7v9g.2",
+      "fix_type": "conformance harness/report contract change",
+      "diagnosis": "Generated journey tests expect regs.event_handlers but snapshot_registrations omits event hooks. Add event_handlers/event_hooks from ExtensionManager::list_event_hooks and keep naming aligned with VALIDATED_MANIFEST registrations."
+    },
+    {
+      "key": "manifest_text_scanner_false_positive_event_handlers",
+      "affected_examples": [
+        "third-party/rytswd-direnv"
+      ],
+      "owner_child": "bd-d7v9g.3",
+      "fix_type": "manifest extraction and regression coverage",
+      "diagnosis": "The manifest extractor uses raw `.on(` text matching, so Node/EventEmitter listeners such as data/close/error can be misclassified as Pi event subscriptions. Tests should distinguish pi.on or pi.events.on from arbitrary object.on."
+    },
+    {
+      "key": "dynamic_prompt_command_registration_gap",
+      "affected_count": 1,
+      "owner_child": "bd-d7v9g.4",
+      "fix_type": "fixture/context or command-registration behavior change",
+      "diagnosis": "npm/pi-prompt-template-model sets registers_commands=true because source calls pi.registerCommand(name, ...), but command names are data-dependent on prompt files loaded from cwd. The hermetic journey cwd has no prompt inputs, so no commands are registered."
+    },
+    {
+      "key": "health_delta_host_write_policy_or_packaging_gap",
+      "affected_examples": [
+        "npm/aliou-pi-processes",
+        "community/nicobailon-subagents"
+      ],
+      "owner_child": "bd-d7v9g.5",
+      "fix_type": "runtime policy, package fixture, or compatibility decision",
+      "diagnosis": "Health report failures include extensions attempting to create temp/state directories outside the extension root. Decide whether to provide an allowed state directory contract or keep denial and classify as unsupported."
+    },
+    {
+      "key": "health_delta_manifest_command_mismatch",
+      "affected_examples": [
+        "third-party/aliou-pi-extensions"
+      ],
+      "owner_child": "bd-d7v9g.5",
+      "fix_type": "manifest/catalog reconciliation or runtime command bridge fix",
+      "diagnosis": "Health report expects command `processes`, while runtime registers other commands. Reconcile artifact manifest expectations with loaded extension behavior."
+    }
+  ],
+  "representative_traces": [
+    {
+      "extension_id": "auto-commit-on-exit",
+      "detail_path": "tests/ext_conformance/reports/journeys/details/auto-commit-on-exit.json",
+      "source_entry_path": "tests/ext_conformance/artifacts/auto-commit-on-exit/auto-commit-on-exit.ts",
+      "journey_category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_auto_commit_on_exit --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_shutdown"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "trace_notes": [
+        "Manifest expects Pi event hooks from .on extraction, but detail registrations omit event_handlers because generated snapshot lacks that field."
+      ],
+      "recommended_owner_child": "bd-d7v9g.2"
+    },
+    {
+      "extension_id": "community/prateekmedia-token-rate",
+      "detail_path": "tests/ext_conformance/reports/journeys/details/community__prateekmedia-token-rate.json",
+      "source_entry_path": "tests/ext_conformance/artifacts/community/prateekmedia-token-rate/token-rate.ts",
+      "journey_category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_prateekmedia_token_rate --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start",
+          "session_switch",
+          "tool_call",
+          "turn_end",
+          "turn_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "trace_notes": [
+        "Manifest expects Pi event hooks from .on extraction, but detail registrations omit event_handlers because generated snapshot lacks that field."
+      ],
+      "recommended_owner_child": "bd-d7v9g.2"
+    },
+    {
+      "extension_id": "model-status",
+      "detail_path": "tests/ext_conformance/reports/journeys/details/model-status.json",
+      "source_entry_path": "tests/ext_conformance/artifacts/model-status/model-status.ts",
+      "journey_category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_model_status --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "model_select"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "trace_notes": [
+        "Manifest expects Pi event hooks from .on extraction, but detail registrations omit event_handlers because generated snapshot lacks that field."
+      ],
+      "recommended_owner_child": "bd-d7v9g.2"
+    },
+    {
+      "extension_id": "npm/pi-notify",
+      "detail_path": "tests/ext_conformance/reports/journeys/details/npm__pi-notify.json",
+      "source_entry_path": "tests/ext_conformance/artifacts/npm/pi-notify/index.ts",
+      "journey_category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_npm_pi_notify --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "trace_notes": [
+        "Manifest expects Pi event hooks from .on extraction, but detail registrations omit event_handlers because generated snapshot lacks that field."
+      ],
+      "recommended_owner_child": "bd-d7v9g.2"
+    },
+    {
+      "extension_id": "third-party/rytswd-direnv",
+      "detail_path": "tests/ext_conformance/reports/journeys/details/third-party__rytswd-direnv.json",
+      "source_entry_path": "tests/ext_conformance/artifacts/third-party/rytswd-direnv/index.ts",
+      "journey_category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_third_party_rytswd_direnv --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "close",
+          "data",
+          "error",
+          "session_start",
+          "tool_result"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [
+          "ss",
+          "ss-clear",
+          "scurl",
+          "scurl-log",
+          "scurl-history",
+          "calendar",
+          "sketch",
+          "slow-mode",
+          "dcp-init",
+          "dcp-toggle",
+          "dcp-tools",
+          "dcp-debug",
+          "dcp-recent",
+          "dcp-stats",
+          "dcp-logs"
+        ],
+        "flags": [],
+        "tools": [
+          "canvas_calendar",
+          "canvas_document",
+          "canvas_flights",
+          "scip_find_definition",
+          "scip_find_references",
+          "scip_list_symbols",
+          "scip_search_symbols",
+          "scip_project_tree",
+          "scip_reindex",
+          "questionnaire"
+        ],
+        "providers": [],
+        "shortcuts": [
+          "ctrl+shift+s",
+          "ctrl+shift+x"
+        ],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "trace_notes": [
+        "VALIDATED_MANIFEST includes false-positive data/close/error entries from proc.stdout.on/proc.on in addition to real pi.on session_start/tool_result hooks.",
+        "Source lines tests/ext_conformance/artifacts/third-party/rytswd-direnv/index.ts:49,54,74 are Node/EventEmitter listeners; lines 114 and 120 are Pi event hooks."
+      ],
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "npm/pi-prompt-template-model",
+      "detail_path": "tests/ext_conformance/reports/journeys/details/npm__pi-prompt-template-model.json",
+      "source_entry_path": "tests/ext_conformance/artifacts/npm/pi-prompt-template-model/index.ts",
+      "journey_category": "multi_capability",
+      "failure_step": "verify_all_registrations",
+      "failure_reason": "Expected commands registration but none found",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_npm_pi_prompt_template_model --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end",
+          "before_agent_start",
+          "session_start"
+        ],
+        "registers_commands": true,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "trace_notes": [
+        "Source lines tests/ext_conformance/artifacts/npm/pi-prompt-template-model/index.ts:451,456,495 register Pi event hooks.",
+        "Source line 539 calls pi.registerCommand(name, ...) inside a loop over loaded prompt files; hermetic conformance cwd produces no commands."
+      ],
+      "recommended_owner_child": "bd-d7v9g.4"
+    }
+  ],
+  "all_journey_failures": [
+    {
+      "extension_id": "auto-commit-on-exit",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_auto_commit_on_exit --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_shutdown"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "claude-rules",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_claude_rules --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "before_agent_start",
+          "session_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "community/ferologics-notify",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_ferologics_notify --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "community/mitsuhiko-cwd-history",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_mitsuhiko_cwd_history --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start",
+          "session_switch"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "community/mitsuhiko-notify",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_mitsuhiko_notify --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "community/mitsuhiko-whimsical",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_mitsuhiko_whimsical --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "turn_end",
+          "turn_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "community/nicobailon-rewind-hook",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_nicobailon_rewind_hook --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_before_fork",
+          "session_before_tree",
+          "session_start",
+          "session_switch",
+          "turn_end",
+          "turn_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "community/ogulcancelik-ghostty-theme-sync",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_ogulcancelik_ghostty_theme_sync --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "community/prateekmedia-token-rate",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_prateekmedia_token_rate --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start",
+          "session_switch",
+          "tool_call",
+          "turn_end",
+          "turn_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "community/tmustier-agent-guidance",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_community_tmustier_agent_guidance --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "before_agent_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "confirm-destructive",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_confirm_destructive --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_before_fork",
+          "session_before_switch"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "custom-compaction",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_custom_compaction --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_before_compact"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "dirty-repo-guard",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_dirty_repo_guard --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_before_fork",
+          "session_before_switch"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "dynamic-resources",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_dynamic_resources --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "resources_discover"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "file-trigger",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_file_trigger --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "git-checkpoint",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_git_checkpoint --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end",
+          "session_before_fork",
+          "tool_result",
+          "turn_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "inline-bash",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_inline_bash --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "input"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "input-transform",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_input_transform --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "input"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "interactive-shell",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_interactive_shell --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "user_bash"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "mac-system-theme",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_mac_system_theme --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_shutdown",
+          "session_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "modal-editor",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_modal_editor --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "model-status",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_model_status --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "model_select"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "notify",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_notify --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "npm/pi-ghostty-theme-sync",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_npm_pi_ghostty_theme_sync --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "npm/pi-notify",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_npm_pi_notify --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "npm/pi-prompt-template-model",
+      "category": "multi_capability",
+      "failure_step": "verify_all_registrations",
+      "failure_reason": "Expected commands registration but none found",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_npm_pi_prompt_template_model --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end",
+          "before_agent_start",
+          "session_start"
+        ],
+        "registers_commands": true,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "dynamic_prompt_command_registration_gap",
+      "recommended_owner_child": "bd-d7v9g.4"
+    },
+    {
+      "extension_id": "npm/token-rate-pi",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_npm_token_rate_pi --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start",
+          "session_switch",
+          "tool_call",
+          "turn_end",
+          "turn_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "permission-gate",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_permission_gate --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "tool_call"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "prompt-url-widget",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_prompt_url_widget --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "before_agent_start",
+          "session_start",
+          "session_switch"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "protected-paths",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_protected_paths --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "tool_call"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "rainbow-editor",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_rainbow_editor --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "status-line",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_status_line --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start",
+          "session_switch",
+          "turn_end",
+          "turn_start"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "system-prompt-header",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_system_prompt_header --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_start",
+          "session_shutdown"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "third-party/rytswd-direnv",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_third_party_rytswd_direnv --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "close",
+          "data",
+          "error",
+          "session_start",
+          "tool_result"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [
+          "ss",
+          "ss-clear",
+          "scurl",
+          "scurl-log",
+          "scurl-history",
+          "calendar",
+          "sketch",
+          "slow-mode",
+          "dcp-init",
+          "dcp-toggle",
+          "dcp-tools",
+          "dcp-debug",
+          "dcp-recent",
+          "dcp-stats",
+          "dcp-logs"
+        ],
+        "flags": [],
+        "tools": [
+          "canvas_calendar",
+          "canvas_document",
+          "canvas_flights",
+          "scip_find_definition",
+          "scip_find_references",
+          "scip_list_symbols",
+          "scip_search_symbols",
+          "scip_project_tree",
+          "scip_reindex",
+          "questionnaire"
+        ],
+        "providers": [],
+        "shortcuts": [
+          "ctrl+shift+s",
+          "ctrl+shift+x"
+        ],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "titlebar-spinner",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_titlebar_spinner --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "agent_end",
+          "agent_start",
+          "session_shutdown"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    },
+    {
+      "extension_id": "widget-placement",
+      "category": "event_subscriber",
+      "failure_step": "verify_event_registration",
+      "failure_reason": "Manifest expects event subscriptions but none registered",
+      "reproduce_command": "cargo test --test ext_conformance_generated --features ext-conformance -- ext_widget_placement --nocapture --exact",
+      "expected": {
+        "event_handlers": [
+          "session_start",
+          "session_switch"
+        ],
+        "registers_commands": false,
+        "command_names": []
+      },
+      "observed": {
+        "commands": [],
+        "flags": [],
+        "tools": [],
+        "providers": [],
+        "shortcuts": [],
+        "event_handlers_key_present": false,
+        "event_handlers": []
+      },
+      "taxonomy_key": "journey_snapshot_missing_event_handlers",
+      "recommended_owner_child": "bd-d7v9g.2,bd-d7v9g.3"
+    }
+  ],
+  "health_delta_failures": [
+    {
+      "extension_id": "npm/aliou-pi-processes",
+      "tier": 3,
+      "delta_type": "unchanged_fail",
+      "current_status": "fail",
+      "baseline_status": "fail",
+      "failure_reason": "Load error: Extension error: Error loading module '/data/tmp/pi_agent_rust_cargo/codex-evidence-030/tmp/pi-processes-1777608581425': host write denied: path outside extension root\n    at checkWriteAccess (node:fs:32:47)\n    at mkdirSync (node:fs:572:29)\n    at ProcessManager (/data/projects/pi_agent_rust/tests/ext_conformance/artifacts/npm/aliou-pi-processes/manager.ts:17:19)\n    at default (/data/projects/pi_agent_rust/tests/ext_conformance/artifacts/npm/aliou-pi-processes/index.ts:14:25)\n    at __pi_load_extension (eval_script:472:20)\n",
+      "baseline_failure_reason": "Extension uses relative imports to unbundled sibling/parent modules.",
+      "taxonomy_key": "health_delta_host_write_policy_or_packaging_gap",
+      "recommended_owner_child": "bd-d7v9g.5"
+    },
+    {
+      "extension_id": "third-party/aliou-pi-extensions",
+      "tier": 3,
+      "delta_type": "unchanged_fail",
+      "current_status": "fail",
+      "baseline_status": "fail",
+      "failure_reason": "Missing command 'processes'. Actual: [\"theme\", \"system-prompt\", \"ad-name\", \"extensions:update\", \"plan:list\", \"plan:save\", \"providers:usage\", \"providers:toggle-widget\", \"session:copy-path\", \"session:copy-id\", \"dumb-zone-status\"]",
+      "baseline_failure_reason": "Extension loads but registers different commands/tools than manifest expects.",
+      "taxonomy_key": "health_delta_manifest_command_mismatch",
+      "recommended_owner_child": "bd-d7v9g.5"
+    },
+    {
+      "extension_id": "community/nicobailon-subagents",
+      "tier": 3,
+      "delta_type": "new_failure",
+      "current_status": "fail",
+      "baseline_status": null,
+      "failure_reason": "Load error: Extension error: Error loading module '/tmp/pi-async-subagent-results': host write denied: path outside extension root\n    at checkWriteAccess (node:fs:32:47)\n    at mkdirSync (node:fs:572:29)\n    at registerSubagentExtension (/data/projects/pi_agent_rust/tests/ext_conformance/artifacts/community/nicobailon-subagents/index.ts:29:18)\n    at __pi_load_extension (eval_script:472:20)\n",
+      "baseline_failure_reason": null,
+      "taxonomy_key": "health_delta_host_write_policy_or_packaging_gap",
+      "recommended_owner_child": "bd-d7v9g.5"
+    }
+  ],
+  "implementation_guidance": {
+    "production_runtime_changes_required": [
+      "Only if bd-d7v9g.2 finds ExtensionManager::list_event_hooks disagrees with JS registration payloads under a direct runtime regression. Current source inspection shows runtime hook storage/listing exists."
+    ],
+    "conformance_harness_changes_required": [
+      "Add event_handlers/event_hooks to tests/ext_conformance_generated.rs::snapshot_registrations using manager.list_event_hooks().",
+      "Normalize naming between VALIDATED_MANIFEST registrations.event_handlers and runtime RegisterPayload.event_hooks.",
+      "Tighten event subscription extraction so arbitrary object.on calls are not treated as Pi event subscriptions."
+    ],
+    "fixture_or_context_changes_required": [
+      "Provide prompt files for npm/pi-prompt-template-model journey or classify dynamic prompt-derived commands separately from unconditional command registration."
+    ],
+    "report_contract_changes_required": [
+      "Future journey details should include both expected and observed event handler arrays explicitly so absence of the snapshot key is visible."
+    ]
+  }
+}
