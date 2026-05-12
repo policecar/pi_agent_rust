@@ -1,8 +1,9 @@
 use super::{
-    ScenarioExpectation, StreamExpectations, assert_error_translation, assert_stream_expectations,
-    assert_tool_schema_fidelity, assistant_tool_call_message, cassette_root, collect_events,
-    log_summary, record_stream_contract_artifact, sha256_hex, tool_result_message, user_text,
-    vcr_mode, vcr_strict,
+    ProviderReplayCacheSpec, ScenarioExpectation, StreamExpectations, assert_error_translation,
+    assert_stream_expectations, assert_tool_schema_fidelity, assistant_tool_call_message,
+    cassette_root, collect_events, log_summary, provider_request_schema_hash,
+    record_provider_replay_cache_artifact, record_stream_contract_artifact, sha256_hex,
+    tool_result_message, user_text, vcr_mode, vcr_strict,
 };
 use crate::common::TestHarness;
 use chrono::{SecondsFormat, Utc};
@@ -283,6 +284,40 @@ async fn run_scenario(scenario: Scenario) {
             return;
         }
     }
+
+    let thinking_budgets = scenario.options.thinking_budgets.as_ref().map(|budgets| {
+        json!({
+            "minimal": budgets.minimal,
+            "low": budgets.low,
+            "medium": budgets.medium,
+            "high": budgets.high,
+            "xhigh": budgets.xhigh,
+        })
+    });
+    let request_schema_hash = provider_request_schema_hash(
+        &scenario.messages,
+        &scenario.tools,
+        &json!({
+            "systemPrompt": SYSTEM_PROMPT,
+            "maxTokens": scenario.options.max_tokens,
+            "temperature": scenario.options.temperature,
+            "thinkingLevel": scenario.options.thinking_level,
+            "thinkingBudgets": thinking_budgets,
+            "cacheRetention": format!("{:?}", scenario.options.cache_retention),
+        }),
+    );
+    record_provider_replay_cache_artifact(
+        &harness,
+        &ProviderReplayCacheSpec {
+            provider: "anthropic",
+            route: ANTHROPIC_MESSAGES_URL,
+            model: &scenario.model,
+            scenario: scenario.name,
+            cassette_path: &cassette_path,
+            request_schema_hash: &request_schema_hash,
+            mode: effective_mode,
+        },
+    );
 
     let recorder = VcrRecorder::new_with(scenario.name, effective_mode, &cassette_dir);
     let client = Client::new().with_vcr(recorder);

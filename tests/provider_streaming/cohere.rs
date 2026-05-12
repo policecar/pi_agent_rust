@@ -1,8 +1,9 @@
 //! Cohere provider streaming tests (VCR playback/recording).
 
 use super::{
-    ScenarioExpectation, StreamExpectations, assert_error_translation, assert_stream_expectations,
-    assert_tool_schema_fidelity, cassette_root, collect_events, log_summary,
+    ProviderReplayCacheSpec, ScenarioExpectation, StreamExpectations, assert_error_translation,
+    assert_stream_expectations, assert_tool_schema_fidelity, cassette_root, collect_events,
+    log_summary, provider_request_schema_hash, record_provider_replay_cache_artifact,
     record_stream_contract_artifact, user_text, vcr_mode, vcr_strict,
 };
 use crate::common::TestHarness;
@@ -88,6 +89,28 @@ async fn run_scenario(scenario: Scenario) {
             return;
         }
     }
+
+    let request_schema_hash = provider_request_schema_hash(
+        &scenario.messages,
+        &scenario.tools,
+        &json!({
+            "systemPrompt": SYSTEM_PROMPT,
+            "maxTokens": scenario.options.max_tokens,
+            "temperature": scenario.options.temperature,
+        }),
+    );
+    record_provider_replay_cache_artifact(
+        &harness,
+        &ProviderReplayCacheSpec {
+            provider: "cohere",
+            route: "POST https://api.cohere.com/v2/chat",
+            model: &scenario.model,
+            scenario: scenario.name,
+            cassette_path: &cassette_path,
+            request_schema_hash: &request_schema_hash,
+            mode,
+        },
+    );
 
     let api_key = cohere_api_key(mode);
     let recorder = VcrRecorder::new_with(scenario.name, mode, &cassette_dir);

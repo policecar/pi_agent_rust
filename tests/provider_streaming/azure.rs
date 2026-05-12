@@ -1,8 +1,9 @@
 use super::{
-    ScenarioExpectation, StreamExpectations, assert_error_translation, assert_stream_expectations,
-    assert_tool_schema_fidelity, assistant_tool_call_message, cassette_root, collect_events,
-    log_summary, record_stream_contract_artifact, tool_result_message, user_text, vcr_mode,
-    vcr_strict,
+    ProviderReplayCacheSpec, ScenarioExpectation, StreamExpectations, assert_error_translation,
+    assert_stream_expectations, assert_tool_schema_fidelity, assistant_tool_call_message,
+    cassette_root, collect_events, log_summary, provider_request_schema_hash,
+    record_provider_replay_cache_artifact, record_stream_contract_artifact, tool_result_message,
+    user_text, vcr_mode, vcr_strict,
 };
 use crate::common::TestHarness;
 use pi::http::client::Client;
@@ -90,6 +91,28 @@ async fn run_scenario(scenario: Scenario) {
             return;
         }
     }
+
+    let request_schema_hash = provider_request_schema_hash(
+        &scenario.messages,
+        &scenario.tools,
+        &json!({
+            "systemPrompt": SYSTEM_PROMPT,
+            "maxTokens": scenario.options.max_tokens,
+            "temperature": scenario.options.temperature,
+        }),
+    );
+    record_provider_replay_cache_artifact(
+        &harness,
+        &ProviderReplayCacheSpec {
+            provider: "azure-openai",
+            route: "POST https://<resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions",
+            model: &scenario.deployment,
+            scenario: scenario.name,
+            cassette_path: &cassette_path,
+            request_schema_hash: &request_schema_hash,
+            mode,
+        },
+    );
 
     let api_key = azure_api_key(mode);
     let recorder = VcrRecorder::new_with(scenario.name, mode, &cassette_dir);
