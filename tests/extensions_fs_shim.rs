@@ -1251,10 +1251,9 @@ fn fs_stat_host_fallback() {
         let is_file: serde_json::Value = runtime.read_global_json("hostStatIsFile").await.unwrap();
         assert_eq!(is_file, true);
         let size: serde_json::Value = runtime.read_global_json("hostStatSize").await.unwrap();
-        assert_eq!(
-            size.as_f64().expect("numeric hostStatSize"),
-            "host-fallback".len() as f64
-        );
+        let expected_size =
+            u64::try_from("host-fallback".len()).expect("test fixture size fits in u64");
+        assert_eq!(size.as_u64().expect("numeric hostStatSize"), expected_size);
 
         let outside_exists: serde_json::Value =
             runtime.read_global_json("outsideExists").await.unwrap();

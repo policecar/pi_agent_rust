@@ -1128,7 +1128,6 @@ impl SessionStoreV2 {
                                 break 'segments;
                             }
 
-                            use std::io::{Read, Write};
                             tracing::warn!(
                                 segment = %seg_path.display(),
                                 line_number,

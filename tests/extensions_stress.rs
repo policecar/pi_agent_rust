@@ -319,7 +319,7 @@ fn profile_rotation_latency_percentiles(values: &[u64]) -> (Option<u64>, Option<
     (Some(percentile(&sorted, 95)), Some(percentile(&sorted, 99)))
 }
 
-fn profile_rotation_latency_within_budget(
+const fn profile_rotation_latency_within_budget(
     p99_first: Option<u64>,
     p99_last: Option<u64>,
     run_p95: Option<u64>,
