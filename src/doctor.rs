@@ -44,6 +44,7 @@ const SWARM_DOCTOR_OPERATIONS_DASHBOARD_SCHEMA: &str = "pi.doctor.swarm_operatio
 const SWARM_DOCTOR_RCH_AFFINITY_SCHEMA: &str = "pi.doctor.rch_warm_target_affinity.v1";
 const SWARM_DOCTOR_RESERVATION_HEATMAP_SCHEMA: &str =
     "pi.doctor.agent_mail_reservation_conflict_heatmap.v1";
+const SWARM_DOCTOR_CONFLICT_PREDICTOR_SCHEMA: &str = "pi.doctor.cross_agent_conflict_predictor.v1";
 const SWARM_CARGO_SCRATCH_ROOT: &str = "/data/tmp/pi_agent_rust_cargo";
 const SWARM_RCH_AFFINITY_JOBS_ENV: &str = "PI_DOCTOR_RCH_AFFINITY_JOBS_JSON";
 const SWARM_BUILD_SLOT_SOON_EXPIRING_MINUTES: i64 = 30;
@@ -1112,6 +1113,7 @@ fn check_swarm(cwd: &Path, findings: &mut Vec<Finding>) {
     check_swarm_br_status(cwd, findings);
     check_swarm_agent_mail(cwd, findings);
     check_swarm_stalled_bead_reaper(cwd, findings);
+    check_swarm_conflict_predictor(cwd, findings);
     check_swarm_next_action(cwd, findings);
     check_swarm_git(cwd, findings);
     check_swarm_rch(findings);
@@ -1147,6 +1149,8 @@ struct BeadsIssueRecord {
     description: String,
     #[serde(default)]
     notes: Option<String>,
+    #[serde(default)]
+    labels: Vec<String>,
     #[serde(default)]
     assignee: Option<String>,
     #[serde(default)]
@@ -2769,6 +2773,822 @@ fn collect_agent_mail_activity_rows(
         }
         _ => {}
     }
+}
+
+fn check_swarm_conflict_predictor(cwd: &Path, findings: &mut Vec<Finding>) {
+    let ledger_path = cwd.join(".beads/issues.jsonl");
+    let (beads_content, beads_error) = match std::fs::read_to_string(&ledger_path) {
+        Ok(content) => (Some(content), None),
+        Err(err) => (
+            None,
+            Some(format!(
+                "beads ledger unavailable at {}: {err}",
+                ledger_path.display()
+            )),
+        ),
+    };
+    let project = cwd.display().to_string();
+    let (reservations, reservations_error) = read_agent_mail_reservations(cwd, &project);
+    let (git_porcelain, git_error) = read_git_porcelain(cwd);
+
+    let inputs = SwarmConflictPredictorInputs {
+        beads_content: beads_content.as_deref(),
+        beads_error,
+        reservations: reservations.as_ref(),
+        reservations_error,
+        git_porcelain: git_porcelain.as_deref(),
+        git_error,
+    };
+    let plan = build_swarm_conflict_prediction_plan(inputs, Utc::now());
+    findings.push(classify_swarm_conflict_prediction_plan(&plan));
+}
+
+fn read_agent_mail_reservations(
+    cwd: &Path,
+    project: &str,
+) -> (Option<serde_json::Value>, Option<String>) {
+    if which_tool("am").is_none() {
+        return (
+            None,
+            Some("Agent Mail CLI not found for conflict predictor reservations".to_string()),
+        );
+    }
+    let args = [
+        "robot",
+        "reservations",
+        "--format",
+        "json",
+        "--project",
+        project,
+        "--all",
+        "--expiring",
+        "30",
+    ];
+    match run_probe_json(
+        SwarmProbeCommand::Am,
+        &args,
+        Some(cwd),
+        "am robot reservations",
+    ) {
+        Ok(value) => (Some(value), None),
+        Err(err) => (None, Some(err)),
+    }
+}
+
+fn read_git_porcelain(cwd: &Path) -> (Option<String>, Option<String>) {
+    if which_tool("git").is_none() {
+        return (
+            None,
+            Some("git CLI not found for conflict predictor dirty-state probe".to_string()),
+        );
+    }
+    match run_tool_with_timeout(
+        SwarmProbeCommand::Git,
+        &["status", "--porcelain=v1", "--untracked-files=all"],
+        Some(cwd),
+        SWARM_PROBE_TIMEOUT,
+    ) {
+        Ok(outcome) if outcome.success => (Some(outcome.stdout), None),
+        Ok(outcome) => (
+            None,
+            Some(format!(
+                "git status failed for conflict predictor: {}",
+                command_failure_detail(&outcome)
+            )),
+        ),
+        Err(err) => (
+            None,
+            Some(format!(
+                "git status failed to start for conflict predictor: {err}"
+            )),
+        ),
+    }
+}
+
+#[derive(Debug, Default)]
+struct SwarmConflictPredictorInputs<'a> {
+    beads_content: Option<&'a str>,
+    beads_error: Option<String>,
+    reservations: Option<&'a serde_json::Value>,
+    reservations_error: Option<String>,
+    git_porcelain: Option<&'a str>,
+    git_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SwarmConflictPredictionPlan {
+    active_bead_count: usize,
+    parse_errors: usize,
+    reservations_unavailable: bool,
+    git_unavailable: bool,
+    dirty_paths: Vec<String>,
+    source_errors: Vec<String>,
+    predictions: Vec<SwarmConflictPrediction>,
+    safe_fallback_lanes: Vec<SwarmConflictFallbackLane>,
+}
+
+impl SwarmConflictPredictionPlan {
+    fn high_risk_count(&self) -> usize {
+        self.predictions
+            .iter()
+            .filter(|prediction| prediction.risk_level() == "high")
+            .count()
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "schema": SWARM_DOCTOR_CONFLICT_PREDICTOR_SCHEMA,
+            "mode": "audit_only",
+            "mutation_performed": false,
+            "stale_after_hours": SWARM_STALE_IN_PROGRESS_HOURS,
+            "input_sources": {
+                "beads": if self.active_bead_count > 0 || self.parse_errors > 0 { "available" } else { "unavailable_or_empty" },
+                "agent_mail_reservations": if self.reservations_unavailable { "unavailable" } else { "available" },
+                "git_status": if self.git_unavailable { "unavailable" } else { "available" }
+            },
+            "source_errors": self.source_errors,
+            "active_bead_count": self.active_bead_count,
+            "parse_errors": self.parse_errors,
+            "dirty_paths": self.dirty_paths,
+            "high_risk_count": self.high_risk_count(),
+            "predictions": self
+                .predictions
+                .iter()
+                .map(SwarmConflictPrediction::to_json)
+                .collect::<Vec<_>>(),
+            "safe_fallback_lanes": self
+                .safe_fallback_lanes
+                .iter()
+                .map(SwarmConflictFallbackLane::to_json)
+                .collect::<Vec<_>>()
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SwarmConflictPrediction {
+    path_pattern: String,
+    score: u32,
+    reasons: BTreeSet<String>,
+    beads: BTreeSet<String>,
+    agents: BTreeSet<String>,
+}
+
+impl SwarmConflictPrediction {
+    const fn risk_level(&self) -> &'static str {
+        if self.score >= 70 {
+            "high"
+        } else if self.score >= 35 {
+            "medium"
+        } else {
+            "low"
+        }
+    }
+
+    fn recommended_action(&self) -> &'static str {
+        if self.path_pattern == ".beads/issues.jsonl" {
+            "Serialize br close/sync windows; rerun `br sync --flush-only` before committing"
+        } else if self.has_reason("overlapping_active_reservations")
+            || self.has_reason("active_exclusive_reservation")
+        {
+            "Contact listed reservation holders or pick a non-overlapping bead before editing"
+        } else if self.has_reason("dirty_path")
+            || self.has_reason("dirty_path_overlaps_predicted_surface")
+        {
+            "Inspect `git status --short` and avoid overwriting dirty worktree paths"
+        } else {
+            "Reserve this path explicitly before editing or choose a lower-risk fallback lane"
+        }
+    }
+
+    fn has_reason(&self, reason: &str) -> bool {
+        self.reasons.iter().any(|value| value == reason)
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "path_pattern": self.path_pattern,
+            "score": self.score,
+            "risk_level": self.risk_level(),
+            "reasons": self.reasons.iter().cloned().collect::<Vec<_>>(),
+            "beads": self.beads.iter().cloned().collect::<Vec<_>>(),
+            "agents": self.agents.iter().cloned().collect::<Vec<_>>(),
+            "suggested_reservation": self.path_pattern,
+            "recommended_action": self.recommended_action()
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SwarmConflictFallbackLane {
+    path_pattern: String,
+    reason: String,
+    suggested_reservation: String,
+}
+
+impl SwarmConflictFallbackLane {
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "path_pattern": self.path_pattern,
+            "reason": self.reason,
+            "suggested_reservation": self.suggested_reservation
+        })
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct SwarmConflictAccumulator {
+    path_pattern: String,
+    score: u32,
+    reasons: BTreeSet<String>,
+    beads: BTreeSet<String>,
+    agents: BTreeSet<String>,
+}
+
+impl SwarmConflictAccumulator {
+    fn into_prediction(self) -> SwarmConflictPrediction {
+        SwarmConflictPrediction {
+            path_pattern: self.path_pattern,
+            score: self.score,
+            reasons: self.reasons,
+            beads: self.beads,
+            agents: self.agents,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SwarmConflictSurface {
+    path_pattern: String,
+    score: u32,
+    reason: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SwarmConflictBeadsSummary {
+    active_beads: usize,
+    parse_errors: usize,
+}
+
+fn build_swarm_conflict_prediction_plan(
+    inputs: SwarmConflictPredictorInputs<'_>,
+    now: DateTime<Utc>,
+) -> SwarmConflictPredictionPlan {
+    let reservations_unavailable = inputs.reservations.is_none();
+    let git_unavailable = inputs.git_porcelain.is_none();
+    let mut source_errors = Vec::new();
+    extend_source_errors(
+        &mut source_errors,
+        [
+            inputs.beads_error,
+            inputs.reservations_error,
+            inputs.git_error,
+        ],
+    );
+
+    let mut accumulators: BTreeMap<String, SwarmConflictAccumulator> = BTreeMap::new();
+    let beads = inputs
+        .beads_content
+        .map_or_else(SwarmConflictBeadsSummary::default, |content| {
+            collect_swarm_conflict_bead_signals(content, now, &mut accumulators)
+        });
+
+    if let Some(reservations) = inputs.reservations {
+        collect_swarm_conflict_reservation_signals(reservations, now, &mut accumulators);
+    } else if beads.active_beads > 0 {
+        record_conflict_signal(
+            &mut accumulators,
+            ".beads/issues.jsonl",
+            24,
+            "agent_mail_reservations_unavailable",
+            None,
+            None,
+        );
+    }
+
+    let dirty_paths = inputs
+        .git_porcelain
+        .map(git_porcelain_paths)
+        .unwrap_or_default();
+    for dirty_path in &dirty_paths {
+        collect_swarm_conflict_dirty_path_signal(dirty_path, &mut accumulators);
+    }
+
+    let mut predictions = accumulators
+        .into_values()
+        .map(SwarmConflictAccumulator::into_prediction)
+        .collect::<Vec<_>>();
+    predictions.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.path_pattern.cmp(&right.path_pattern))
+    });
+    let safe_fallback_lanes = select_swarm_conflict_fallback_lanes(&predictions);
+
+    SwarmConflictPredictionPlan {
+        active_bead_count: beads.active_beads,
+        parse_errors: beads.parse_errors,
+        reservations_unavailable,
+        git_unavailable,
+        dirty_paths,
+        source_errors,
+        predictions,
+        safe_fallback_lanes,
+    }
+}
+
+fn collect_swarm_conflict_bead_signals(
+    content: &str,
+    now: DateTime<Utc>,
+    accumulators: &mut BTreeMap<String, SwarmConflictAccumulator>,
+) -> SwarmConflictBeadsSummary {
+    let mut summary = SwarmConflictBeadsSummary::default();
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        let Ok(issue) = serde_json::from_str::<BeadsIssueRecord>(line) else {
+            summary.parse_errors += 1;
+            continue;
+        };
+        if !matches!(issue.status.as_str(), "open" | "in_progress") {
+            continue;
+        }
+        summary.active_beads += 1;
+        collect_swarm_conflict_issue_signals(&issue, now, accumulators);
+    }
+    summary
+}
+
+fn collect_swarm_conflict_issue_signals(
+    issue: &BeadsIssueRecord,
+    now: DateTime<Utc>,
+    accumulators: &mut BTreeMap<String, SwarmConflictAccumulator>,
+) {
+    let in_progress = issue.status == "in_progress";
+    let status_score = if in_progress { 30 } else { 8 };
+    let status_reason = if in_progress {
+        "bead_in_progress"
+    } else {
+        "open_active_bead"
+    };
+    let stale = in_progress
+        && issue
+            .updated_at
+            .as_deref()
+            .and_then(|updated_at| age_hours_since(updated_at, now))
+            .is_some_and(|age| age >= SWARM_STALE_IN_PROGRESS_HOURS);
+
+    for surface in issue_conflict_surfaces(issue) {
+        record_conflict_signal(
+            accumulators,
+            &surface.path_pattern,
+            surface.score + status_score,
+            surface.reason,
+            Some(issue.id.as_str()),
+            issue_assignee(issue),
+        );
+        record_conflict_signal(
+            accumulators,
+            &surface.path_pattern,
+            0,
+            status_reason,
+            Some(issue.id.as_str()),
+            issue_assignee(issue),
+        );
+        if stale {
+            record_conflict_signal(
+                accumulators,
+                &surface.path_pattern,
+                22,
+                "stale_in_progress_bead",
+                Some(issue.id.as_str()),
+                issue_assignee(issue),
+            );
+        }
+    }
+
+    if in_progress {
+        record_conflict_signal(
+            accumulators,
+            ".beads/issues.jsonl",
+            if stale { 50 } else { 32 },
+            "in_progress_bead_closeout_window",
+            Some(issue.id.as_str()),
+            issue_assignee(issue),
+        );
+    }
+}
+
+fn issue_conflict_surfaces(issue: &BeadsIssueRecord) -> Vec<SwarmConflictSurface> {
+    let text = issue_conflict_text(issue);
+    let mut surfaces = Vec::new();
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(
+            &text,
+            &[
+                "doctor",
+                "swarm",
+                "coordination",
+                "agent mail",
+                "agent-mail",
+                "reservation",
+                "conflict",
+                "rch",
+            ],
+        ),
+        "src/doctor.rs",
+        42,
+        "swarm_doctor_coordination_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(&text, &["beads", "br ", "bv ", "closeout", "issue ledger"]),
+        ".beads/issues.jsonl",
+        34,
+        "beads_ledger_coordination_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(
+            &text,
+            &[
+                "session",
+                "sqlite",
+                "jsonl",
+                "branch",
+                "persistence",
+                "replay",
+            ],
+        ),
+        "src/session*.rs",
+        36,
+        "session_persistence_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(
+            &text,
+            &["tool", "bash", "read", "edit", "grep", "find", "hashline"],
+        ),
+        "src/tools.rs",
+        34,
+        "built_in_tool_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(
+            &text,
+            &[
+                "provider",
+                "openai",
+                "anthropic",
+                "gemini",
+                "cohere",
+                "azure",
+                "bedrock",
+                "vertex",
+                "github",
+                "gitlab",
+                "responses",
+            ],
+        ),
+        "src/providers/**",
+        34,
+        "provider_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(
+            &text,
+            &["interactive", "tui", "rpc", "tail latency", "latency"],
+        ),
+        "src/interactive.rs",
+        30,
+        "interactive_tui_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(&text, &["interactive", "rpc", "stdio", "server mode"]),
+        "src/rpc.rs",
+        30,
+        "rpc_surface_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(
+            &text,
+            &["extension", "quickjs", "hostcall", "capability", "policy"],
+        ),
+        "src/extensions*.rs",
+        34,
+        "extension_runtime_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(
+            &text,
+            &[
+                "dropin",
+                "drop-in",
+                "parity",
+                "evidence",
+                "certification",
+                "ledger",
+            ],
+        ),
+        "docs/evidence/**",
+        28,
+        "evidence_or_certification_work",
+    );
+    push_conflict_surface_if(
+        &mut surfaces,
+        contains_any(&text, &["test", "tests", "harness", "conformance", "chaos"]),
+        "tests/**",
+        24,
+        "test_harness_work",
+    );
+
+    if surfaces.is_empty() {
+        surfaces.push(SwarmConflictSurface {
+            path_pattern: "src/**".to_string(),
+            score: 8,
+            reason: "unmapped_active_bead",
+        });
+    }
+    surfaces
+}
+
+fn push_conflict_surface_if(
+    surfaces: &mut Vec<SwarmConflictSurface>,
+    condition: bool,
+    path_pattern: &str,
+    score: u32,
+    reason: &'static str,
+) {
+    if condition {
+        surfaces.push(SwarmConflictSurface {
+            path_pattern: path_pattern.to_string(),
+            score,
+            reason,
+        });
+    }
+}
+
+fn issue_conflict_text(issue: &BeadsIssueRecord) -> String {
+    format!(
+        "{} {} {} {} {} {}",
+        issue.id,
+        issue.title,
+        issue.description,
+        issue.notes.as_deref().unwrap_or_default(),
+        issue.labels.join(" "),
+        issue.issue_type.as_deref().unwrap_or_default()
+    )
+    .to_ascii_lowercase()
+}
+
+fn collect_swarm_conflict_reservation_signals(
+    value: &serde_json::Value,
+    now: DateTime<Utc>,
+    accumulators: &mut BTreeMap<String, SwarmConflictAccumulator>,
+) {
+    let rows = agent_mail_reservation_rows(value, now);
+    for row in &rows {
+        if !(row.is_active() || row.is_recent()) {
+            continue;
+        }
+        let score = match (row.is_active(), row.is_exclusive()) {
+            (true, true) => 52,
+            (true, false) => 28,
+            (false, _) => 14,
+        };
+        let reason = match (row.is_active(), row.is_exclusive()) {
+            (true, true) => "active_exclusive_reservation",
+            (true, false) => "active_shared_reservation",
+            (false, _) => "recent_inactive_reservation",
+        };
+        record_conflict_signal(
+            accumulators,
+            &row.path_pattern,
+            score,
+            reason,
+            Some(row.bead.as_str()),
+            Some(row.agent.as_str()),
+        );
+        if row.expiring_soon {
+            record_conflict_signal(
+                accumulators,
+                &row.path_pattern,
+                10,
+                "reservation_expiring_soon",
+                Some(row.bead.as_str()),
+                Some(row.agent.as_str()),
+            );
+        }
+        if reservation_stale_reason(row).is_some() {
+            record_conflict_signal(
+                accumulators,
+                &row.path_pattern,
+                18,
+                "stale_reservation_holder",
+                Some(row.bead.as_str()),
+                Some(row.agent.as_str()),
+            );
+        }
+    }
+
+    let active_rows = rows
+        .iter()
+        .filter(|row| row.is_active())
+        .collect::<Vec<_>>();
+    for (index, left) in active_rows.iter().enumerate() {
+        for right in active_rows.iter().skip(index + 1) {
+            if reservation_rows_conflict(left, right) {
+                for row in [*left, *right] {
+                    record_conflict_signal(
+                        accumulators,
+                        &row.path_pattern,
+                        38,
+                        "overlapping_active_reservations",
+                        Some(row.bead.as_str()),
+                        Some(row.agent.as_str()),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn collect_swarm_conflict_dirty_path_signal(
+    dirty_path: &str,
+    accumulators: &mut BTreeMap<String, SwarmConflictAccumulator>,
+) {
+    let score = if dirty_path == ".beads/issues.jsonl" {
+        74
+    } else {
+        36
+    };
+    let reason = if dirty_path == ".beads/issues.jsonl" {
+        "dirty_beads_closeout_window"
+    } else {
+        "dirty_path"
+    };
+    record_conflict_signal(accumulators, dirty_path, score, reason, None, None);
+
+    let keys = accumulators.keys().cloned().collect::<Vec<_>>();
+    for key in keys {
+        if key != dirty_path && reservation_patterns_overlap(&key, dirty_path) {
+            record_conflict_signal(
+                accumulators,
+                &key,
+                18,
+                "dirty_path_overlaps_predicted_surface",
+                None,
+                None,
+            );
+        }
+    }
+}
+
+fn record_conflict_signal(
+    accumulators: &mut BTreeMap<String, SwarmConflictAccumulator>,
+    path_pattern: &str,
+    score: u32,
+    reason: &'static str,
+    bead: Option<&str>,
+    agent: Option<&str>,
+) {
+    let accumulator = accumulators
+        .entry(path_pattern.to_string())
+        .or_insert_with(|| SwarmConflictAccumulator {
+            path_pattern: path_pattern.to_string(),
+            ..SwarmConflictAccumulator::default()
+        });
+    accumulator.score = accumulator.score.saturating_add(score);
+    accumulator.reasons.insert(reason.to_string());
+    if let Some(bead) = bead.map(str::trim).filter(|value| !value.is_empty()) {
+        accumulator.beads.insert(bead.to_string());
+    }
+    if let Some(agent) = agent.map(str::trim).filter(|value| !value.is_empty()) {
+        accumulator.agents.insert(agent.to_string());
+    }
+}
+
+fn git_porcelain_paths(output: &str) -> Vec<String> {
+    let mut paths = BTreeSet::new();
+    for line in output.lines().filter(|line| !line.trim().is_empty()) {
+        let raw_path = line.get(3..).unwrap_or(line).trim();
+        let path = raw_path
+            .rsplit(" -> ")
+            .next()
+            .unwrap_or(raw_path)
+            .trim_matches('"')
+            .trim();
+        if !path.is_empty() {
+            paths.insert(path.to_string());
+        }
+    }
+    paths.into_iter().collect()
+}
+
+fn select_swarm_conflict_fallback_lanes(
+    predictions: &[SwarmConflictPrediction],
+) -> Vec<SwarmConflictFallbackLane> {
+    let high_risk = predictions
+        .iter()
+        .filter(|prediction| prediction.risk_level() == "high")
+        .collect::<Vec<_>>();
+    let candidates = [
+        (
+            "tests/**",
+            "Test-only coverage is usually easier to reserve independently",
+        ),
+        (
+            "docs/evidence/**",
+            "Evidence refresh can proceed when source modules are reserved",
+        ),
+        (
+            "src/providers/**",
+            "Provider lane is separate from swarm coordination paths",
+        ),
+        (
+            "src/tools.rs",
+            "Built-in tool work is a narrow single-file reservation",
+        ),
+        (
+            "src/extensions*.rs",
+            "Extension runtime work is separable from provider and doctor lanes",
+        ),
+    ];
+
+    candidates
+        .into_iter()
+        .filter(|(path_pattern, _)| {
+            high_risk.iter().all(|prediction| {
+                !reservation_patterns_overlap(&prediction.path_pattern, path_pattern)
+            })
+        })
+        .take(3)
+        .map(|(path_pattern, reason)| SwarmConflictFallbackLane {
+            path_pattern: path_pattern.to_string(),
+            reason: reason.to_string(),
+            suggested_reservation: path_pattern.to_string(),
+        })
+        .collect()
+}
+
+fn classify_swarm_conflict_prediction_plan(plan: &SwarmConflictPredictionPlan) -> Finding {
+    let high_risk = plan.high_risk_count();
+    let detail = format!(
+        "active_beads={}, predictions={}, high_risk={}, dirty_paths={}, source_errors={}, top={}",
+        plan.active_bead_count,
+        plan.predictions.len(),
+        high_risk,
+        plan.dirty_paths.len(),
+        plan.source_errors.len(),
+        plan.predictions
+            .first()
+            .map_or("none", |prediction| prediction.path_pattern.as_str())
+    );
+    let data = plan.to_json();
+
+    if plan.parse_errors > 0 {
+        return Finding::warn(
+            CheckCategory::Swarm,
+            "Cross-agent conflict predictor degraded",
+        )
+        .with_detail(format!("{detail}; parse_errors={}", plan.parse_errors))
+        .with_remediation("Run `br doctor --json` before trusting conflict predictions")
+        .with_data(data);
+    }
+    if high_risk > 0 {
+        return Finding::warn(
+            CheckCategory::Swarm,
+            "Cross-agent conflict predictor found likely collisions",
+        )
+        .with_detail(detail)
+        .with_remediation(
+            "Avoid high-risk paths, contact listed agents, or claim one of the safe fallback lanes",
+        )
+        .with_data(data);
+    }
+    if !plan.source_errors.is_empty() {
+        return Finding::warn(
+            CheckCategory::Swarm,
+            "Cross-agent conflict predictor running with degraded inputs",
+        )
+        .with_detail(detail)
+        .with_remediation(
+            "Use Beads status/comments as the soft lock until Agent Mail and git inputs are readable",
+        )
+        .with_data(data);
+    }
+    Finding::pass(
+        CheckCategory::Swarm,
+        "Cross-agent conflict predictor found no likely collisions",
+    )
+    .with_detail(detail)
+    .with_data(data)
 }
 
 fn check_swarm_next_action(cwd: &Path, findings: &mut Vec<Finding>) {
@@ -7585,6 +8405,156 @@ not-json
         assert_eq!(
             data["suggestions"][0]["notification_draft"]["to"][0],
             serde_json::json!("OldAgent")
+        );
+    }
+
+    #[test]
+    fn swarm_conflict_predictor_degrades_when_agent_mail_reservations_are_unavailable() {
+        let now = DateTime::parse_from_rfc3339("2026-05-09T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let content = r#"{"id":"bd-mail","title":"Build cross-agent conflict predictor","description":"Agent Mail corrupt; Beads fallback reservations conflict dry-run","status":"in_progress","assignee":"DarkGoose","updated_at":"2026-05-09T11:00:00Z","labels":["agent-mail","beads","swarm"]}
+"#;
+
+        let plan = build_swarm_conflict_prediction_plan(
+            SwarmConflictPredictorInputs {
+                beads_content: Some(content),
+                reservations_error: Some("database disk image is malformed".to_string()),
+                git_porcelain: Some(""),
+                ..SwarmConflictPredictorInputs::default()
+            },
+            now,
+        );
+        let finding = classify_swarm_conflict_prediction_plan(&plan);
+
+        assert_eq!(finding.severity, Severity::Warn);
+        let data = finding_data(&finding);
+        assert_eq!(data["schema"], SWARM_DOCTOR_CONFLICT_PREDICTOR_SCHEMA);
+        assert_eq!(
+            data["input_sources"]["agent_mail_reservations"],
+            serde_json::json!("unavailable")
+        );
+        assert!(
+            data["source_errors"][0]
+                .as_str()
+                .unwrap_or_default()
+                .contains("database disk image")
+        );
+        assert!(
+            plan.predictions
+                .iter()
+                .any(
+                    |prediction| prediction.path_pattern == ".beads/issues.jsonl"
+                        && prediction.has_reason("agent_mail_reservations_unavailable")
+                )
+        );
+    }
+
+    #[test]
+    fn swarm_conflict_predictor_scores_overlapping_reservation_globs() {
+        let now = heatmap_test_now();
+        let reservations = serde_json::json!({
+            "reservations": [
+                {
+                    "path_pattern": "src/**",
+                    "agent": "CalmBridge",
+                    "reason": "bd-parent",
+                    "exclusive": true,
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:00:00Z"
+                },
+                {
+                    "path_pattern": "src/session.rs",
+                    "agent": "DarkGoose",
+                    "reason": "bd-session",
+                    "exclusive": true,
+                    "expires_ts": "2026-05-09T09:00:00Z",
+                    "created_at": "2026-05-09T07:30:00Z"
+                }
+            ]
+        });
+
+        let plan = build_swarm_conflict_prediction_plan(
+            SwarmConflictPredictorInputs {
+                reservations: Some(&reservations),
+                git_porcelain: Some(""),
+                ..SwarmConflictPredictorInputs::default()
+            },
+            now,
+        );
+
+        let session_prediction = plan
+            .predictions
+            .iter()
+            .find(|prediction| prediction.path_pattern == "src/session.rs")
+            .expect("session reservation prediction");
+        assert_eq!(session_prediction.risk_level(), "high");
+        assert!(session_prediction.has_reason("overlapping_active_reservations"));
+        assert!(session_prediction.agents.contains("DarkGoose"));
+    }
+
+    #[test]
+    fn swarm_conflict_predictor_marks_stale_in_progress_bead_surfaces() {
+        let now = DateTime::parse_from_rfc3339("2026-05-09T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let content = r#"{"id":"bd-session","title":"Session persistence chaos harness","description":"JSONL session replay and sqlite branching","status":"in_progress","assignee":"OldAgent","updated_at":"2026-05-07T00:00:00Z","labels":["session","testing"]}
+"#;
+        let reservations = serde_json::json!({"reservations": []});
+
+        let plan = build_swarm_conflict_prediction_plan(
+            SwarmConflictPredictorInputs {
+                beads_content: Some(content),
+                reservations: Some(&reservations),
+                git_porcelain: Some(""),
+                ..SwarmConflictPredictorInputs::default()
+            },
+            now,
+        );
+
+        let session_prediction = plan
+            .predictions
+            .iter()
+            .find(|prediction| prediction.path_pattern == "src/session*.rs")
+            .expect("session surface prediction");
+        assert_eq!(session_prediction.risk_level(), "high");
+        assert!(session_prediction.has_reason("stale_in_progress_bead"));
+        assert!(session_prediction.beads.contains("bd-session"));
+    }
+
+    #[test]
+    fn swarm_conflict_predictor_flags_concurrent_beads_closeout_windows() {
+        let now = DateTime::parse_from_rfc3339("2026-05-09T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let content = r#"{"id":"bd-current","title":"Evidence refresh","description":"Docs evidence ledger update","status":"in_progress","assignee":"SunnyBeacon","updated_at":"2026-05-09T11:00:00Z","labels":["evidence"]}
+"#;
+        let reservations = serde_json::json!({"reservations": []});
+
+        let plan = build_swarm_conflict_prediction_plan(
+            SwarmConflictPredictorInputs {
+                beads_content: Some(content),
+                reservations: Some(&reservations),
+                git_porcelain: Some(" M .beads/issues.jsonl\n"),
+                ..SwarmConflictPredictorInputs::default()
+            },
+            now,
+        );
+
+        let beads_prediction = plan
+            .predictions
+            .iter()
+            .find(|prediction| prediction.path_pattern == ".beads/issues.jsonl")
+            .expect("beads closeout prediction");
+        assert_eq!(beads_prediction.risk_level(), "high");
+        assert!(beads_prediction.has_reason("dirty_beads_closeout_window"));
+        assert!(beads_prediction.has_reason("in_progress_bead_closeout_window"));
+        assert!(
+            classify_swarm_conflict_prediction_plan(&plan)
+                .remediation
+                .as_deref()
+                .unwrap_or_default()
+                .contains("fallback lanes")
         );
     }
 
