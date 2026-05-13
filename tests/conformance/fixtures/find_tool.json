@@ -122,6 +122,23 @@
       }
     },
     {
+      "name": "find_orders_by_modified_time_newest_first",
+      "description": "Find returns newer files before older files, with deterministic fixture mtimes",
+      "setup": [
+        {"type": "create_file", "path": "oldest.txt", "content": "old"},
+        {"type": "create_file", "path": "middle.txt", "content": "middle"},
+        {"type": "create_file", "path": "newest.txt", "content": "new"},
+        {"type": "set_modified", "path": "oldest.txt", "unix_seconds": 1700000000},
+        {"type": "set_modified", "path": "middle.txt", "unix_seconds": 1700000100},
+        {"type": "set_modified", "path": "newest.txt", "unix_seconds": 1700000200}
+      ],
+      "input": {"pattern": "*.txt"},
+      "expected": {
+        "content_exact": "newest.txt\nmiddle.txt\noldest.txt",
+        "details_none": true
+      }
+    },
+    {
       "name": "find_outside_cwd",
       "description": "Find outside the working directory should be rejected",
       "input": {"pattern": "*.txt", "path": "../"},

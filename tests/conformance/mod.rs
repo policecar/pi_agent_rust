@@ -91,6 +91,9 @@ pub enum SetupStep {
     /// Create a directory
     #[serde(rename = "create_dir")]
     CreateDir { path: String },
+    /// Set a file or directory modification time from a Unix timestamp.
+    #[serde(rename = "set_modified")]
+    SetModified { path: String, unix_seconds: i64 },
     /// Run a command
     #[serde(rename = "run_command")]
     RunCommand { command: String },

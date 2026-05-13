@@ -402,6 +402,12 @@ fn run_setup_steps(steps: &[SetupStep], dir: &Path) -> Result<(), String> {
                 std::fs::create_dir_all(&dir_path)
                     .map_err(|e| format!("Failed to create dir {path}: {e}"))?;
             }
+            SetupStep::SetModified { path, unix_seconds } => {
+                let entry_path = resolve_setup_path(dir, path)?;
+                let mtime = filetime::FileTime::from_unix_time(*unix_seconds, 0);
+                filetime::set_file_mtime(&entry_path, mtime)
+                    .map_err(|e| format!("Failed to set mtime for {path}: {e}"))?;
+            }
             SetupStep::RunCommand { command } => {
                 #[cfg(windows)]
                 let mut setup_command = std::process::Command::new("cmd");
@@ -574,6 +580,23 @@ mod tests {
     }
 
     #[test]
+    fn test_setup_set_modified() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.txt");
+        std::fs::write(&file_path, "hello").unwrap();
+        let steps = vec![SetupStep::SetModified {
+            path: "test.txt".to_string(),
+            unix_seconds: 1_700_000_000,
+        }];
+
+        run_setup_steps(&steps, temp_dir.path()).unwrap();
+
+        let modified = std::fs::metadata(&file_path).unwrap().modified().unwrap();
+        let expected = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        assert_eq!(modified, expected);
+    }
+
+    #[test]
     fn test_setup_rejects_parent_dir_escape() {
         let temp_dir = TempDir::new().unwrap();
         let steps = vec![SetupStep::CreateFile {
@@ -597,5 +620,18 @@ mod tests {
         let err =
             run_setup_steps(&steps, temp_dir.path()).expect_err("should reject absolute path");
         assert!(err.contains("must be relative"));
+    }
+
+    #[test]
+    fn test_setup_set_modified_rejects_parent_dir_escape() {
+        let temp_dir = TempDir::new().unwrap();
+        let steps = vec![SetupStep::SetModified {
+            path: "../escape.txt".to_string(),
+            unix_seconds: 1_700_000_000,
+        }];
+
+        let err =
+            run_setup_steps(&steps, temp_dir.path()).expect_err("should reject parent dir escape");
+        assert!(err.contains("must not escape"));
     }
 }

@@ -4268,6 +4268,7 @@ dependencies = [
  "ctrlc",
  "dirs",
  "enable-ansi-support",
+ "filetime",
  "fs4",
  "futures",
  "getrandom 0.4.2",
