@@ -1,0 +1,694 @@
+{
+  "checklist": [
+    {
+      "evidence": [
+        {
+          "artifact_path_count": 21,
+          "child_statuses": {
+            "bd-ircr3.1": "closed",
+            "bd-ircr3.10": "closed",
+            "bd-ircr3.2": "closed",
+            "bd-ircr3.3": "closed",
+            "bd-ircr3.4": "closed",
+            "bd-ircr3.5": "closed",
+            "bd-ircr3.6": "closed",
+            "bd-ircr3.7": "closed",
+            "bd-ircr3.8": "closed",
+            "bd-ircr3.9": "closed"
+          },
+          "close_reasons": {
+            "bd-ircr3.1": "Defined semantic workspace/context graph contracts with executable fail-closed freshness, redaction, source-inventory, and bead-actionability contract tests",
+            "bd-ircr3.10": "Completed: doctor and runpack now surface context-intelligence posture with JSON/text, runpack projection, cache/degraded-mode, and redaction coverage",
+            "bd-ircr3.2": "Implemented deterministic semantic workspace graph builder with fail-closed evidence and Beads classification coverage",
+            "bd-ircr3.3": "Wired evidence freshness and claim-gate facts into semantic workspace graph with fixture coverage",
+            "bd-ircr3.4": "Implemented budgeted semantic context bundle planner with deterministic golden fixture coverage",
+            "bd-ircr3.5": "Implemented context artifact redaction and invalidation policy with fixtures",
+            "bd-ircr3.6": "Completed context bundle preview CLI with JSON/text output, stale suppression display, command provenance, and E2E coverage.",
+            "bd-ircr3.7": "Integrated opt-in semantic context bundle injection into AgentSession prompt assembly with provider-aware prompt shaping, bounded rendering, session provenance, and deterministic regression coverage.",
+            "bd-ircr3.8": "Completed no-mock E2E context-intelligence harness with stale raw evidence suppression",
+            "bd-ircr3.9": "Completed large-workspace context planner performance budgets"
+          },
+          "commits": [
+            "98008ed0a2f984338858e0c760e64ea913e84111",
+            "edd5586c45fa356b8407e7c703d665ea96f55a40",
+            "0cbb42d51e242a1b5b47ccc75fc4deff96ef0e66",
+            "d64d4019a82f89a460dd936751a4d4035f4d03c2",
+            "f5a9b3190ea81a475206ff2ef20f1c45a576b0c8",
+            "bc51f70f70fca98d045ab14ca89fc3228c2d343c",
+            "ad94a8c2fa90b46b806f0bc583f4718803e00449",
+            "70780ea69f8619068c50025b12bcf6c3bb546ec0",
+            "60f25202a617a0bc5972e182e4db03283c912c33",
+            "0142c8ba666aeee65a7295284c88d4ead9a0c9b6"
+          ],
+          "path": ".beads/issues.jsonl"
+        }
+      ],
+      "id": "child_beads_closed",
+      "issue": null,
+      "requirement": "All context-intelligence implementation child Beads are closed and mapped to artifacts.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "docs/contracts/semantic-context-graph-contract.json"
+        },
+        {
+          "path": "docs/contracts/semantic-workspace-graph-contract.json"
+        },
+        {
+          "path": "tests/semantic_context_graph_contract.rs"
+        },
+        {
+          "path": "tests/semantic_workspace_graph_contract.rs"
+        }
+      ],
+      "id": "graph_contracts",
+      "issue": null,
+      "requirement": "Semantic graph contracts and contract tests define authority boundaries, freshness, actionability, and redaction.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "src/semantic_workspace_graph.rs"
+        },
+        {
+          "path": "tests/semantic_workspace_graph_builder.rs"
+        }
+      ],
+      "id": "graph_builder",
+      "issue": null,
+      "requirement": "Incremental semantic workspace graph builder indexes source, tests, docs, evidence, and Beads without mutating sources of truth.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "src/semantic_workspace_graph.rs"
+        },
+        {
+          "path": "tests/semantic_workspace_graph_builder.rs"
+        },
+        {
+          "path": "docs/contracts/semantic-workspace-graph-contract.json"
+        }
+      ],
+      "id": "freshness_claim_gates",
+      "issue": null,
+      "requirement": "Evidence freshness and release-claim facts fail closed for stale, missing, malformed, uncertified, and historical inputs.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "src/semantic_workspace_graph.rs"
+        },
+        {
+          "path": "tests/semantic_workspace_graph_builder.rs"
+        }
+      ],
+      "id": "bundle_planner",
+      "issue": null,
+      "requirement": "Budgeted context bundle planner emits bounded selected items, exclusions, validation commands, and deterministic replay artifacts.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "src/semantic_workspace_graph.rs"
+        },
+        {
+          "path": "tests/semantic_workspace_graph_builder.rs"
+        }
+      ],
+      "id": "redaction_invalidation",
+      "issue": null,
+      "requirement": "Context artifacts record redaction summaries, suppress unsafe payloads, normalize paths, and invalidate cache entries by workspace and fingerprint.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "src/cli.rs"
+        },
+        {
+          "path": "src/main.rs"
+        }
+      ],
+      "id": "preview_surface",
+      "issue": null,
+      "requirement": "`pi context-preview` exposes read-only JSON/text previews with query, Bead, changed-path, failing-command, and budget controls.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "src/agent.rs"
+        }
+      ],
+      "id": "prompt_injection",
+      "issue": null,
+      "requirement": "AgentSession prompt assembly consumes an opt-in semantic context bundle with provider-aware shape, byte/item bounds, and session provenance.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "tests/e2e_agent_loop.rs"
+        }
+      ],
+      "id": "no_mock_e2e",
+      "issue": null,
+      "requirement": "No-mock E2E harness exercises real temp git, source, tests, evidence, Beads JSONL, session persistence, graph planning, and provider prompt assembly.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "tests/perf_budgets.rs"
+        }
+      ],
+      "id": "perf_budgets",
+      "issue": null,
+      "requirement": "Large-workspace context planner performance budgets have schema, deterministic replay, cache, environment, and metric validation.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "src/doctor.rs"
+        },
+        {
+          "path": "scripts/build_swarm_operator_runpack.py"
+        },
+        {
+          "path": "docs/contracts/swarm-operator-runpack-contract.json"
+        },
+        {
+          "path": "tests/doctor_swarm_temp_dir_json.rs"
+        }
+      ],
+      "id": "doctor_runpack",
+      "issue": null,
+      "requirement": "Doctor and swarm runpacks surface context-intelligence posture, degraded reasons, cache pressure, bundle coverage, and redaction summaries.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "docs/context-intelligence.md"
+        },
+        {
+          "path": "docs/swarm-operations-runbook.md"
+        }
+      ],
+      "id": "operator_docs",
+      "issue": null,
+      "requirement": "Operator docs cover configuration, preview workflow, failure modes, privacy posture, examples, troubleshooting, and final closeout evidence.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "path": "README.md"
+        },
+        {
+          "path": "docs/contracts/context-intelligence-closeout-gate-contract.json"
+        },
+        {
+          "path": "docs/evidence/context-intelligence-closeout-gate.json"
+        }
+      ],
+      "id": "readme_freshness",
+      "issue": null,
+      "requirement": "README documentation index and machine-contract links identify context-intelligence docs, contracts, evidence, and closeout gate freshness.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "child_commits": [
+            "98008ed0a2f984338858e0c760e64ea913e84111",
+            "edd5586c45fa356b8407e7c703d665ea96f55a40",
+            "0cbb42d51e242a1b5b47ccc75fc4deff96ef0e66",
+            "d64d4019a82f89a460dd936751a4d4035f4d03c2",
+            "f5a9b3190ea81a475206ff2ef20f1c45a576b0c8",
+            "bc51f70f70fca98d045ab14ca89fc3228c2d343c",
+            "ad94a8c2fa90b46b806f0bc583f4718803e00449",
+            "70780ea69f8619068c50025b12bcf6c3bb546ec0",
+            "60f25202a617a0bc5972e182e4db03283c912c33",
+            "0142c8ba666aeee65a7295284c88d4ead9a0c9b6"
+          ],
+          "head": "0142c8ba666aeee65a7295284c88d4ead9a0c9b6",
+          "origin_main": "0142c8ba666aeee65a7295284c88d4ead9a0c9b6",
+          "origin_master": "0142c8ba666aeee65a7295284c88d4ead9a0c9b6"
+        }
+      ],
+      "id": "pushed_commits",
+      "issue": null,
+      "requirement": "Current HEAD is pushed to both origin/main and legacy origin/master before closeout artifact generation.",
+      "status": "pass"
+    },
+    {
+      "evidence": [
+        {
+          "heavy_cargo_uses_rch": true,
+          "provided_quality_gates": [
+            {
+              "command": "python3 -m py_compile scripts/build_swarm_operator_runpack.py",
+              "id": "py_compile",
+              "status": "pass"
+            },
+            {
+              "command": "python3 scripts/build_swarm_operator_runpack.py --self-test",
+              "id": "runpack_self_test",
+              "status": "pass"
+            },
+            {
+              "command": "python3 -m json.tool docs/contracts/context-intelligence-closeout-gate-contract.json >/dev/null && python3 -m json.tool docs/evidence/context-intelligence-closeout-gate.json >/dev/null",
+              "id": "json_contracts",
+              "status": "pass"
+            },
+            {
+              "command": "rch exec -- cargo test --test semantic_context_graph_contract -- --nocapture",
+              "id": "semantic_context_graph_contract_rch",
+              "status": "pass"
+            },
+            {
+              "command": "rch exec -- cargo test --test semantic_workspace_graph_contract -- --nocapture",
+              "id": "semantic_workspace_graph_contract_rch",
+              "status": "pass"
+            },
+            {
+              "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test semantic_workspace_graph_builder --test e2e_agent_loop --test doctor_swarm_temp_dir_json --test perf_budgets context -- --nocapture",
+              "id": "semantic_workspace_graph_builder_rch",
+              "status": "pass"
+            },
+            {
+              "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test semantic_workspace_graph_builder --test e2e_agent_loop --test doctor_swarm_temp_dir_json --test perf_budgets context -- --nocapture",
+              "id": "context_intelligence_e2e_rch",
+              "status": "pass"
+            },
+            {
+              "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test semantic_workspace_graph_builder --test e2e_agent_loop --test doctor_swarm_temp_dir_json --test perf_budgets context -- --nocapture",
+              "id": "doctor_context_intelligence_rch",
+              "status": "pass"
+            },
+            {
+              "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test semantic_workspace_graph_builder --test e2e_agent_loop --test doctor_swarm_temp_dir_json --test perf_budgets context -- --nocapture",
+              "id": "context_perf_budgets_rch",
+              "status": "pass"
+            },
+            {
+              "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test context_intelligence_closeout_gate_contract -- --nocapture",
+              "id": "context_intelligence_closeout_gate_contract_rch",
+              "status": "pass"
+            },
+            {
+              "command": "cargo fmt --check",
+              "id": "cargo_fmt",
+              "status": "pass"
+            },
+            {
+              "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo check --all-targets",
+              "id": "cargo_check_all_targets_rch",
+              "status": "pass"
+            },
+            {
+              "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo clippy --all-targets -- -D warnings",
+              "id": "cargo_clippy_all_targets_rch",
+              "status": "pass"
+            },
+            {
+              "command": "timeout 60s ubs --staged --only=rust .",
+              "id": "staged_ubs",
+              "status": "pass"
+            },
+            {
+              "command": "./scripts/reconcile_beads_ledger.sh",
+              "id": "beads_ledger_reconcile",
+              "status": "pass"
+            }
+          ],
+          "rch_gate_ids": [
+            "semantic_context_graph_contract_rch",
+            "semantic_workspace_graph_contract_rch",
+            "semantic_workspace_graph_builder_rch",
+            "context_intelligence_e2e_rch",
+            "doctor_context_intelligence_rch",
+            "context_perf_budgets_rch",
+            "context_intelligence_closeout_gate_contract_rch",
+            "cargo_check_all_targets_rch",
+            "cargo_clippy_all_targets_rch"
+          ],
+          "required_quality_gates": [
+            "py_compile",
+            "runpack_self_test",
+            "json_contracts",
+            "semantic_context_graph_contract_rch",
+            "semantic_workspace_graph_contract_rch",
+            "semantic_workspace_graph_builder_rch",
+            "context_intelligence_e2e_rch",
+            "doctor_context_intelligence_rch",
+            "context_perf_budgets_rch",
+            "context_intelligence_closeout_gate_contract_rch",
+            "cargo_fmt",
+            "cargo_check_all_targets_rch",
+            "cargo_clippy_all_targets_rch",
+            "staged_ubs",
+            "beads_ledger_reconcile"
+          ]
+        }
+      ],
+      "id": "quality_gates",
+      "issue": null,
+      "requirement": "Required focused and broad quality gates passed, with every Cargo/Rust validation gate run through RCH.",
+      "status": "pass"
+    }
+  ],
+  "child_artifact_map": [
+    {
+      "bead_id": "bd-ircr3.1",
+      "close_reason": "Defined semantic workspace/context graph contracts with executable fail-closed freshness, redaction, source-inventory, and bead-actionability contract tests",
+      "code_paths": [],
+      "commit": "98008ed0a2f984338858e0c760e64ea913e84111",
+      "docs_or_evidence_paths": [
+        "docs/contracts/semantic-context-graph-contract.json",
+        "docs/contracts/semantic-workspace-graph-contract.json"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/semantic_context_graph_contract.rs",
+        "tests/semantic_workspace_graph_contract.rs"
+      ],
+      "title": "[IDEA-WIZARD] Define semantic workspace graph contract and gap audit",
+      "validation_commands": [
+        "rch exec -- cargo test --test semantic_context_graph_contract -- --nocapture",
+        "rch exec -- cargo test --test semantic_workspace_graph_contract -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.2",
+      "close_reason": "Implemented deterministic semantic workspace graph builder with fail-closed evidence and Beads classification coverage",
+      "code_paths": [
+        "src/semantic_workspace_graph.rs"
+      ],
+      "commit": "edd5586c45fa356b8407e7c703d665ea96f55a40",
+      "docs_or_evidence_paths": [
+        "docs/contracts/semantic-workspace-graph-contract.json"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/semantic_workspace_graph_builder.rs"
+      ],
+      "title": "[IDEA-WIZARD] Implement incremental semantic graph builder",
+      "validation_commands": [
+        "rch exec -- cargo test --test semantic_workspace_graph_builder"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.3",
+      "close_reason": "Wired evidence freshness and claim-gate facts into semantic workspace graph with fixture coverage",
+      "code_paths": [
+        "src/semantic_workspace_graph.rs"
+      ],
+      "commit": "0cbb42d51e242a1b5b47ccc75fc4deff96ef0e66",
+      "docs_or_evidence_paths": [
+        "docs/contracts/semantic-context-graph-contract.json",
+        "docs/contracts/semantic-workspace-graph-contract.json"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/semantic_workspace_graph_builder.rs"
+      ],
+      "title": "[IDEA-WIZARD] Wire evidence freshness and claim-gate facts into context graph",
+      "validation_commands": [
+        "rch exec -- cargo test --test semantic_workspace_graph_builder"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.4",
+      "close_reason": "Implemented budgeted semantic context bundle planner with deterministic golden fixture coverage",
+      "code_paths": [
+        "src/semantic_workspace_graph.rs"
+      ],
+      "commit": "d64d4019a82f89a460dd936751a4d4035f4d03c2",
+      "docs_or_evidence_paths": [
+        "tests/semantic_workspace_graph_builder.rs"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/semantic_workspace_graph_builder.rs"
+      ],
+      "title": "[IDEA-WIZARD] Build budgeted context bundle planner",
+      "validation_commands": [
+        "rch exec -- cargo test --test semantic_workspace_graph_builder"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.5",
+      "close_reason": "Implemented context artifact redaction and invalidation policy with fixtures",
+      "code_paths": [
+        "src/semantic_workspace_graph.rs"
+      ],
+      "commit": "f5a9b3190ea81a475206ff2ef20f1c45a576b0c8",
+      "docs_or_evidence_paths": [
+        "docs/contracts/semantic-context-graph-contract.json",
+        "docs/contracts/semantic-workspace-graph-contract.json"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/semantic_workspace_graph_builder.rs"
+      ],
+      "title": "[IDEA-WIZARD] Add redaction and invalidation policy for context artifacts",
+      "validation_commands": [
+        "rch exec -- cargo test --test semantic_workspace_graph_builder"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.6",
+      "close_reason": "Completed context bundle preview CLI with JSON/text output, stale suppression display, command provenance, and E2E coverage.",
+      "code_paths": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/semantic_workspace_graph.rs"
+      ],
+      "commit": "bc51f70f70fca98d045ab14ca89fc3228c2d343c",
+      "docs_or_evidence_paths": [
+        "README.md",
+        "docs/context-intelligence.md"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/e2e_cli.rs",
+        "tests/conformance/fixture_runner.rs"
+      ],
+      "title": "[IDEA-WIZARD] Expose context bundle preview in CLI/TUI",
+      "validation_commands": [
+        "rch exec -- cargo test --test e2e_cli context_preview -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.7",
+      "close_reason": "Integrated opt-in semantic context bundle injection into AgentSession prompt assembly with provider-aware prompt shaping, bounded rendering, session provenance, and deterministic regression coverage.",
+      "code_paths": [
+        "src/agent.rs",
+        "src/semantic_workspace_graph.rs"
+      ],
+      "commit": "ad94a8c2fa90b46b806f0bc583f4718803e00449",
+      "docs_or_evidence_paths": [
+        "tests/e2e_agent_loop.rs"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "src/agent.rs",
+        "tests/semantic_workspace_graph_builder.rs",
+        "tests/e2e_agent_loop.rs"
+      ],
+      "title": "[IDEA-WIZARD] Integrate context bundles into AgentSession prompt assembly",
+      "validation_commands": [
+        "rch exec -- cargo test -p pi --lib agent_semantic_context",
+        "rch exec -- cargo test --test semantic_workspace_graph_builder"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.8",
+      "close_reason": "Completed no-mock E2E context-intelligence harness with stale raw evidence suppression",
+      "code_paths": [
+        "src/agent.rs",
+        "src/semantic_workspace_graph.rs"
+      ],
+      "commit": "70780ea69f8619068c50025b12bcf6c3bb546ec0",
+      "docs_or_evidence_paths": [
+        "tests/e2e_agent_loop.rs"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/e2e_agent_loop.rs"
+      ],
+      "title": "[IDEA-WIZARD] Add no-mock E2E context-intelligence harness",
+      "validation_commands": [
+        "rch exec -- cargo test --test e2e_agent_loop context_intelligence_no_mock_harness -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.9",
+      "close_reason": "Completed large-workspace context planner performance budgets",
+      "code_paths": [
+        "src/semantic_workspace_graph.rs"
+      ],
+      "commit": "60f25202a617a0bc5972e182e4db03283c912c33",
+      "docs_or_evidence_paths": [
+        "tests/perf_budgets.rs",
+        "tests/semantic_workspace_graph_builder.rs"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/perf_budgets.rs",
+        "tests/semantic_workspace_graph_builder.rs"
+      ],
+      "title": "[IDEA-WIZARD] Add large-workspace context planner performance budgets",
+      "validation_commands": [
+        "rch exec -- cargo test --test perf_budgets context_intelligence",
+        "rch exec -- cargo test --test semantic_workspace_graph_builder large_workspace_context_planner_budget_artifact_is_deterministic_under_randomized_order"
+      ]
+    },
+    {
+      "bead_id": "bd-ircr3.10",
+      "close_reason": "Completed: doctor and runpack now surface context-intelligence posture with JSON/text, runpack projection, cache/degraded-mode, and redaction coverage",
+      "code_paths": [
+        "src/doctor.rs",
+        "scripts/build_swarm_operator_runpack.py"
+      ],
+      "commit": "0142c8ba666aeee65a7295284c88d4ead9a0c9b6",
+      "docs_or_evidence_paths": [
+        "docs/contracts/swarm-operator-runpack-contract.json",
+        "docs/swarm-operations-runbook.md"
+      ],
+      "status": "closed",
+      "test_paths": [
+        "tests/doctor_swarm_temp_dir_json.rs",
+        "tests/golden_corpus/swarm_operator_runpack/complete_runpack_projection.json"
+      ],
+      "title": "[IDEA-WIZARD] Surface context intelligence in doctor and swarm runpacks",
+      "validation_commands": [
+        "rch exec -- cargo test --test doctor_swarm_temp_dir_json context_intelligence -- --nocapture",
+        "python3 scripts/build_swarm_operator_runpack.py --self-test"
+      ]
+    }
+  ],
+  "decision": "close_final_gate_and_parent_epic",
+  "epic_can_close_after_this_commit": true,
+  "final_gate_bead": {
+    "assignee": "codex-cli",
+    "id": "bd-ircr3.11",
+    "status": "closed"
+  },
+  "follow_up_beads": [],
+  "follow_up_required": false,
+  "generated_at": "2026-05-13T17:00:19Z",
+  "missing_checks": [],
+  "parent_epic": {
+    "id": "bd-ircr3",
+    "status": "closed",
+    "title": "[IDEA-WIZARD] Evidence-aware semantic context intelligence program"
+  },
+  "purpose": "prompt_to_artifact_context_intelligence_closeout_gate_not_source_of_truth",
+  "quality_gate_results": [
+    {
+      "command": "python3 -m py_compile scripts/build_swarm_operator_runpack.py",
+      "id": "py_compile",
+      "status": "pass"
+    },
+    {
+      "command": "python3 scripts/build_swarm_operator_runpack.py --self-test",
+      "id": "runpack_self_test",
+      "status": "pass"
+    },
+    {
+      "command": "python3 -m json.tool docs/contracts/context-intelligence-closeout-gate-contract.json >/dev/null && python3 -m json.tool docs/evidence/context-intelligence-closeout-gate.json >/dev/null",
+      "id": "json_contracts",
+      "status": "pass"
+    },
+    {
+      "command": "rch exec -- cargo test --test semantic_context_graph_contract -- --nocapture",
+      "id": "semantic_context_graph_contract_rch",
+      "status": "pass"
+    },
+    {
+      "command": "rch exec -- cargo test --test semantic_workspace_graph_contract -- --nocapture",
+      "id": "semantic_workspace_graph_contract_rch",
+      "status": "pass"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test semantic_workspace_graph_builder --test e2e_agent_loop --test doctor_swarm_temp_dir_json --test perf_budgets context -- --nocapture",
+      "id": "semantic_workspace_graph_builder_rch",
+      "status": "pass"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test semantic_workspace_graph_builder --test e2e_agent_loop --test doctor_swarm_temp_dir_json --test perf_budgets context -- --nocapture",
+      "id": "context_intelligence_e2e_rch",
+      "status": "pass"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test semantic_workspace_graph_builder --test e2e_agent_loop --test doctor_swarm_temp_dir_json --test perf_budgets context -- --nocapture",
+      "id": "doctor_context_intelligence_rch",
+      "status": "pass"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test semantic_workspace_graph_builder --test e2e_agent_loop --test doctor_swarm_temp_dir_json --test perf_budgets context -- --nocapture",
+      "id": "context_perf_budgets_rch",
+      "status": "pass"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo test --test context_intelligence_closeout_gate_contract -- --nocapture",
+      "id": "context_intelligence_closeout_gate_contract_rch",
+      "status": "pass"
+    },
+    {
+      "command": "cargo fmt --check",
+      "id": "cargo_fmt",
+      "status": "pass"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo check --all-targets",
+      "id": "cargo_check_all_targets_rch",
+      "status": "pass"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/target TMPDIR=/data/tmp/pi_agent_rust_cargo/amberosprey_bd_ircr3_11/tmp rch exec -- cargo clippy --all-targets -- -D warnings",
+      "id": "cargo_clippy_all_targets_rch",
+      "status": "pass"
+    },
+    {
+      "command": "timeout 60s ubs --staged --only=rust .",
+      "id": "staged_ubs",
+      "status": "pass"
+    },
+    {
+      "command": "./scripts/reconcile_beads_ledger.sh",
+      "id": "beads_ledger_reconcile",
+      "status": "pass"
+    }
+  ],
+  "required_checks": [
+    "child_beads_closed",
+    "graph_contracts",
+    "graph_builder",
+    "freshness_claim_gates",
+    "bundle_planner",
+    "redaction_invalidation",
+    "preview_surface",
+    "prompt_injection",
+    "no_mock_e2e",
+    "perf_budgets",
+    "doctor_runpack",
+    "operator_docs",
+    "readme_freshness",
+    "pushed_commits",
+    "quality_gates"
+  ],
+  "schema": "pi.context_intelligence.closeout_gate.v1",
+  "status": "pass"
+}

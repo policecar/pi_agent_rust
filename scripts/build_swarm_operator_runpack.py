@@ -55,6 +55,10 @@ AUTOPILOT_DECISION_GATE_SCHEMA = "pi.swarm.autopilot_decision_gate.v1"
 AUTOPILOT_DECISION_GATE_CONTRACT_SCHEMA = (
     "pi.swarm.autopilot_decision_gate_contract.v1"
 )
+CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_SCHEMA = "pi.context_intelligence.closeout_gate.v1"
+CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_CONTRACT_SCHEMA = (
+    "pi.context_intelligence.closeout_gate_contract.v1"
+)
 RUNPACK_CONTRACT_PATH = Path("docs/contracts/swarm-operator-runpack-contract.json")
 AUTOPILOT_INPUT_PACK_CONTRACT_PATH = Path(
     "docs/contracts/swarm-autopilot-input-pack-contract.json"
@@ -62,6 +66,9 @@ AUTOPILOT_INPUT_PACK_CONTRACT_PATH = Path(
 AUTOPILOT_PLAN_CONTRACT_PATH = Path("docs/contracts/swarm-autopilot-plan-contract.json")
 AUTOPILOT_DECISION_GATE_CONTRACT_PATH = Path(
     "docs/contracts/swarm-autopilot-decision-gate-contract.json"
+)
+CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_CONTRACT_PATH = Path(
+    "docs/contracts/context-intelligence-closeout-gate-contract.json"
 )
 GOLDEN_REPORT_DIRECTORY = Path("tests/golden_corpus/swarm_operator_runpack")
 COMPLETE_RUNPACK_GOLDEN = "complete_runpack_projection.json"
@@ -220,6 +227,52 @@ AUTOPILOT_DECISION_GATE_REQUIRED_QUALITY_GATES = (
     "runpack_self_test",
     "autopilot_e2e",
     "json_contracts",
+    "cargo_fmt",
+    "cargo_check_all_targets_rch",
+    "cargo_clippy_all_targets_rch",
+    "staged_ubs",
+    "beads_ledger_reconcile",
+)
+CONTEXT_INTELLIGENCE_CLOSEOUT_CHILD_BEADS = (
+    "bd-ircr3.1",
+    "bd-ircr3.2",
+    "bd-ircr3.3",
+    "bd-ircr3.4",
+    "bd-ircr3.5",
+    "bd-ircr3.6",
+    "bd-ircr3.7",
+    "bd-ircr3.8",
+    "bd-ircr3.9",
+    "bd-ircr3.10",
+)
+CONTEXT_INTELLIGENCE_CLOSEOUT_REQUIRED_CHECKS = (
+    "child_beads_closed",
+    "graph_contracts",
+    "graph_builder",
+    "freshness_claim_gates",
+    "bundle_planner",
+    "redaction_invalidation",
+    "preview_surface",
+    "prompt_injection",
+    "no_mock_e2e",
+    "perf_budgets",
+    "doctor_runpack",
+    "operator_docs",
+    "readme_freshness",
+    "pushed_commits",
+    "quality_gates",
+)
+CONTEXT_INTELLIGENCE_CLOSEOUT_REQUIRED_QUALITY_GATES = (
+    "py_compile",
+    "runpack_self_test",
+    "json_contracts",
+    "semantic_context_graph_contract_rch",
+    "semantic_workspace_graph_contract_rch",
+    "semantic_workspace_graph_builder_rch",
+    "context_intelligence_e2e_rch",
+    "doctor_context_intelligence_rch",
+    "context_perf_budgets_rch",
+    "context_intelligence_closeout_gate_contract_rch",
     "cargo_fmt",
     "cargo_check_all_targets_rch",
     "cargo_clippy_all_targets_rch",
@@ -6240,6 +6293,21 @@ def git_value(command: list[str], cwd: Path) -> str | None:
     return completed.stdout.strip()
 
 
+def git_command_ok(command: list[str], cwd: Path) -> bool:
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=cwd,
+            text=True,
+            capture_output=True,
+            timeout=8,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
 def parse_quality_gate_result(raw: str) -> dict[str, Any]:
     head, separator, command = raw.partition(":")
     if not separator:
@@ -6686,6 +6754,688 @@ def write_autopilot_decision_gate_output(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     if output_path.exists():
         raise RunpackError(f"refusing to overwrite autopilot final gate: {output_path}")
+    output_path.write_text(json_dumps(summary, pretty=True), encoding="utf-8")
+
+
+def context_intelligence_child_artifact_map(
+    issues: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = [
+        {
+            "bead_id": "bd-ircr3.1",
+            "commit": "98008ed0a2f984338858e0c760e64ea913e84111",
+            "code_paths": [],
+            "test_paths": [
+                "tests/semantic_context_graph_contract.rs",
+                "tests/semantic_workspace_graph_contract.rs",
+            ],
+            "docs_or_evidence_paths": [
+                "docs/contracts/semantic-context-graph-contract.json",
+                "docs/contracts/semantic-workspace-graph-contract.json",
+            ],
+            "validation_commands": [
+                "rch exec -- cargo test --test semantic_context_graph_contract -- --nocapture",
+                "rch exec -- cargo test --test semantic_workspace_graph_contract -- --nocapture",
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.2",
+            "commit": "edd5586c45fa356b8407e7c703d665ea96f55a40",
+            "code_paths": ["src/semantic_workspace_graph.rs"],
+            "test_paths": ["tests/semantic_workspace_graph_builder.rs"],
+            "docs_or_evidence_paths": [
+                "docs/contracts/semantic-workspace-graph-contract.json"
+            ],
+            "validation_commands": [
+                "rch exec -- cargo test --test semantic_workspace_graph_builder"
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.3",
+            "commit": "0cbb42d51e242a1b5b47ccc75fc4deff96ef0e66",
+            "code_paths": ["src/semantic_workspace_graph.rs"],
+            "test_paths": ["tests/semantic_workspace_graph_builder.rs"],
+            "docs_or_evidence_paths": [
+                "docs/contracts/semantic-context-graph-contract.json",
+                "docs/contracts/semantic-workspace-graph-contract.json",
+            ],
+            "validation_commands": [
+                "rch exec -- cargo test --test semantic_workspace_graph_builder"
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.4",
+            "commit": "d64d4019a82f89a460dd936751a4d4035f4d03c2",
+            "code_paths": ["src/semantic_workspace_graph.rs"],
+            "test_paths": ["tests/semantic_workspace_graph_builder.rs"],
+            "docs_or_evidence_paths": ["tests/semantic_workspace_graph_builder.rs"],
+            "validation_commands": [
+                "rch exec -- cargo test --test semantic_workspace_graph_builder"
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.5",
+            "commit": "f5a9b3190ea81a475206ff2ef20f1c45a576b0c8",
+            "code_paths": ["src/semantic_workspace_graph.rs"],
+            "test_paths": ["tests/semantic_workspace_graph_builder.rs"],
+            "docs_or_evidence_paths": [
+                "docs/contracts/semantic-context-graph-contract.json",
+                "docs/contracts/semantic-workspace-graph-contract.json",
+            ],
+            "validation_commands": [
+                "rch exec -- cargo test --test semantic_workspace_graph_builder"
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.6",
+            "commit": "bc51f70f70fca98d045ab14ca89fc3228c2d343c",
+            "code_paths": ["src/cli.rs", "src/main.rs", "src/semantic_workspace_graph.rs"],
+            "test_paths": ["tests/e2e_cli.rs", "tests/conformance/fixture_runner.rs"],
+            "docs_or_evidence_paths": ["README.md", "docs/context-intelligence.md"],
+            "validation_commands": [
+                "rch exec -- cargo test --test e2e_cli context_preview -- --nocapture"
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.7",
+            "commit": "ad94a8c2fa90b46b806f0bc583f4718803e00449",
+            "code_paths": ["src/agent.rs", "src/semantic_workspace_graph.rs"],
+            "test_paths": [
+                "src/agent.rs",
+                "tests/semantic_workspace_graph_builder.rs",
+                "tests/e2e_agent_loop.rs",
+            ],
+            "docs_or_evidence_paths": ["tests/e2e_agent_loop.rs"],
+            "validation_commands": [
+                "rch exec -- cargo test -p pi --lib agent_semantic_context",
+                "rch exec -- cargo test --test semantic_workspace_graph_builder",
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.8",
+            "commit": "70780ea69f8619068c50025b12bcf6c3bb546ec0",
+            "code_paths": ["src/agent.rs", "src/semantic_workspace_graph.rs"],
+            "test_paths": ["tests/e2e_agent_loop.rs"],
+            "docs_or_evidence_paths": ["tests/e2e_agent_loop.rs"],
+            "validation_commands": [
+                "rch exec -- cargo test --test e2e_agent_loop context_intelligence_no_mock_harness -- --nocapture"
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.9",
+            "commit": "60f25202a617a0bc5972e182e4db03283c912c33",
+            "code_paths": ["src/semantic_workspace_graph.rs"],
+            "test_paths": ["tests/perf_budgets.rs", "tests/semantic_workspace_graph_builder.rs"],
+            "docs_or_evidence_paths": [
+                "tests/perf_budgets.rs",
+                "tests/semantic_workspace_graph_builder.rs",
+            ],
+            "validation_commands": [
+                "rch exec -- cargo test --test perf_budgets context_intelligence",
+                "rch exec -- cargo test --test semantic_workspace_graph_builder large_workspace_context_planner_budget_artifact_is_deterministic_under_randomized_order",
+            ],
+        },
+        {
+            "bead_id": "bd-ircr3.10",
+            "commit": "0142c8ba666aeee65a7295284c88d4ead9a0c9b6",
+            "code_paths": ["src/doctor.rs", "scripts/build_swarm_operator_runpack.py"],
+            "test_paths": [
+                "tests/doctor_swarm_temp_dir_json.rs",
+                "tests/golden_corpus/swarm_operator_runpack/complete_runpack_projection.json",
+            ],
+            "docs_or_evidence_paths": [
+                "docs/contracts/swarm-operator-runpack-contract.json",
+                "docs/swarm-operations-runbook.md",
+            ],
+            "validation_commands": [
+                "rch exec -- cargo test --test doctor_swarm_temp_dir_json context_intelligence -- --nocapture",
+                "python3 scripts/build_swarm_operator_runpack.py --self-test",
+            ],
+        },
+    ]
+    for row in rows:
+        issue = issues.get(row["bead_id"]) or {}
+        row["status"] = issue.get("status")
+        row["title"] = issue.get("title")
+        row["close_reason"] = issue.get("close_reason")
+    return rows
+
+
+def paths_exist(root: Path, paths: list[str]) -> bool:
+    return all((root / path).exists() for path in paths)
+
+
+def commits_exist(root: Path, commits: list[str]) -> bool:
+    return all(
+        git_command_ok(["git", "cat-file", "-e", f"{commit}^{{commit}}"], root)
+        for commit in commits
+    )
+
+
+def build_context_intelligence_closeout_gate_summary(
+    *,
+    generated_at: str,
+    quality_gate_results: list[dict[str, Any]],
+    issue_export_path: Path | None = None,
+    git_refs: dict[str, str | None] | None = None,
+) -> dict[str, Any]:
+    root = repo_root()
+    script_path = root / "scripts/build_swarm_operator_runpack.py"
+    readme_path = root / "README.md"
+    operator_doc_path = root / "docs/context-intelligence.md"
+    runbook_path = root / "docs/swarm-operations-runbook.md"
+    semantic_context_contract_path = (
+        root / "docs/contracts/semantic-context-graph-contract.json"
+    )
+    semantic_workspace_contract_path = (
+        root / "docs/contracts/semantic-workspace-graph-contract.json"
+    )
+    closeout_contract_path = root / CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_CONTRACT_PATH
+    runpack_contract_path = root / RUNPACK_CONTRACT_PATH
+    graph_source_path = root / "src/semantic_workspace_graph.rs"
+    main_path = root / "src/main.rs"
+    cli_path = root / "src/cli.rs"
+    agent_path = root / "src/agent.rs"
+    doctor_path = root / "src/doctor.rs"
+    e2e_path = root / "tests/e2e_agent_loop.rs"
+    perf_path = root / "tests/perf_budgets.rs"
+    builder_test_path = root / "tests/semantic_workspace_graph_builder.rs"
+    context_contract_test_path = root / "tests/semantic_context_graph_contract.rs"
+    workspace_contract_test_path = root / "tests/semantic_workspace_graph_contract.rs"
+    doctor_test_path = root / "tests/doctor_swarm_temp_dir_json.rs"
+
+    issues = load_beads_issue_map(issue_export_path or (root / ".beads/issues.jsonl"))
+    child_artifacts = context_intelligence_child_artifact_map(issues)
+    checklist: list[dict[str, Any]] = []
+
+    child_states = {
+        issue_id: (issues.get(issue_id) or {}).get("status")
+        for issue_id in CONTEXT_INTELLIGENCE_CLOSEOUT_CHILD_BEADS
+    }
+    child_close_reasons = {
+        issue_id: (issues.get(issue_id) or {}).get("close_reason")
+        for issue_id in CONTEXT_INTELLIGENCE_CLOSEOUT_CHILD_BEADS
+    }
+    missing_children = [
+        issue_id for issue_id, status in child_states.items() if status != "closed"
+    ]
+    commits = [
+        str(row.get("commit"))
+        for row in child_artifacts
+        if isinstance(row.get("commit"), str)
+    ]
+    artifact_paths = sorted(
+        {
+            path
+            for row in child_artifacts
+            for key in ("code_paths", "test_paths", "docs_or_evidence_paths")
+            for path in row.get(key, [])
+        }
+    )
+    checklist.append(
+        gate_check(
+            "child_beads_closed",
+            "All context-intelligence implementation child Beads are closed and mapped to artifacts.",
+            not missing_children and paths_exist(root, artifact_paths) and commits_exist(root, commits),
+            [
+                {
+                    "path": ".beads/issues.jsonl",
+                    "child_statuses": child_states,
+                    "close_reasons": child_close_reasons,
+                    "artifact_path_count": len(artifact_paths),
+                    "commits": commits,
+                }
+            ],
+            issue=(
+                f"children not closed: {', '.join(missing_children)}"
+                if missing_children
+                else "one or more mapped artifact paths or commits are missing"
+                if not paths_exist(root, artifact_paths) or not commits_exist(root, commits)
+                else None
+            ),
+        )
+    )
+
+    checklist.append(
+        gate_check(
+            "graph_contracts",
+            "Semantic graph contracts and contract tests define authority boundaries, freshness, actionability, and redaction.",
+            all(
+                (
+                    file_contains(semantic_context_contract_path, "bd-ircr3.1"),
+                    file_contains(semantic_context_contract_path, "fail_closed"),
+                    file_contains(semantic_workspace_contract_path, "graph_must_not"),
+                    file_contains(semantic_workspace_contract_path, "allowed_bead_actionability_statuses"),
+                    file_contains(context_contract_test_path, "semantic_context_graph_contract_is_complete"),
+                    file_contains(workspace_contract_test_path, "contract_preserves_existing_authorities"),
+                )
+            ),
+            [
+                {"path": "docs/contracts/semantic-context-graph-contract.json"},
+                {"path": "docs/contracts/semantic-workspace-graph-contract.json"},
+                {"path": "tests/semantic_context_graph_contract.rs"},
+                {"path": "tests/semantic_workspace_graph_contract.rs"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "graph_builder",
+            "Incremental semantic workspace graph builder indexes source, tests, docs, evidence, and Beads without mutating sources of truth.",
+            all(
+                (
+                    file_contains(graph_source_path, "SemanticWorkspaceGraphBuilder"),
+                    file_contains(graph_source_path, "GRAPH_BUILDER_SCHEMA"),
+                    file_contains(graph_source_path, "InputFingerprint"),
+                    file_contains(builder_test_path, "deterministic"),
+                    file_contains(builder_test_path, "permuted_large_context_indices"),
+                )
+            ),
+            [
+                {"path": "src/semantic_workspace_graph.rs"},
+                {"path": "tests/semantic_workspace_graph_builder.rs"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "freshness_claim_gates",
+            "Evidence freshness and release-claim facts fail closed for stale, missing, malformed, uncertified, and historical inputs.",
+            all(
+                (
+                    file_contains(graph_source_path, "EvidenceFreshnessStatus"),
+                    file_contains(graph_source_path, "Uncertified"),
+                    file_contains(graph_source_path, "HistoricalSnapshot"),
+                    file_contains(graph_source_path, "release_claim_allowed"),
+                    file_contains(builder_test_path, "stale_evidence_suppressions"),
+                    file_contains(semantic_workspace_contract_path, "dropin_verdict_not_certified"),
+                )
+            ),
+            [
+                {"path": "src/semantic_workspace_graph.rs"},
+                {"path": "tests/semantic_workspace_graph_builder.rs"},
+                {"path": "docs/contracts/semantic-workspace-graph-contract.json"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "bundle_planner",
+            "Budgeted context bundle planner emits bounded selected items, exclusions, validation commands, and deterministic replay artifacts.",
+            all(
+                (
+                    file_contains(graph_source_path, "SemanticContextBundlePlanner"),
+                    file_contains(graph_source_path, "ContextBundleBudget"),
+                    file_contains(graph_source_path, "suggested_validation_commands"),
+                    file_contains(builder_test_path, "planner_emits_budgeted_golden_bundles_for_core_task_shapes"),
+                    file_contains(builder_test_path, "bundle_golden_summary"),
+                )
+            ),
+            [
+                {"path": "src/semantic_workspace_graph.rs"},
+                {"path": "tests/semantic_workspace_graph_builder.rs"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "redaction_invalidation",
+            "Context artifacts record redaction summaries, suppress unsafe payloads, normalize paths, and invalidate cache entries by workspace and fingerprint.",
+            all(
+                (
+                    file_contains(graph_source_path, "ContextRedactionSummary"),
+                    file_contains(graph_source_path, "suppressed_unsafe_nodes"),
+                    file_contains(graph_source_path, "ContextArtifactCacheScope"),
+                    file_contains(graph_source_path, "normalize_context_artifact_path"),
+                    file_contains(builder_test_path, "unsafe_to_emit_by_redaction_policy"),
+                    file_contains(builder_test_path, "context_path_normalization_rejects_escape_and_normalizes_safe_paths"),
+                )
+            ),
+            [
+                {"path": "src/semantic_workspace_graph.rs"},
+                {"path": "tests/semantic_workspace_graph_builder.rs"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "preview_surface",
+            "`pi context-preview` exposes read-only JSON/text previews with query, Bead, changed-path, failing-command, and budget controls.",
+            all(
+                (
+                    file_contains(cli_path, "ContextPreview"),
+                    file_contains(cli_path, "changed-path"),
+                    file_contains(main_path, "handle_context_preview_blocking"),
+                    file_contains(main_path, "pi.context_bundle_preview.v1"),
+                    file_contains(main_path, "provider_calls: 0"),
+                )
+            ),
+            [
+                {"path": "src/cli.rs"},
+                {"path": "src/main.rs"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "prompt_injection",
+            "AgentSession prompt assembly consumes an opt-in semantic context bundle with provider-aware shape, byte/item bounds, and session provenance.",
+            all(
+                (
+                    file_contains(agent_path, "SemanticContextBundleInjection"),
+                    file_contains(agent_path, "prepare_semantic_context_prompt"),
+                    file_contains(agent_path, "semantic_context_prompt_shape_for_provider"),
+                    file_contains(agent_path, "SEMANTIC_CONTEXT_PROVENANCE_SCHEMA_V1"),
+                    file_contains(agent_path, "semantic_context_bundle_injection_adds_bounded_custom_message_and_session_provenance"),
+                )
+            ),
+            [{"path": "src/agent.rs"}],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "no_mock_e2e",
+            "No-mock E2E harness exercises real temp git, source, tests, evidence, Beads JSONL, session persistence, graph planning, and provider prompt assembly.",
+            all(
+                (
+                    file_contains(e2e_path, "context_intelligence_no_mock_harness"),
+                    file_contains(e2e_path, "init_real_git_workspace"),
+                    file_contains(e2e_path, "docs/evidence/context-intelligence-current.json"),
+                    file_contains(e2e_path, "semantic_context_bundle"),
+                    file_contains(e2e_path, "persist_context intelligence session")
+                    or file_contains(e2e_path, "persist context intelligence session"),
+                )
+            ),
+            [{"path": "tests/e2e_agent_loop.rs"}],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "perf_budgets",
+            "Large-workspace context planner performance budgets have schema, deterministic replay, cache, environment, and metric validation.",
+            all(
+                (
+                    file_contains(perf_path, "pi.semantic_context.performance_budget.v1"),
+                    file_contains(perf_path, "context_intelligence_budget_contract_accepts_valid_artifact"),
+                    file_contains(perf_path, "context_intelligence_budget_contract_fails_closed_when_missing"),
+                    file_contains(perf_path, "context_intelligence_budget_contract_requires_randomized_order_replay"),
+                )
+            ),
+            [
+                {"path": "tests/perf_budgets.rs"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "doctor_runpack",
+            "Doctor and swarm runpacks surface context-intelligence posture, degraded reasons, cache pressure, bundle coverage, and redaction summaries.",
+            all(
+                (
+                    file_contains(doctor_path, "SWARM_DOCTOR_CONTEXT_INTELLIGENCE_SCHEMA"),
+                    file_contains(doctor_path, "build_swarm_context_intelligence_posture"),
+                    file_contains(script_path, "summarize_context_intelligence"),
+                    file_contains(script_path, CONTEXT_INTELLIGENCE_SCHEMA),
+                    file_contains(runpack_contract_path, "doctor_swarm.context_intelligence"),
+                    file_contains(doctor_test_path, "doctor_swarm_context_intelligence_json_reports_posture"),
+                )
+            ),
+            [
+                {"path": "src/doctor.rs"},
+                {"path": "scripts/build_swarm_operator_runpack.py"},
+                {"path": str(RUNPACK_CONTRACT_PATH)},
+                {"path": "tests/doctor_swarm_temp_dir_json.rs"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "operator_docs",
+            "Operator docs cover configuration, preview workflow, failure modes, privacy posture, examples, troubleshooting, and final closeout evidence.",
+            all(
+                (
+                    file_contains(operator_doc_path, "Configuration"),
+                    file_contains(operator_doc_path, "Preview Workflow"),
+                    file_contains(operator_doc_path, "Failure Modes"),
+                    file_contains(operator_doc_path, "Privacy Posture"),
+                    file_contains(operator_doc_path, "Troubleshooting"),
+                    file_contains(operator_doc_path, CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_SCHEMA),
+                    file_contains(runbook_path, "--run-context-intelligence-final-gate"),
+                )
+            ),
+            [
+                {"path": "docs/context-intelligence.md"},
+                {"path": "docs/swarm-operations-runbook.md"},
+            ],
+        )
+    )
+    checklist.append(
+        gate_check(
+            "readme_freshness",
+            "README documentation index and machine-contract links identify context-intelligence docs, contracts, evidence, and closeout gate freshness.",
+            all(
+                (
+                    file_contains(readme_path, "docs/context-intelligence.md"),
+                    file_contains(readme_path, "context-intelligence closeout gate"),
+                    file_contains(readme_path, "docs/evidence/context-intelligence-closeout-gate.json"),
+                    file_contains(readme_path, str(CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_CONTRACT_PATH)),
+                    file_contains(closeout_contract_path, CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_SCHEMA),
+                )
+            ),
+            [
+                {"path": "README.md"},
+                {"path": str(CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_CONTRACT_PATH)},
+                {"path": "docs/evidence/context-intelligence-closeout-gate.json"},
+            ],
+        )
+    )
+
+    if git_refs is None:
+        head = git_value(["git", "rev-parse", "HEAD"], root)
+        origin_main = git_value(["git", "rev-parse", "origin/main"], root)
+        origin_master = git_value(["git", "rev-parse", "origin/master"], root)
+    else:
+        head = git_refs.get("head")
+        origin_main = git_refs.get("origin_main")
+        origin_master = git_refs.get("origin_master")
+    pushed = bool(head and head == origin_main == origin_master)
+    checklist.append(
+        gate_check(
+            "pushed_commits",
+            "Current HEAD is pushed to both origin/main and legacy origin/master before closeout artifact generation.",
+            pushed,
+            [
+                {
+                    "head": head,
+                    "origin_main": origin_main,
+                    "origin_master": origin_master,
+                    "child_commits": commits,
+                }
+            ],
+            issue=None if pushed else "HEAD is not synchronized with both remotes",
+        )
+    )
+
+    quality_by_id = {item["id"]: item for item in quality_gate_results}
+    missing_quality = [
+        gate_id
+        for gate_id in CONTEXT_INTELLIGENCE_CLOSEOUT_REQUIRED_QUALITY_GATES
+        if quality_by_id.get(gate_id, {}).get("status") != "pass"
+    ]
+    cargo_check_command = str(
+        quality_by_id.get("cargo_check_all_targets_rch", {}).get("command") or ""
+    )
+    cargo_clippy_command = str(
+        quality_by_id.get("cargo_clippy_all_targets_rch", {}).get("command") or ""
+    )
+    rch_gate_ids = [
+        gate_id
+        for gate_id in CONTEXT_INTELLIGENCE_CLOSEOUT_REQUIRED_QUALITY_GATES
+        if gate_id.endswith("_rch")
+    ]
+    rch_proven = (
+        "rch exec --" in cargo_check_command
+        and "cargo check --all-targets" in cargo_check_command
+        and "rch exec --" in cargo_clippy_command
+        and "cargo clippy --all-targets -- -D warnings" in cargo_clippy_command
+        and all(
+            "rch exec --" in str(quality_by_id.get(gate_id, {}).get("command") or "")
+            for gate_id in rch_gate_ids
+        )
+    )
+    checklist.append(
+        gate_check(
+            "quality_gates",
+            "Required focused and broad quality gates passed, with every Cargo/Rust validation gate run through RCH.",
+            not missing_quality and rch_proven,
+            [
+                {
+                    "required_quality_gates": list(
+                        CONTEXT_INTELLIGENCE_CLOSEOUT_REQUIRED_QUALITY_GATES
+                    ),
+                    "provided_quality_gates": quality_gate_results,
+                    "rch_gate_ids": rch_gate_ids,
+                    "heavy_cargo_uses_rch": rch_proven,
+                }
+            ],
+            issue=(
+                "missing or failing quality gates: " + ", ".join(missing_quality)
+                if missing_quality
+                else "one or more Cargo/Rust gates did not prove rch exec usage"
+                if not rch_proven
+                else None
+            ),
+        )
+    )
+
+    missing_checks = [
+        item["id"]
+        for item in checklist
+        if item.get("status") != "pass"
+    ]
+    final_gate_issue = issues.get("bd-ircr3.11") or {}
+    parent_issue = issues.get("bd-ircr3") or {}
+    status = "pass" if not missing_checks else "fail"
+    summary = {
+        "schema": CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_SCHEMA,
+        "generated_at": generated_at,
+        "status": status,
+        "purpose": "prompt_to_artifact_context_intelligence_closeout_gate_not_source_of_truth",
+        "parent_epic": {
+            "id": "bd-ircr3",
+            "status": parent_issue.get("status"),
+            "title": parent_issue.get("title"),
+        },
+        "final_gate_bead": {
+            "id": "bd-ircr3.11",
+            "status": final_gate_issue.get("status"),
+            "assignee": final_gate_issue.get("assignee"),
+        },
+        "required_checks": list(CONTEXT_INTELLIGENCE_CLOSEOUT_REQUIRED_CHECKS),
+        "child_artifact_map": child_artifacts,
+        "quality_gate_results": quality_gate_results,
+        "checklist": checklist,
+        "missing_checks": missing_checks,
+        "follow_up_required": bool(missing_checks),
+        "follow_up_beads": [
+            {
+                "title": f"[CONTEXT-INTELLIGENCE-GATE] Fix missing {check_id}",
+                "type": "task",
+                "priority": 2,
+                "source_check": check_id,
+            }
+            for check_id in missing_checks
+        ],
+        "decision": (
+            "close_final_gate_and_parent_epic"
+            if status == "pass"
+            else "file_follow_up_beads_before_closing_epic"
+        ),
+        "epic_can_close_after_this_commit": status == "pass",
+    }
+    assert_context_intelligence_closeout_gate_contract(summary)
+    return summary
+
+
+def assert_context_intelligence_closeout_gate_contract(summary: dict[str, Any]) -> None:
+    root = repo_root()
+    contract_path = root / CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_CONTRACT_PATH
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise AssertionError(
+            f"missing context intelligence closeout gate contract: {contract_path}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            f"context intelligence closeout gate contract is malformed JSON: {contract_path}: {exc}"
+        ) from exc
+    assert contract.get("schema") == CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_CONTRACT_SCHEMA
+    assert contract.get("decision_gate_schema") == CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_SCHEMA
+    assert summary.get("schema") == contract["decision_gate_schema"]
+    assert summary.get("purpose") == contract.get("purpose")
+    assert summary.get("status") in set(contract.get("allowed_statuses", []))
+    assert summary.get("decision") in set(contract.get("allowed_decisions", []))
+    for key in contract.get("required_top_level_keys", []):
+        assert key in summary, f"missing top-level closeout-gate key: {key}"
+    checks = summary.get("checklist")
+    assert isinstance(checks, list) and checks
+    check_by_id = {
+        item.get("id"): item
+        for item in checks
+        if isinstance(item, dict)
+    }
+    missing_required = set(contract.get("required_check_ids", [])) - set(check_by_id)
+    assert not missing_required, (
+        f"context intelligence closeout gate missing checks: {sorted(missing_required)}"
+    )
+    for check in checks:
+        assert isinstance(check, dict)
+        assert check.get("status") in set(contract.get("allowed_check_statuses", []))
+        assert check.get("requirement")
+        evidence = check.get("evidence")
+        assert isinstance(evidence, list) and evidence
+    child_map = summary.get("child_artifact_map")
+    assert isinstance(child_map, list) and child_map
+    mapped_children = {
+        row.get("bead_id")
+        for row in child_map
+        if isinstance(row, dict)
+    }
+    missing_children = set(contract.get("required_child_bead_ids", [])) - mapped_children
+    assert not missing_children, (
+        f"context intelligence closeout gate missing child mapping: {sorted(missing_children)}"
+    )
+    quality = check_by_id.get("quality_gates", {})
+    evidence = quality.get("evidence", [])
+    assert isinstance(evidence, list) and evidence
+    payload = evidence[0]
+    assert isinstance(payload, dict)
+    required_quality = set(contract.get("required_quality_gate_ids", []))
+    provided = {
+        item.get("id")
+        for item in payload.get("provided_quality_gates", [])
+        if isinstance(item, dict) and item.get("status") == "pass"
+    }
+    if summary.get("status") == "pass":
+        assert set(summary.get("missing_checks", [])) == set()
+        assert provided.issuperset(required_quality)
+        assert payload.get("heavy_cargo_uses_rch") is True
+        assert summary.get("epic_can_close_after_this_commit") is True
+
+
+def write_context_intelligence_closeout_gate_output(
+    args: argparse.Namespace,
+    summary: dict[str, Any],
+) -> None:
+    output_path = getattr(args, "out_context_intelligence_final_gate_json", None)
+    if output_path is None:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        raise RunpackError(
+            f"refusing to overwrite context intelligence final gate: {output_path}"
+        )
     output_path.write_text(json_dumps(summary, pretty=True), encoding="utf-8")
 
 
@@ -8133,6 +8883,149 @@ def run_self_test() -> int:
         assert final_gate["decision"] == "close_final_gate_and_parent_epic"
         assert final_gate["follow_up_required"] is False
         assert not final_gate["follow_up_beads"]
+        context_gate_issues = [
+            {
+                "id": "bd-ircr3",
+                "title": "Evidence-aware semantic context intelligence program",
+                "status": "open",
+            },
+            {
+                "id": "bd-ircr3.11",
+                "title": "Document and gate context-intelligence closeout",
+                "status": "in_progress",
+                "assignee": "AmberOsprey",
+            },
+        ]
+        context_gate_issues.extend(
+            {
+                "id": issue_id,
+                "status": "closed",
+                "close_reason": f"{issue_id} self-test evidence closed",
+            }
+            for issue_id in CONTEXT_INTELLIGENCE_CLOSEOUT_CHILD_BEADS
+        )
+        context_gate_issues_path = workspace / "context-final-gate-issues.jsonl"
+        context_gate_issues_path.write_text(
+            "\n".join(json_dumps(issue) for issue in context_gate_issues) + "\n",
+            encoding="utf-8",
+        )
+        context_final_gate_quality = [
+            {
+                "id": "py_compile",
+                "status": "pass",
+                "command": "python3 -m py_compile scripts/build_swarm_operator_runpack.py",
+            },
+            {
+                "id": "runpack_self_test",
+                "status": "pass",
+                "command": "python3 scripts/build_swarm_operator_runpack.py --self-test",
+            },
+            {
+                "id": "json_contracts",
+                "status": "pass",
+                "command": (
+                    "python3 -m json.tool "
+                    "docs/contracts/context-intelligence-closeout-gate-contract.json"
+                ),
+            },
+            {
+                "id": "semantic_context_graph_contract_rch",
+                "status": "pass",
+                "command": "rch exec -- cargo test --test semantic_context_graph_contract -- --nocapture",
+            },
+            {
+                "id": "semantic_workspace_graph_contract_rch",
+                "status": "pass",
+                "command": "rch exec -- cargo test --test semantic_workspace_graph_contract -- --nocapture",
+            },
+            {
+                "id": "semantic_workspace_graph_builder_rch",
+                "status": "pass",
+                "command": "rch exec -- cargo test --test semantic_workspace_graph_builder context",
+            },
+            {
+                "id": "context_intelligence_e2e_rch",
+                "status": "pass",
+                "command": (
+                    "rch exec -- cargo test --test e2e_agent_loop "
+                    "context_intelligence_no_mock_harness -- --nocapture"
+                ),
+            },
+            {
+                "id": "doctor_context_intelligence_rch",
+                "status": "pass",
+                "command": (
+                    "rch exec -- cargo test --test doctor_swarm_temp_dir_json "
+                    "context_intelligence -- --nocapture"
+                ),
+            },
+            {
+                "id": "context_perf_budgets_rch",
+                "status": "pass",
+                "command": "rch exec -- cargo test --test perf_budgets context_intelligence",
+            },
+            {
+                "id": "context_intelligence_closeout_gate_contract_rch",
+                "status": "pass",
+                "command": (
+                    "rch exec -- cargo test --test "
+                    "context_intelligence_closeout_gate_contract -- --nocapture"
+                ),
+            },
+            {
+                "id": "cargo_fmt",
+                "status": "pass",
+                "command": "cargo fmt --check",
+            },
+            {
+                "id": "cargo_check_all_targets_rch",
+                "status": "pass",
+                "command": (
+                    "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/"
+                    "amberosprey_bd_ircr3_11/target "
+                    "TMPDIR=/data/tmp/pi_agent_rust_cargo/"
+                    "amberosprey_bd_ircr3_11/tmp "
+                    "rch exec -- cargo check --all-targets"
+                ),
+            },
+            {
+                "id": "cargo_clippy_all_targets_rch",
+                "status": "pass",
+                "command": (
+                    "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/"
+                    "amberosprey_bd_ircr3_11/target "
+                    "TMPDIR=/data/tmp/pi_agent_rust_cargo/"
+                    "amberosprey_bd_ircr3_11/tmp "
+                    "rch exec -- cargo clippy --all-targets -- -D warnings"
+                ),
+            },
+            {
+                "id": "staged_ubs",
+                "status": "pass",
+                "command": "timeout 60s ubs --staged --only=rust .",
+            },
+            {
+                "id": "beads_ledger_reconcile",
+                "status": "pass",
+                "command": "./scripts/reconcile_beads_ledger.sh",
+            },
+        ]
+        context_final_gate = build_context_intelligence_closeout_gate_summary(
+            generated_at=generated_at,
+            quality_gate_results=context_final_gate_quality,
+            issue_export_path=context_gate_issues_path,
+            git_refs={
+                "head": "contextfinalgatefixture",
+                "origin_main": "contextfinalgatefixture",
+                "origin_master": "contextfinalgatefixture",
+            },
+        )
+        assert context_final_gate["schema"] == CONTEXT_INTELLIGENCE_CLOSEOUT_GATE_SCHEMA
+        assert context_final_gate["status"] == "pass"
+        assert context_final_gate["decision"] == "close_final_gate_and_parent_epic"
+        assert context_final_gate["follow_up_required"] is False
+        assert not context_final_gate["follow_up_beads"]
+        assert context_final_gate["child_artifact_map"]
         no_tail_args = argparse.Namespace(**{**vars(args), "tail_latency_json": None})
         no_tail_runpack = build_runpack(no_tail_args)
         assert "tail_latency" not in no_tail_runpack
@@ -8418,6 +9311,21 @@ def parse_args() -> argparse.Namespace:
         help="print the final autopilot decision gate JSON",
     )
     parser.add_argument(
+        "--run-context-intelligence-final-gate",
+        action="store_true",
+        help="build the final prompt-to-artifact context intelligence closeout gate",
+    )
+    parser.add_argument(
+        "--out-context-intelligence-final-gate-json",
+        type=Path,
+        help="write pi.context_intelligence.closeout_gate.v1 JSON; refuses to overwrite",
+    )
+    parser.add_argument(
+        "--print-context-intelligence-final-gate",
+        action="store_true",
+        help="print the final context intelligence closeout gate JSON",
+    )
+    parser.add_argument(
         "--quality-gate-result",
         dest="quality_gate_results",
         action="append",
@@ -8455,15 +9363,47 @@ def main() -> int:
     if args.capture_timeout_seconds <= 0:
         print("ERROR: --capture-timeout-seconds must be positive", file=sys.stderr)
         return 2
-    final_gate_options_used = (
+    autopilot_final_gate_options_used = (
         args.out_autopilot_final_gate_json
         or args.print_autopilot_final_gate
-        or args.quality_gate_results
     )
-    if final_gate_options_used and not args.run_autopilot_final_gate:
-        print("ERROR: final-gate options require --run-autopilot-final-gate", file=sys.stderr)
+    context_final_gate_options_used = (
+        args.out_context_intelligence_final_gate_json
+        or args.print_context_intelligence_final_gate
+    )
+    if args.run_autopilot_final_gate and args.run_context_intelligence_final_gate:
+        print("ERROR: run only one final-gate mode at a time", file=sys.stderr)
+        return 2
+    if autopilot_final_gate_options_used and not args.run_autopilot_final_gate:
+        print(
+            "ERROR: autopilot final-gate options require --run-autopilot-final-gate",
+            file=sys.stderr,
+        )
+        return 2
+    if context_final_gate_options_used and not args.run_context_intelligence_final_gate:
+        print(
+            "ERROR: context-intelligence final-gate options require --run-context-intelligence-final-gate",
+            file=sys.stderr,
+        )
+        return 2
+    if args.quality_gate_results and not (
+        args.run_autopilot_final_gate or args.run_context_intelligence_final_gate
+    ):
+        print("ERROR: --quality-gate-result requires a final-gate run mode", file=sys.stderr)
         return 2
     try:
+        if args.run_context_intelligence_final_gate:
+            summary = build_context_intelligence_closeout_gate_summary(
+                generated_at=args.generated_at or utc_now_iso(),
+                quality_gate_results=parse_quality_gate_results(args.quality_gate_results),
+            )
+            write_context_intelligence_closeout_gate_output(args, summary)
+            if (
+                args.print_context_intelligence_final_gate
+                or args.out_context_intelligence_final_gate_json is None
+            ):
+                print(json_dumps(summary, pretty=True))
+            return 0
         if args.run_autopilot_final_gate:
             summary = build_autopilot_decision_gate_summary(
                 generated_at=args.generated_at or utc_now_iso(),
@@ -8524,8 +9464,10 @@ def main() -> int:
         and not args.out_md
         and not args.out_autopilot_input_pack_json
         and not args.out_autopilot_plan_json
+        and not args.out_context_intelligence_final_gate_json
         and not args.print_autopilot_input_pack
         and not args.print_autopilot_plan
+        and not args.print_context_intelligence_final_gate
     ):
         print(json_dumps(runpack, pretty=True))
     return 0

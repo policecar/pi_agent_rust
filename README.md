@@ -1869,6 +1869,7 @@ Latest certification/evidence refresh (`2026-05-13` extension reports; `2026-05-
 - Full-suite gate: `20/20` gates passed, including `14/14` blocking gates *(from tests/full_suite_gate/full_suite_verdict.json)*
 - Drop-in certification: `20/20` certification gates passed, overall verdict `CERTIFIED` *(from docs/evidence/dropin-certification-verdict.json)*
 - Extension must-pass gate: `123/123` must-pass extensions passed; stretch set `100/101` passed *(from tests/ext_conformance/reports/gate/must_pass_gate_verdict.json)*
+- Context-intelligence closeout gate: `pass`, with child Beads mapped to code, tests, docs/evidence, validation commands, pushed commits, redaction posture, perf-budget evidence, README freshness, staged UBS, and Beads ledger reconciliation *(from docs/evidence/context-intelligence-closeout-gate.json)*
 
 ### Fast Loop vs Definitive Benchmarks
 
@@ -1928,6 +1929,14 @@ The autopilot closeout gate emits `pi.swarm.autopilot_decision_gate.v1` to audit
 the shipped input pack, planner, work partitions, failure actions, budget drift
 watcher, E2E/logging evidence, runpack handoff, safety guards, pushed commits,
 and quality gates before the swarm-autopilot epic is closed.
+
+Context intelligence has its own operator guide and closeout gate. See
+[docs/context-intelligence.md](docs/context-intelligence.md) for configuration,
+preview workflows, failure modes, privacy posture, examples, troubleshooting,
+and final closeout evidence. The context-intelligence closeout gate emits
+`pi.context_intelligence.closeout_gate.v1` and is governed by
+`docs/contracts/context-intelligence-closeout-gate-contract.json`; the current
+closeout artifact is `docs/evidence/context-intelligence-closeout-gate.json`.
 
 For the full launch, throttling, recovery, and handoff workflow for large
 multi-agent runs, see [docs/swarm-operations-runbook.md](docs/swarm-operations-runbook.md).
@@ -2501,13 +2510,13 @@ broader inventory.
 | Area | Primary docs |
 |---|---|
 | Getting started and operations | [development](docs/development.md), [terminal setup](docs/terminal-setup.md), [settings](docs/settings.md), [models](docs/models.md), [keybindings](docs/keybindings.md), [packages](docs/packages.md), [troubleshooting](docs/troubleshooting.md), [releasing](docs/releasing.md) |
-| Core runtime surfaces | [session](docs/session.md), [tree](docs/tree.md), [TUI](docs/tui.md), [RPC](docs/rpc.md), [SDK](docs/sdk.md), [skills](docs/skills.md), [prompt templates](docs/prompt-templates.md), [streaming hostcalls](docs/streaming-hostcalls.md) |
+| Core runtime surfaces | [session](docs/session.md), [tree](docs/tree.md), [TUI](docs/tui.md), [RPC](docs/rpc.md), [SDK](docs/sdk.md), [skills](docs/skills.md), [prompt templates](docs/prompt-templates.md), [streaming hostcalls](docs/streaming-hostcalls.md), [context intelligence](docs/context-intelligence.md) |
 | Drop-in certification and migration | [certification contract](docs/contracts/dropin-certification-contract.json), [certification verdict](docs/evidence/dropin-certification-verdict.json), [parity gap ledger](docs/evidence/dropin-parity-gap-ledger.json), [differential evidence suite](docs/evidence/dropin-differential-evidence-suite.json), [feature inventory](docs/evidence/dropin-feature-inventory-matrix.json), [migration playbook](docs/integrator-migration-playbook.md), [parity snapshot](docs/parity-certification.json), [program governance](docs/program-governance.md) |
 | Extensions | [architecture](docs/extension-architecture.md), [compatibility guide](docs/ext-compat.md), [compatibility matrix](docs/extension-compatibility-matrix.md), [conformance plan](docs/extension-conformance-test-plan.json), [runtime threat model](docs/extension-runtime-threat-model.md), [troubleshooting](docs/extension-troubleshooting.md), [registry](docs/extension-registry.md), [WIT ABI](docs/wit/extension.wit) |
 | Providers | [provider guide](docs/providers.md), [auth troubleshooting](docs/provider-auth-troubleshooting.md), [config examples](docs/provider-config-examples.md), [canonical ID policy](docs/provider-canonical-id-policy.md), [onboarding playbook](docs/provider-onboarding-playbook.md), [test obligations](docs/provider-test-obligations.md), [upstream catalog snapshot](docs/provider-upstream-catalog-snapshot.md), [support baseline audit](docs/provider-support-baseline-audit.md) |
 | QA and evidence | [QA runbook](docs/qa-runbook.md), [testing policy](docs/testing-policy.md), [conformance playbook](docs/conformance-operator-playbook.md), [coverage matrix](docs/TEST_COVERAGE_MATRIX.md), [evidence schema](docs/evidence-contract-schema.json), [coverage baseline map](docs/coverage-baseline-map.json), [E2E scenario matrix](docs/e2e_scenario_matrix.json), [non-mock rubric](docs/non-mock-rubric.json) |
 | Security | [baseline audit](docs/security/baseline-audit.md), [threat model](docs/security/threat-model.md), [security invariants](docs/security/invariants.md), [operator handbook](docs/security/operator-handbook.md), [operator quick reference](docs/security/operator-quick-reference.md), [incident response](docs/security/incident-response-runbook.md), [runtime hostcall telemetry](docs/security/runtime-hostcall-telemetry.md), [security SLOs](docs/security/security-slos.md) |
-| Schemas and machine contracts | [extension manifest schema](docs/schema/extension_manifest.json), [extension protocol schema](docs/schema/extension_protocol.json), [session store v2 contract](docs/schema/session_store_v2_contract.json), [semantic workspace graph contract](docs/contracts/semantic-workspace-graph-contract.json), [test evidence logging contract](docs/schema/test_evidence_logging_contract.json), [runtime hostcall telemetry schema](docs/schema/runtime_hostcall_telemetry.json), [mock spec schema](docs/schema/mock_spec.json), [CLI surface diff schema](docs/schema/cli-surface-diff.json), [security traceability matrix](docs/sec_traceability_matrix.md) |
+| Schemas and machine contracts | [extension manifest schema](docs/schema/extension_manifest.json), [extension protocol schema](docs/schema/extension_protocol.json), [session store v2 contract](docs/schema/session_store_v2_contract.json), [semantic workspace graph contract](docs/contracts/semantic-workspace-graph-contract.json), [semantic context graph contract](docs/contracts/semantic-context-graph-contract.json), [context-intelligence closeout gate contract](docs/contracts/context-intelligence-closeout-gate-contract.json), [context-intelligence closeout gate evidence](docs/evidence/context-intelligence-closeout-gate.json), [test evidence logging contract](docs/schema/test_evidence_logging_contract.json), [runtime hostcall telemetry schema](docs/schema/runtime_hostcall_telemetry.json), [mock spec schema](docs/schema/mock_spec.json), [CLI surface diff schema](docs/schema/cli-surface-diff.json), [security traceability matrix](docs/sec_traceability_matrix.md) |
 
 ---
 
