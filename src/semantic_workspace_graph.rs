@@ -6,7 +6,7 @@
 
 #![allow(clippy::missing_const_for_fn, clippy::too_many_lines)]
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -23,6 +23,9 @@ pub const GRAPH_BUILDER_SCHEMA: &str = "pi.semantic_workspace_graph.builder_trac
 pub const SEMANTIC_CONTEXT_BUNDLE_SCHEMA: &str = "pi.semantic_context_bundle.v1";
 
 const DEFAULT_STALE_AFTER_DAYS: i64 = 90;
+const DEFAULT_CACHE_TTL_SECONDS: u64 = 6 * 60 * 60;
+const DEFAULT_CONTEXT_CACHE_TTL_SECONDS: u64 = 15 * 60;
+const CONTEXT_PRIVACY_POLICY_VERSION: &str = "pi.context_privacy.v1";
 
 #[derive(Debug, Clone)]
 pub struct SemanticWorkspaceGraphBuilder {
@@ -35,6 +38,8 @@ pub struct SemanticWorkspaceGraphBuildOptions {
     pub root_inputs: Vec<PathBuf>,
     pub reference_time_utc: Option<DateTime<Utc>>,
     pub stale_after_days: i64,
+    pub cache_scope: ContextArtifactCacheScope,
+    pub cache_ttl_seconds: u64,
 }
 
 impl Default for SemanticWorkspaceGraphBuildOptions {
@@ -49,6 +54,8 @@ impl Default for SemanticWorkspaceGraphBuildOptions {
             ],
             reference_time_utc: None,
             stale_after_days: DEFAULT_STALE_AFTER_DAYS,
+            cache_scope: ContextArtifactCacheScope::default(),
+            cache_ttl_seconds: DEFAULT_CACHE_TTL_SECONDS,
         }
     }
 }
@@ -83,6 +90,18 @@ impl SemanticWorkspaceGraphBuilder {
         self
     }
 
+    #[must_use]
+    pub fn with_cache_scope(mut self, cache_scope: ContextArtifactCacheScope) -> Self {
+        self.options.cache_scope = cache_scope;
+        self
+    }
+
+    #[must_use]
+    pub fn with_cache_ttl_seconds(mut self, cache_ttl_seconds: u64) -> Self {
+        self.options.cache_ttl_seconds = cache_ttl_seconds;
+        self
+    }
+
     pub fn build(&self) -> Result<SemanticWorkspaceGraph, SemanticGraphBuildError> {
         let metadata =
             fs::metadata(&self.root).map_err(|source| SemanticGraphBuildError::RootUnreadable {
@@ -106,6 +125,8 @@ impl SemanticWorkspaceGraphBuilder {
             schema: SEMANTIC_WORKSPACE_GRAPH_SCHEMA.to_string(),
             builder_schema: GRAPH_BUILDER_SCHEMA.to_string(),
             root: normalize_path(&self.root),
+            cache_scope: self.options.cache_scope.clone(),
+            cache_ttl_seconds: self.options.cache_ttl_seconds,
             nodes: state.nodes,
             edges: state.edges,
             input_fingerprints: state.input_fingerprints,
@@ -203,12 +224,32 @@ impl SemanticWorkspaceGraphBuilder {
         let content_sha256 = sha256_hex(&bytes);
         let size_bytes = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let mtime_unix_ns = file_mtime_unix_ns(&input.absolute_path).unwrap_or(None);
+        let normalized = normalize_context_artifact_path(&input.source_path);
+        let normalized_source_path = normalized
+            .normalized_path
+            .clone()
+            .unwrap_or_else(|| normalize_relative_path(&self.root, &input.absolute_path));
+        let cache_valid_until_unix_ns = self.cache_valid_until_unix_ns();
+        let cache_status = if normalized.accepted {
+            ContextArtifactCacheStatus::Valid
+        } else {
+            ContextArtifactCacheStatus::UnsafePath
+        };
         state.input_fingerprints.push(InputFingerprint {
             source_path: input.source_path.clone(),
+            normalized_source_path: normalized_source_path.clone(),
             surface_id: input.surface.as_str().to_string(),
             sha256: content_sha256.clone(),
+            cache_key_sha256: cache_key_sha256(
+                &self.options.cache_scope,
+                &normalized_source_path,
+                &content_sha256,
+            ),
             size_bytes,
             mtime_unix_ns,
+            cache_scope: self.options.cache_scope.clone(),
+            cache_valid_until_unix_ns,
+            cache_status,
         });
 
         let content = String::from_utf8_lossy(&bytes);
@@ -225,6 +266,9 @@ impl SemanticWorkspaceGraphBuilder {
             SourceSurface::BeadsIssueGraph => {
                 self.ingest_beads_jsonl(input, &content, &content_sha256, size_bytes, state);
             }
+            SourceSurface::RuntimeArtifacts => {
+                Self::ingest_runtime_artifact(input, &content, &content_sha256, size_bytes, state);
+            }
             SourceSurface::Unknown => {}
         }
 
@@ -238,6 +282,12 @@ impl SemanticWorkspaceGraphBuilder {
         ));
     }
 
+    fn cache_valid_until_unix_ns(&self) -> Option<u64> {
+        let reference_time = self.options.reference_time_utc?;
+        datetime_unix_ns(reference_time)?
+            .checked_add(self.options.cache_ttl_seconds.checked_mul(1_000_000_000)?)
+    }
+
     fn ingest_rust_file(
         input: &DiscoveredInput,
         content: &str,
@@ -246,7 +296,8 @@ impl SemanticWorkspaceGraphBuilder {
         state: &mut GraphBuildState,
     ) {
         let line_count = count_lines(content);
-        let file_node = file_region_node(
+        let redaction = assess_redaction(&input.source_path, content, None);
+        let mut file_node = file_region_node(
             &input.source_path,
             content_sha256,
             size_bytes,
@@ -254,6 +305,7 @@ impl SemanticWorkspaceGraphBuilder {
             line_count,
             input.surface.as_str(),
         );
+        apply_redaction_metadata(&mut file_node, &redaction);
         let file_node_id = file_node.id.clone();
         state.push_node(file_node);
 
@@ -334,7 +386,8 @@ impl SemanticWorkspaceGraphBuilder {
         state: &mut GraphBuildState,
     ) {
         let line_count = count_lines(content);
-        let file_node = file_region_node(
+        let redaction = assess_redaction(&input.source_path, content, None);
+        let mut file_node = file_region_node(
             &input.source_path,
             content_sha256,
             size_bytes,
@@ -342,6 +395,7 @@ impl SemanticWorkspaceGraphBuilder {
             line_count,
             input.surface.as_str(),
         );
+        apply_redaction_metadata(&mut file_node, &redaction);
         let file_node_id = file_node.id.clone();
         state.push_node(file_node);
 
@@ -400,7 +454,8 @@ impl SemanticWorkspaceGraphBuilder {
         state: &mut GraphBuildState,
     ) {
         let line_count = count_lines(content);
-        let file_node = file_region_node(
+        let raw_redaction = assess_redaction(&input.source_path, content, None);
+        let mut file_node = file_region_node(
             &input.source_path,
             content_sha256,
             size_bytes,
@@ -408,17 +463,20 @@ impl SemanticWorkspaceGraphBuilder {
             line_count,
             input.surface.as_str(),
         );
+        apply_redaction_metadata(&mut file_node, &raw_redaction);
         let file_node_id = file_node.id.clone();
         state.push_node(file_node);
 
         match serde_json::from_str::<Value>(content) {
             Ok(value) => {
-                let evidence_node = evidence_artifact_node(
+                let redaction = assess_redaction(&input.source_path, content, Some(&value));
+                let mut evidence_node = evidence_artifact_node(
                     &input.source_path,
                     &value,
                     content_sha256,
                     &self.options,
                 );
+                apply_redaction_metadata(&mut evidence_node, &redaction);
                 state.push_edge(edge(
                     SemanticEdgeType::Tracks,
                     &file_node_id,
@@ -434,11 +492,15 @@ impl SemanticWorkspaceGraphBuilder {
                     EvidenceFreshnessStatus::Malformed,
                     "json_parse_failed",
                 );
+                let privacy = classify_text_privacy(&input.source_path, content);
+                node.redaction_status = node.redaction_status.max(privacy.status);
+                apply_privacy_metadata(&mut node.metadata, &privacy);
                 node.content_sha256 = Some(content_sha256.to_string());
                 node.metadata.insert(
                     "parse_error".to_string(),
                     json!(redact_error_message(&error.to_string())),
                 );
+                apply_redaction_metadata(&mut node, &raw_redaction);
                 state.push_edge(edge(
                     SemanticEdgeType::Tracks,
                     &file_node_id,
@@ -468,7 +530,8 @@ impl SemanticWorkspaceGraphBuilder {
         state: &mut GraphBuildState,
     ) {
         let line_count = count_lines(content);
-        let file_node = file_region_node(
+        let redaction = assess_redaction(&input.source_path, content, None);
+        let mut file_node = file_region_node(
             &input.source_path,
             content_sha256,
             size_bytes,
@@ -476,6 +539,7 @@ impl SemanticWorkspaceGraphBuilder {
             line_count,
             input.surface.as_str(),
         );
+        apply_redaction_metadata(&mut file_node, &redaction);
         let file_node_id = file_node.id.clone();
         state.push_node(file_node);
 
@@ -553,6 +617,27 @@ impl SemanticWorkspaceGraphBuilder {
         }
     }
 
+    fn ingest_runtime_artifact(
+        input: &DiscoveredInput,
+        content: &str,
+        content_sha256: &str,
+        size_bytes: u64,
+        state: &mut GraphBuildState,
+    ) {
+        let line_count = count_lines(content);
+        let redaction = assess_redaction(&input.source_path, content, None);
+        let mut file_node = file_region_node(
+            &input.source_path,
+            content_sha256,
+            size_bytes,
+            1,
+            line_count,
+            input.surface.as_str(),
+        );
+        apply_redaction_metadata(&mut file_node, &redaction);
+        state.push_node(file_node);
+    }
+
     fn record_missing_input(state: &mut GraphBuildState, source_path: &str) {
         let surface = surface_for_path(source_path).unwrap_or(SourceSurface::Unknown);
         state.push_trace(GraphBuildTraceEvent::new(
@@ -580,6 +665,8 @@ pub struct SemanticWorkspaceGraph {
     pub schema: String,
     pub builder_schema: String,
     pub root: String,
+    pub cache_scope: ContextArtifactCacheScope,
+    pub cache_ttl_seconds: u64,
     pub nodes: Vec<SemanticGraphNode>,
     pub edges: Vec<SemanticGraphEdge>,
     pub input_fingerprints: Vec<InputFingerprint>,
@@ -626,6 +713,61 @@ impl SemanticWorkspaceGraph {
             })
             .collect()
     }
+
+    pub fn cache_validation_for_path(
+        &self,
+        source_path: &str,
+        requested_scope: &ContextArtifactCacheScope,
+        now_unix_ns: u64,
+    ) -> ContextArtifactCacheStatus {
+        let normalized = normalize_context_artifact_path(source_path);
+        if !normalized.accepted {
+            return ContextArtifactCacheStatus::UnsafePath;
+        }
+        let Some(normalized_source_path) = normalized.normalized_path else {
+            return ContextArtifactCacheStatus::UnsafePath;
+        };
+        let Some(fingerprint) = self
+            .input_fingerprints
+            .iter()
+            .find(|fingerprint| fingerprint.normalized_source_path == normalized_source_path)
+        else {
+            return ContextArtifactCacheStatus::MissingFingerprint;
+        };
+        fingerprint.cache_validation(requested_scope, now_unix_ns)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextArtifactCacheScope {
+    pub workspace_identity: String,
+    pub branch_identity: String,
+    pub session_scope: String,
+}
+
+impl Default for ContextArtifactCacheScope {
+    fn default() -> Self {
+        Self {
+            workspace_identity: "workspace-unspecified".to_string(),
+            branch_identity: "branch-unspecified".to_string(),
+            session_scope: "session-unspecified".to_string(),
+        }
+    }
+}
+
+impl ContextArtifactCacheScope {
+    #[must_use]
+    pub fn new(
+        workspace_identity: impl Into<String>,
+        branch_identity: impl Into<String>,
+        session_scope: impl Into<String>,
+    ) -> Self {
+        Self {
+            workspace_identity: workspace_identity.into(),
+            branch_identity: branch_identity.into(),
+            session_scope: session_scope.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -643,7 +785,7 @@ impl Default for ContextBundleBudget {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextBundleRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
@@ -652,7 +794,34 @@ pub struct ContextBundleRequest {
     pub changed_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failing_command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_at_utc: Option<String>,
+    #[serde(default = "default_context_cache_ttl_seconds")]
+    pub cache_ttl_seconds: u64,
     pub budget: ContextBundleBudget,
+}
+
+impl Default for ContextBundleRequest {
+    fn default() -> Self {
+        Self {
+            query: None,
+            bead_id: None,
+            changed_paths: Vec::new(),
+            failing_command: None,
+            workspace_id: None,
+            branch: None,
+            session_id: None,
+            generated_at_utc: None,
+            cache_ttl_seconds: DEFAULT_CONTEXT_CACHE_TTL_SECONDS,
+            budget: ContextBundleBudget::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -662,6 +831,9 @@ pub struct SemanticContextBundle {
     pub selected_items: Vec<ContextBundleItem>,
     pub excluded_items: Vec<ContextBundleExclusion>,
     pub stale_evidence_suppressions: Vec<ContextBundleExclusion>,
+    pub redaction_summary: ContextRedactionSummary,
+    pub invalidation_policy: ContextBundleInvalidationPolicy,
+    pub path_normalization: Vec<ContextPathNormalization>,
     pub suggested_validation_commands: Vec<String>,
     pub estimated_bytes: u64,
     pub estimated_tokens: u64,
@@ -693,6 +865,120 @@ pub struct ContextBundleExclusion {
     pub estimated_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub freshness_status: Option<EvidenceFreshnessStatus>,
+    pub redaction_status: RedactionStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextRedactionSummary {
+    pub policy_version: String,
+    pub overall_status: RedactionStatus,
+    pub selected_redacted_nodes: usize,
+    pub selected_sensitive_omissions: usize,
+    pub suppressed_unsafe_nodes: usize,
+    pub redacted_metadata_keys: BTreeSet<String>,
+    pub sensitive_path_kinds: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextBundleInvalidationPolicy {
+    pub policy_version: String,
+    pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub input_fingerprint_sha256: String,
+    pub cache_ttl_seconds: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_at_utc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at_utc: Option<String>,
+    pub invalidates_on: Vec<String>,
+    pub cacheable: bool,
+}
+
+impl ContextBundleInvalidationPolicy {
+    #[must_use]
+    pub fn validate_probe(&self, probe: &ContextBundleCacheProbe) -> ContextBundleCacheValidation {
+        let mut invalidation_reasons = Vec::new();
+        if !self.cacheable {
+            invalidation_reasons.push("cache_not_cacheable".to_string());
+        }
+        if self.workspace_id != probe.workspace_id {
+            invalidation_reasons.push("workspace_id_changed".to_string());
+        }
+        if self.branch != probe.branch {
+            invalidation_reasons.push("branch_changed".to_string());
+        }
+        if optional_cache_scope_value_changed(self.session_id.as_ref(), probe.session_id.as_ref()) {
+            invalidation_reasons.push("session_id_changed".to_string());
+        }
+        if cache_text_values_changed(
+            &self.input_fingerprint_sha256,
+            &probe.input_fingerprint_sha256,
+        ) {
+            invalidation_reasons.push("input_fingerprint_changed".to_string());
+        }
+        match (&self.expires_at_utc, &probe.now_utc) {
+            (Some(expires_at), Some(now)) => {
+                match (
+                    DateTime::parse_from_rfc3339(expires_at),
+                    DateTime::parse_from_rfc3339(now),
+                ) {
+                    (Ok(expires_at), Ok(now)) if now > expires_at => {
+                        invalidation_reasons.push("cache_ttl_expired".to_string());
+                    }
+                    (Ok(_), Ok(_)) => {}
+                    _ => invalidation_reasons.push("invalid_cache_timestamp".to_string()),
+                }
+            }
+            _ => invalidation_reasons.push("missing_cache_timestamp".to_string()),
+        }
+
+        ContextBundleCacheValidation {
+            valid: invalidation_reasons.is_empty(),
+            invalidation_reasons,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextBundleCacheProbe {
+    pub workspace_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub input_fingerprint_sha256: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub now_utc: Option<String>,
+}
+
+fn optional_cache_scope_value_changed(left: Option<&String>, right: Option<&String>) -> bool {
+    match (left.map(String::as_str), right.map(String::as_str)) {
+        (Some(left), Some(right)) => cache_text_values_changed(left, right),
+        (None, None) => false,
+        (Some(_), None) | (None, Some(_)) => true,
+    }
+}
+
+fn cache_text_values_changed(left: &str, right: &str) -> bool {
+    !left.as_bytes().iter().eq(right.as_bytes().iter())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextBundleCacheValidation {
+    pub valid: bool,
+    pub invalidation_reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextPathNormalization {
+    pub raw_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalized_path: Option<String>,
+    pub accepted: bool,
+    pub reason: String,
 }
 
 pub struct SemanticContextBundlePlanner<'a> {
@@ -708,7 +994,8 @@ impl<'a> SemanticContextBundlePlanner<'a> {
     #[must_use]
     pub fn plan(&self, request: &ContextBundleRequest) -> SemanticContextBundle {
         let query_terms = tokenize_context_query(request.query.as_deref());
-        let related_ids = self.related_node_ids(request);
+        let path_normalization = normalize_context_paths(&request.changed_paths);
+        let related_ids = self.related_node_ids(request, &path_normalization);
         let mut candidates = self.scored_candidates(request, &query_terms, &related_ids);
         candidates.sort_by(|left, right| {
             right
@@ -725,9 +1012,17 @@ impl<'a> SemanticContextBundlePlanner<'a> {
         let mut estimated_bytes = 0_u64;
 
         for candidate in candidates {
-            if candidate.must_suppress {
-                let exclusion = candidate.to_exclusion("suppressed_stale_or_unsafe_evidence");
-                stale_evidence_suppressions.push(exclusion.clone());
+            if let Some(suppression_reason) = candidate.suppression_reason {
+                let exclusion_reason = if suppression_reason == "unsafe_to_emit_by_redaction_policy"
+                {
+                    candidate.reason.as_str()
+                } else {
+                    suppression_reason
+                };
+                let exclusion = candidate.to_exclusion(exclusion_reason);
+                if suppression_reason == "suppressed_stale_or_unsafe_evidence" {
+                    stale_evidence_suppressions.push(exclusion.clone());
+                }
                 excluded_items.push(exclusion);
                 continue;
             }
@@ -754,9 +1049,29 @@ impl<'a> SemanticContextBundlePlanner<'a> {
             selected_items.push(candidate.to_item());
         }
 
+        for changed_path in path_normalization
+            .iter()
+            .filter_map(|path| path.normalized_path.as_deref())
+        {
+            for node in self.graph.nodes.iter().filter(|node| {
+                node.source_path == changed_path
+                    && node.redaction_status == RedactionStatus::UnsafeToEmit
+            }) {
+                let already_accounted_for =
+                    selected_items.iter().any(|item| item.node_id == node.id)
+                        || excluded_items.iter().any(|item| item.node_id == node.id);
+                if !already_accounted_for {
+                    excluded_items.push(unsafe_changed_path_exclusion(node));
+                }
+            }
+        }
+
         SemanticContextBundle {
             schema: SEMANTIC_CONTEXT_BUNDLE_SCHEMA.to_string(),
             budget: request.budget.clone(),
+            redaction_summary: build_redaction_summary(&selected_items, &excluded_items),
+            invalidation_policy: self.invalidation_policy(request),
+            path_normalization,
             selected_items,
             excluded_items,
             stale_evidence_suppressions,
@@ -766,7 +1081,11 @@ impl<'a> SemanticContextBundlePlanner<'a> {
         }
     }
 
-    fn related_node_ids(&self, request: &ContextBundleRequest) -> BTreeSet<String> {
+    fn related_node_ids(
+        &self,
+        request: &ContextBundleRequest,
+        path_normalization: &[ContextPathNormalization],
+    ) -> BTreeSet<String> {
         let mut ids = BTreeSet::new();
         if let Some(bead_id) = request.bead_id.as_deref()
             && let Some(bead_node) = self.graph.nodes.iter().find(|node| {
@@ -785,7 +1104,10 @@ impl<'a> SemanticContextBundlePlanner<'a> {
             }
         }
 
-        for changed_path in &request.changed_paths {
+        for changed_path in path_normalization
+            .iter()
+            .filter_map(|path| path.normalized_path.as_deref())
+        {
             for node in &self.graph.nodes {
                 if paths_are_related(&node.source_path, changed_path) {
                     ids.insert(node.id.clone());
@@ -883,27 +1205,130 @@ impl<'a> SemanticContextBundlePlanner<'a> {
                 if score <= 0 {
                     None
                 } else {
+                    for reason in privacy_reason_fragments(node) {
+                        reasons.push(reason);
+                    }
+                    let suppression_reason =
+                        if node.redaction_status == RedactionStatus::UnsafeToEmit {
+                            reasons.push("unsafe_to_emit_by_redaction_policy");
+                            Some("unsafe_to_emit_by_redaction_policy")
+                        } else if must_suppress {
+                            Some("suppressed_stale_or_unsafe_evidence")
+                        } else {
+                            None
+                        };
+
                     Some(ScoredContextNode {
                         node,
                         score,
                         estimated_bytes: estimate_node_bytes(node),
                         reason: reasons.join(","),
-                        must_suppress,
+                        suppression_reason,
                     })
                 }
             })
             .collect()
+    }
+
+    fn invalidation_policy(
+        &self,
+        request: &ContextBundleRequest,
+    ) -> ContextBundleInvalidationPolicy {
+        let workspace_id = request
+            .workspace_id
+            .clone()
+            .unwrap_or_else(|| stable_id("workspace", &[&self.graph.root]));
+        let input_fingerprint_sha256 = graph_input_fingerprint_digest(self.graph);
+        let ttl_seconds = request
+            .cache_ttl_seconds
+            .max(1)
+            .min(i64::MAX.try_into().unwrap_or(u64::MAX));
+        let generated_at_utc = request.generated_at_utc.clone();
+        let expires_at_utc = generated_at_utc
+            .as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .and_then(|generated_at| {
+                let ttl = Duration::seconds(i64::try_from(ttl_seconds).ok()?);
+                Some(
+                    generated_at
+                        .with_timezone(&Utc)
+                        .checked_add_signed(ttl)?
+                        .to_rfc3339(),
+                )
+            });
+        let cacheable = request.generated_at_utc.is_some()
+            && request.branch.is_some()
+            && request.session_id.is_some();
+
+        ContextBundleInvalidationPolicy {
+            policy_version: CONTEXT_PRIVACY_POLICY_VERSION.to_string(),
+            workspace_id,
+            branch: request.branch.clone(),
+            session_id: request.session_id.clone(),
+            input_fingerprint_sha256,
+            cache_ttl_seconds: ttl_seconds,
+            generated_at_utc,
+            expires_at_utc,
+            invalidates_on: vec![
+                "workspace_id_change".to_string(),
+                "branch_change".to_string(),
+                "session_id_change".to_string(),
+                "input_fingerprint_change".to_string(),
+                "cache_ttl_expiry".to_string(),
+                "redaction_policy_version_change".to_string(),
+            ],
+            cacheable,
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputFingerprint {
     pub source_path: String,
+    pub normalized_source_path: String,
     pub surface_id: String,
     pub sha256: String,
+    pub cache_key_sha256: String,
     pub size_bytes: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mtime_unix_ns: Option<u64>,
+    pub cache_scope: ContextArtifactCacheScope,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_valid_until_unix_ns: Option<u64>,
+    pub cache_status: ContextArtifactCacheStatus,
+}
+
+impl InputFingerprint {
+    #[must_use]
+    pub fn cache_validation(
+        &self,
+        requested_scope: &ContextArtifactCacheScope,
+        now_unix_ns: u64,
+    ) -> ContextArtifactCacheStatus {
+        if self.cache_status != ContextArtifactCacheStatus::Valid {
+            return self.cache_status;
+        }
+        if self.cache_scope.workspace_identity != requested_scope.workspace_identity {
+            return ContextArtifactCacheStatus::WorkspaceMismatch;
+        }
+        if self.cache_scope.branch_identity != requested_scope.branch_identity {
+            return ContextArtifactCacheStatus::BranchMismatch;
+        }
+        if cache_text_values_changed(
+            &self.cache_scope.session_scope,
+            &requested_scope.session_scope,
+        ) {
+            return ContextArtifactCacheStatus::SessionMismatch;
+        }
+        let Some(cache_valid_until_unix_ns) = self.cache_valid_until_unix_ns else {
+            return ContextArtifactCacheStatus::Expired;
+        };
+        if now_unix_ns > cache_valid_until_unix_ns {
+            ContextArtifactCacheStatus::Expired
+        } else {
+            ContextArtifactCacheStatus::Valid
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1041,6 +1466,18 @@ pub enum RedactionStatus {
     UnsafeToEmit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextArtifactCacheStatus {
+    Valid,
+    Expired,
+    WorkspaceMismatch,
+    BranchMismatch,
+    SessionMismatch,
+    MissingFingerprint,
+    UnsafePath,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClassifiedBeadActionability {
     pub status: BeadActionabilityStatus,
@@ -1090,6 +1527,7 @@ enum SourceSurface {
     ReadmeAndDocs,
     EvidenceArtifacts,
     BeadsIssueGraph,
+    RuntimeArtifacts,
     Unknown,
 }
 
@@ -1101,6 +1539,7 @@ impl SourceSurface {
             Self::ReadmeAndDocs => "readme_and_docs",
             Self::EvidenceArtifacts => "dropin_and_parity_evidence",
             Self::BeadsIssueGraph => "beads_issue_graph",
+            Self::RuntimeArtifacts => "runtime_artifacts",
             Self::Unknown => "unknown",
         }
     }
@@ -1250,7 +1689,14 @@ struct ScoredContextNode<'a> {
     score: i64,
     estimated_bytes: u64,
     reason: String,
-    must_suppress: bool,
+    suppression_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NodePrivacyClassification {
+    status: RedactionStatus,
+    redacted_metadata_keys: BTreeSet<String>,
+    sensitive_path_kind: Option<&'static str>,
 }
 
 impl ScoredContextNode<'_> {
@@ -1270,16 +1716,50 @@ impl ScoredContextNode<'_> {
     }
 
     fn to_exclusion(&self, reason: &str) -> ContextBundleExclusion {
+        let reason = if reason == "unsafe_to_emit_by_redaction_policy" {
+            let mut parts = vec![reason.to_string()];
+            parts.extend(
+                privacy_reason_fragments(self.node)
+                    .into_iter()
+                    .map(ToString::to_string),
+            );
+            parts.join(",")
+        } else {
+            reason.to_string()
+        };
+
         ContextBundleExclusion {
             node_id: self.node.id.clone(),
             node_type: self.node.node_type,
             source_path: self.node.source_path.clone(),
             title: self.node.title.clone(),
-            reason: reason.to_string(),
+            reason,
             score: self.score,
             estimated_bytes: self.estimated_bytes,
             freshness_status: self.node.freshness_status,
+            redaction_status: self.node.redaction_status,
         }
+    }
+}
+
+fn unsafe_changed_path_exclusion(node: &SemanticGraphNode) -> ContextBundleExclusion {
+    let mut reason_parts = vec!["unsafe_to_emit_by_redaction_policy".to_string()];
+    reason_parts.extend(
+        privacy_reason_fragments(node)
+            .into_iter()
+            .map(ToString::to_string),
+    );
+    let estimated_bytes = estimate_node_bytes(node);
+    ContextBundleExclusion {
+        node_id: node.id.clone(),
+        node_type: node.node_type,
+        source_path: node.source_path.clone(),
+        title: node.title.clone(),
+        reason: reason_parts.join(","),
+        score: 0,
+        estimated_bytes,
+        freshness_status: node.freshness_status,
+        redaction_status: node.redaction_status,
     }
 }
 
@@ -1477,6 +1957,8 @@ fn file_region_node(
     let stable_key = source_path.to_string();
     let mut metadata = BTreeMap::new();
     metadata.insert("surface_id".to_string(), json!(surface_id));
+    let privacy = classify_node_privacy(source_path, None);
+    apply_privacy_metadata(&mut metadata, &privacy);
     SemanticGraphNode {
         id: stable_id("file_region", &[&stable_key]),
         node_type: SemanticNodeType::FileRegion,
@@ -1489,7 +1971,7 @@ fn file_region_node(
         line_end: Some(line_end),
         freshness_status: None,
         bead_actionability_status: None,
-        redaction_status: RedactionStatus::None,
+        redaction_status: privacy.status,
         metadata,
     }
 }
@@ -1555,11 +2037,13 @@ fn doc_section_node(
     let stable_key = format!("{source_path}:heading:{level}:{line}:{title}");
     let mut metadata = BTreeMap::new();
     metadata.insert("heading_level".to_string(), json!(level));
+    let privacy = classify_node_privacy(source_path, None);
+    apply_privacy_metadata(&mut metadata, &privacy);
     SemanticGraphNode {
         id: stable_id("doc_section", &[&stable_key]),
         node_type: SemanticNodeType::DocSection,
         source_path: source_path.to_string(),
-        title: title.to_string(),
+        title: redact_sensitive_text(title),
         stable_key,
         content_sha256: Some(content_sha256.to_string()),
         size_bytes: None,
@@ -1567,7 +2051,7 @@ fn doc_section_node(
         line_end: Some(line),
         freshness_status: None,
         bead_actionability_status: None,
-        redaction_status: RedactionStatus::None,
+        redaction_status: privacy.status,
         metadata,
     }
 }
@@ -1587,6 +2071,8 @@ fn doc_citation_node(
         "release_claim_candidate".to_string(),
         json!(claim_surface == "release_facing"),
     );
+    let privacy = classify_node_privacy(source_path, None);
+    apply_privacy_metadata(&mut metadata, &privacy);
     SemanticGraphNode {
         id: stable_id("doc_section", &[&stable_key]),
         node_type: SemanticNodeType::DocSection,
@@ -1599,7 +2085,7 @@ fn doc_citation_node(
         line_end: Some(line),
         freshness_status: None,
         bead_actionability_status: None,
-        redaction_status: RedactionStatus::None,
+        redaction_status: privacy.status,
         metadata,
     }
 }
@@ -1618,6 +2104,7 @@ fn evidence_artifact_node(
     let (freshness_status, release_claim_allowed, reason) =
         classify_evidence_freshness(value, options);
     let mut metadata = BTreeMap::new();
+    let privacy = classify_node_privacy(source_path, Some(value));
     metadata.insert("artifact_schema".to_string(), json!(artifact_schema));
     if let Some(generated_at) = evidence_generated_at(value) {
         metadata.insert("generated_at".to_string(), json!(generated_at));
@@ -1656,6 +2143,7 @@ fn evidence_artifact_node(
             json!(release_claim_allowed),
         );
     }
+    apply_privacy_metadata(&mut metadata, &privacy);
 
     SemanticGraphNode {
         id: stable_id("evidence_artifact", &[&stable_key]),
@@ -1669,7 +2157,7 @@ fn evidence_artifact_node(
         line_end: None,
         freshness_status: Some(freshness_status),
         bead_actionability_status: None,
-        redaction_status: RedactionStatus::None,
+        redaction_status: privacy.status,
         metadata,
     }
 }
@@ -1681,6 +2169,7 @@ fn missing_or_unreadable_evidence_node(
 ) -> SemanticGraphNode {
     let stable_key = format!("{source_path}:missing_or_unreadable");
     let mut metadata = BTreeMap::new();
+    let privacy = classify_node_privacy(source_path, None);
     metadata.insert("freshness_reason".to_string(), json!(reason));
     metadata.insert("release_claim_allowed".to_string(), json!(false));
     metadata.insert(
@@ -1688,6 +2177,7 @@ fn missing_or_unreadable_evidence_node(
         json!(claim_gate_status(freshness_status, false)),
     );
     metadata.insert("suppresses_release_claim_context".to_string(), json!(true));
+    apply_privacy_metadata(&mut metadata, &privacy);
     SemanticGraphNode {
         id: stable_id("evidence_artifact", &[&stable_key]),
         node_type: SemanticNodeType::EvidenceArtifact,
@@ -1700,7 +2190,7 @@ fn missing_or_unreadable_evidence_node(
         line_end: None,
         freshness_status: Some(freshness_status),
         bead_actionability_status: None,
-        redaction_status: RedactionStatus::None,
+        redaction_status: privacy.status,
         metadata,
     }
 }
@@ -1727,7 +2217,7 @@ fn bead_node(
         metadata.insert("status".to_string(), json!(status));
     }
     if let Some(title) = value.get("title").and_then(Value::as_str) {
-        metadata.insert("title".to_string(), json!(title));
+        metadata.insert("title".to_string(), json!(redact_sensitive_text(title)));
     }
     if let Some(priority) = value.get("priority").and_then(Value::as_i64) {
         metadata.insert("priority".to_string(), json!(priority));
@@ -1736,8 +2226,13 @@ fn bead_node(
         metadata.insert("issue_type".to_string(), json!(issue_type));
     }
     if let Some(external_ref) = bead_external_ref(value) {
-        metadata.insert("external_ref".to_string(), json!(external_ref));
+        metadata.insert(
+            "external_ref".to_string(),
+            json!(redact_sensitive_text(external_ref)),
+        );
     }
+    let privacy = classify_node_privacy(source_path, Some(value));
+    apply_privacy_metadata(&mut metadata, &privacy);
 
     SemanticGraphNode {
         id: stable_id("bead", &[bead_id]),
@@ -1751,7 +2246,7 @@ fn bead_node(
         line_end: Some(line),
         freshness_status: None,
         bead_actionability_status: Some(classified.status),
-        redaction_status: RedactionStatus::None,
+        redaction_status: privacy.status,
         metadata,
     }
 }
@@ -1948,8 +2443,43 @@ fn validation_command_matches(node: &SemanticGraphNode, failing_command: &str) -
             })
 }
 
+fn privacy_reason_fragments(node: &SemanticGraphNode) -> Vec<&str> {
+    let mut fragments = Vec::new();
+    if let Some(keys) = node
+        .metadata
+        .get("redacted_metadata_keys")
+        .and_then(Value::as_array)
+    {
+        for key in keys.iter().filter_map(Value::as_str) {
+            fragments.push(match key {
+                "credential_like" => "redacted_key:credential_like",
+                "prompt_or_payload" => "redacted_key:prompt_or_payload",
+                _ => "redacted_key:other",
+            });
+        }
+    }
+    if let Some(kind) = node
+        .metadata
+        .get("sensitive_path_kind")
+        .and_then(Value::as_str)
+    {
+        fragments.push(match kind {
+            "vcr_fixture" => "sensitive_path:vcr_fixture",
+            "log_artifact" => "sensitive_path:log_artifact",
+            "credential_path" => "sensitive_path:credential_path",
+            _ => "sensitive_path:other",
+        });
+    }
+    fragments
+}
+
 fn paths_are_related(left: &str, right: &str) -> bool {
-    left == right || left.starts_with(right) || right.starts_with(left)
+    left == right || path_starts_with(left, right) || path_starts_with(right, left)
+}
+
+fn path_starts_with(path: &str, prefix: &str) -> bool {
+    path.strip_prefix(prefix)
+        .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn estimate_node_bytes(node: &SemanticGraphNode) -> u64 {
@@ -1968,6 +2498,181 @@ fn estimate_node_bytes(node: &SemanticGraphNode) -> u64 {
 
 fn estimate_tokens(bytes: u64) -> u64 {
     bytes.saturating_add(3) / 4
+}
+
+fn default_context_cache_ttl_seconds() -> u64 {
+    DEFAULT_CONTEXT_CACHE_TTL_SECONDS
+}
+
+fn normalize_context_paths(raw_paths: &[String]) -> Vec<ContextPathNormalization> {
+    raw_paths
+        .iter()
+        .map(|raw_path| normalize_context_artifact_path(raw_path))
+        .collect()
+}
+
+#[must_use]
+pub fn normalize_context_artifact_path(raw_path: &str) -> ContextPathNormalization {
+    if raw_path.trim().is_empty() {
+        return ContextPathNormalization {
+            raw_path: raw_path.to_string(),
+            normalized_path: None,
+            accepted: false,
+            reason: "empty_path".to_string(),
+        };
+    }
+    if raw_path.contains('\0') {
+        return ContextPathNormalization {
+            raw_path: raw_path.to_string(),
+            normalized_path: None,
+            accepted: false,
+            reason: "nul_byte_rejected".to_string(),
+        };
+    }
+    if raw_path.contains('\\') {
+        return ContextPathNormalization {
+            raw_path: raw_path.to_string(),
+            normalized_path: None,
+            accepted: false,
+            reason: "backslash_separator_rejected".to_string(),
+        };
+    }
+
+    let path = Path::new(raw_path);
+    if path.is_absolute() {
+        return ContextPathNormalization {
+            raw_path: raw_path.to_string(),
+            normalized_path: None,
+            accepted: false,
+            reason: "absolute_path_rejected".to_string(),
+        };
+    }
+
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if parts.pop().is_none() {
+                    return ContextPathNormalization {
+                        raw_path: raw_path.to_string(),
+                        normalized_path: None,
+                        accepted: false,
+                        reason: "parent_escape_rejected".to_string(),
+                    };
+                }
+            }
+            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
+            Component::Prefix(_) | Component::RootDir => {
+                return ContextPathNormalization {
+                    raw_path: raw_path.to_string(),
+                    normalized_path: None,
+                    accepted: false,
+                    reason: "root_or_prefix_rejected".to_string(),
+                };
+            }
+        }
+    }
+
+    if parts.is_empty() {
+        return ContextPathNormalization {
+            raw_path: raw_path.to_string(),
+            normalized_path: None,
+            accepted: false,
+            reason: "empty_normalized_path".to_string(),
+        };
+    }
+
+    ContextPathNormalization {
+        raw_path: raw_path.to_string(),
+        normalized_path: Some(parts.join("/")),
+        accepted: true,
+        reason: "normalized".to_string(),
+    }
+}
+
+fn graph_input_fingerprint_digest(graph: &SemanticWorkspaceGraph) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(graph.root.as_bytes());
+    for fingerprint in &graph.input_fingerprints {
+        hasher.update(b"\0");
+        hasher.update(fingerprint.source_path.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(fingerprint.surface_id.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(fingerprint.sha256.as_bytes());
+        hasher.update(b"\0");
+        hasher.update(fingerprint.size_bytes.to_string().as_bytes());
+        if let Some(mtime_unix_ns) = fingerprint.mtime_unix_ns {
+            hasher.update(b"\0");
+            hasher.update(mtime_unix_ns.to_string().as_bytes());
+        }
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn build_redaction_summary(
+    selected_items: &[ContextBundleItem],
+    excluded_items: &[ContextBundleExclusion],
+) -> ContextRedactionSummary {
+    let mut redacted_metadata_keys = BTreeSet::new();
+    let mut sensitive_path_kinds = BTreeSet::new();
+    let mut overall_status = RedactionStatus::None;
+    let mut selected_redacted_nodes = 0;
+    let mut selected_sensitive_omissions = 0;
+    let mut suppressed_unsafe_nodes = 0;
+
+    for item in selected_items {
+        overall_status = overall_status.max(item.redaction_status);
+        match item.redaction_status {
+            RedactionStatus::Redacted => selected_redacted_nodes += 1,
+            RedactionStatus::SensitiveOmitted => selected_sensitive_omissions += 1,
+            RedactionStatus::UnsafeToEmit => suppressed_unsafe_nodes += 1,
+            RedactionStatus::None => {}
+        }
+        collect_privacy_hints_from_reason(
+            &item.reason,
+            &mut redacted_metadata_keys,
+            &mut sensitive_path_kinds,
+        );
+    }
+
+    for item in excluded_items {
+        overall_status = overall_status.max(item.redaction_status);
+        if item.redaction_status == RedactionStatus::UnsafeToEmit {
+            suppressed_unsafe_nodes += 1;
+        }
+        collect_privacy_hints_from_reason(
+            &item.reason,
+            &mut redacted_metadata_keys,
+            &mut sensitive_path_kinds,
+        );
+    }
+
+    ContextRedactionSummary {
+        policy_version: CONTEXT_PRIVACY_POLICY_VERSION.to_string(),
+        overall_status,
+        selected_redacted_nodes,
+        selected_sensitive_omissions,
+        suppressed_unsafe_nodes,
+        redacted_metadata_keys,
+        sensitive_path_kinds,
+    }
+}
+
+fn collect_privacy_hints_from_reason(
+    reason: &str,
+    redacted_metadata_keys: &mut BTreeSet<String>,
+    sensitive_path_kinds: &mut BTreeSet<String>,
+) {
+    for part in reason.split(',') {
+        if let Some(key) = part.strip_prefix("redacted_key:") {
+            redacted_metadata_keys.insert(key.to_string());
+        }
+        if let Some(kind) = part.strip_prefix("sensitive_path:") {
+            sensitive_path_kinds.insert(kind.to_string());
+        }
+    }
 }
 
 fn parse_rust_symbol(line: &str) -> Option<ParsedRustSymbol> {
@@ -2042,6 +2747,9 @@ fn is_claim_evidence_path(path: &str) -> bool {
         || path.starts_with("tests/perf/reports/") && has_extension(path, "json")
         || path.starts_with("tests/golden_corpus/swarm_claim_readiness/")
             && has_extension(path, "json")
+        || path.starts_with("tests/fixtures/vcr/") && has_extension(path, "json")
+        || path.starts_with("tests/fixtures/context_artifacts/")
+            && (has_extension(path, "json") || has_extension(path, "log"))
 }
 
 fn claim_surface_for_markdown_line(line: &str) -> &'static str {
@@ -2088,6 +2796,208 @@ fn claim_gate_status(
         (EvidenceFreshnessStatus::Uncertified, _) => "blocked_uncertified",
         (EvidenceFreshnessStatus::FreshnessUnknown, _) => "blocked_freshness_unknown",
         (EvidenceFreshnessStatus::Current, false) => "blocked_current_policy",
+    }
+}
+
+fn classify_node_privacy(source_path: &str, value: Option<&Value>) -> NodePrivacyClassification {
+    let sensitive_path_kind = sensitive_context_path_kind(source_path);
+    let mut redacted_metadata_keys = BTreeSet::new();
+    if let Some(value) = value {
+        collect_sensitive_json_keys(value, &mut redacted_metadata_keys);
+    }
+
+    let has_payload = value.is_some_and(contains_prompt_or_payload_key);
+    let status =
+        if sensitive_path_kind.is_some() && (!redacted_metadata_keys.is_empty() || has_payload) {
+            RedactionStatus::UnsafeToEmit
+        } else if !redacted_metadata_keys.is_empty() {
+            RedactionStatus::Redacted
+        } else if sensitive_path_kind.is_some() || has_payload {
+            RedactionStatus::SensitiveOmitted
+        } else {
+            RedactionStatus::None
+        };
+
+    NodePrivacyClassification {
+        status,
+        redacted_metadata_keys,
+        sensitive_path_kind,
+    }
+}
+
+fn classify_text_privacy(source_path: &str, content: &str) -> NodePrivacyClassification {
+    let sensitive_path_kind = sensitive_context_path_kind(source_path);
+    let mut redacted_metadata_keys = BTreeSet::new();
+    for token in content.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_')) {
+        if let Some(category) = sensitive_metadata_key_category(token) {
+            redacted_metadata_keys.insert(category.to_string());
+        }
+    }
+    let lower_content = content.to_ascii_lowercase();
+    let has_payload = [
+        "prompt", "messages", "request", "response", "body", "content",
+    ]
+    .iter()
+    .any(|needle| lower_content.contains(needle));
+    let status =
+        if sensitive_path_kind.is_some() && (!redacted_metadata_keys.is_empty() || has_payload) {
+            RedactionStatus::UnsafeToEmit
+        } else if !redacted_metadata_keys.is_empty() {
+            RedactionStatus::Redacted
+        } else if sensitive_path_kind.is_some() {
+            RedactionStatus::SensitiveOmitted
+        } else {
+            RedactionStatus::None
+        };
+
+    NodePrivacyClassification {
+        status,
+        redacted_metadata_keys,
+        sensitive_path_kind,
+    }
+}
+
+fn assess_redaction(
+    source_path: &str,
+    content: &str,
+    value: Option<&Value>,
+) -> NodePrivacyClassification {
+    let mut privacy = classify_node_privacy(source_path, value);
+    if value.is_none() && privacy.sensitive_path_kind.is_some() {
+        let text_privacy = classify_text_privacy(source_path, content);
+        privacy.status = privacy.status.max(text_privacy.status);
+        privacy
+            .redacted_metadata_keys
+            .extend(text_privacy.redacted_metadata_keys);
+    }
+    privacy
+}
+
+fn apply_redaction_metadata(node: &mut SemanticGraphNode, privacy: &NodePrivacyClassification) {
+    node.redaction_status = node.redaction_status.max(privacy.status);
+    apply_privacy_metadata(&mut node.metadata, privacy);
+}
+
+fn apply_privacy_metadata(
+    metadata: &mut BTreeMap<String, Value>,
+    privacy: &NodePrivacyClassification,
+) {
+    metadata.insert(
+        "redaction_policy_version".to_string(),
+        json!(CONTEXT_PRIVACY_POLICY_VERSION),
+    );
+    if !privacy.redacted_metadata_keys.is_empty() {
+        metadata.insert(
+            "redacted_metadata_keys".to_string(),
+            json!(privacy.redacted_metadata_keys),
+        );
+    }
+    if let Some(kind) = privacy.sensitive_path_kind {
+        metadata.insert("sensitive_path_kind".to_string(), json!(kind));
+    }
+}
+
+fn sensitive_context_path_kind(source_path: &str) -> Option<&'static str> {
+    let lower = source_path.to_ascii_lowercase();
+    if lower.contains("/vcr/") || lower.starts_with("tests/fixtures/vcr/") {
+        Some("vcr_fixture")
+    } else if has_extension(source_path, "log")
+        || lower.starts_with("logs/")
+        || lower.contains("/logs/")
+    {
+        Some("log_artifact")
+    } else if lower.contains("auth") || lower.contains("credential") || lower.contains("secret") {
+        Some("credential_path")
+    } else {
+        None
+    }
+}
+
+fn collect_sensitive_json_keys(value: &Value, keys: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(map) => {
+            for (key, value) in map {
+                if let Some(category) = sensitive_metadata_key_category(key) {
+                    keys.insert(category.to_string());
+                }
+                collect_sensitive_json_keys(value, keys);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_sensitive_json_keys(item, keys);
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
+}
+
+fn sensitive_metadata_key_category(key: &str) -> Option<&'static str> {
+    if is_sensitive_metadata_key(key) {
+        Some("credential_like")
+    } else if is_prompt_or_payload_key(key) {
+        Some("prompt_or_payload")
+    } else {
+        None
+    }
+}
+
+fn contains_prompt_or_payload_key(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map.iter().any(|(key, value)| {
+            is_prompt_or_payload_key(key) || contains_prompt_or_payload_key(value)
+        }),
+        Value::Array(items) => items.iter().any(contains_prompt_or_payload_key),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
+    }
+}
+
+fn is_sensitive_metadata_key(key: &str) -> bool {
+    const EXACT_KEYS: &[&str] = &[
+        "authorization",
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "session_token",
+        "private_key",
+        "client_secret",
+    ];
+
+    let key = key.to_ascii_lowercase();
+    EXACT_KEYS.contains(&key.as_str())
+        || key.ends_with("_api_key")
+        || key.ends_with("_token")
+        || key.ends_with("_secret")
+        || key.contains("credential")
+        || key.contains("password")
+        || key.contains("bearer")
+}
+
+fn is_prompt_or_payload_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    matches!(
+        key.as_str(),
+        "prompt" | "messages" | "request" | "response" | "body" | "content" | "transcript"
+    ) || key.ends_with("_body")
+        || key.ends_with("_content")
+}
+
+fn redact_sensitive_text(value: &str) -> String {
+    if value
+        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
+        .any(|part| {
+            let part = part.to_ascii_lowercase();
+            is_sensitive_metadata_key(&part)
+                || part.starts_with("sk-")
+                || part.starts_with("xox")
+                || part.starts_with("ghp_")
+        })
+    {
+        "[redacted-sensitive-text]".to_string()
+    } else {
+        value.to_string()
     }
 }
 
@@ -2140,8 +3050,14 @@ fn surface_for_path(source_path: &str) -> Option<SourceSurface> {
         || source_path.starts_with("tests/perf/reports/") && has_extension(source_path, "json")
         || source_path.starts_with("tests/golden_corpus/swarm_claim_readiness/")
             && has_extension(source_path, "json")
+        || source_path.starts_with("tests/fixtures/vcr/") && has_extension(source_path, "json")
+        || source_path.starts_with("tests/fixtures/context_artifacts/")
+            && (has_extension(source_path, "json") || has_extension(source_path, "log"))
     {
         return Some(SourceSurface::EvidenceArtifacts);
+    }
+    if source_path.starts_with("logs/") || has_extension(source_path, "log") {
+        return Some(SourceSurface::RuntimeArtifacts);
     }
     if source_path.starts_with("src/") && has_extension(source_path, "rs") {
         return Some(SourceSurface::RustCodeModules);
@@ -2177,8 +3093,37 @@ fn file_mtime_unix_ns(path: &Path) -> io::Result<Option<u64>> {
     Ok(u64::try_from(nanos).ok())
 }
 
+fn datetime_unix_ns(timestamp: DateTime<Utc>) -> Option<u64> {
+    let seconds = timestamp.timestamp();
+    if seconds < 0 {
+        return None;
+    }
+    u64::try_from(seconds)
+        .ok()?
+        .checked_mul(1_000_000_000)?
+        .checked_add(u64::from(timestamp.timestamp_subsec_nanos()))
+}
+
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+fn cache_key_sha256(
+    scope: &ContextArtifactCacheScope,
+    normalized_source_path: &str,
+    content_sha256: &str,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(scope.workspace_identity.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(scope.branch_identity.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(scope.session_scope.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(normalized_source_path.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(content_sha256.as_bytes());
+    format!("{:x}", hasher.finalize())
 }
 
 fn stable_id(kind: &str, parts: &[&str]) -> String {
