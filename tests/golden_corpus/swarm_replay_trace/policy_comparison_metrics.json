@@ -2,7 +2,7 @@
   {
     "policy_id": "existing_autopilot",
     "rank": 1,
-    "score": 51,
+    "score": 43,
     "metrics": {
       "completed_beads": 1,
       "throughput_actions": 4,
@@ -15,26 +15,62 @@
       "stale_work_reclaimed": 0,
       "validation_commands_deferred": 0,
       "evidence_freshness": "fresh",
-      "operator_handoff_quality": "complete"
+      "operator_handoff_quality": "complete",
+      "resource_budget": {
+        "profile_id": null,
+        "saturation_events": 0,
+        "first_saturation_point": null,
+        "peak_agent_concurrency": 1,
+        "peak_tool_concurrency": 5,
+        "peak_rch_fanout": 5,
+        "peak_rch_queue_depth": 3,
+        "peak_estimated_rss_gib": null,
+        "cpu_pressure": "unknown",
+        "memory_pressure": "unknown",
+        "tmpdir_pressure": "unknown",
+        "target_dir_pressure": "unknown",
+        "rch_worker_pressure": "unknown",
+        "extension_lane_pressure": "unknown",
+        "numa_hint": "unknown"
+      }
     },
     "confidence": {
-      "level": "high",
-      "score": 100,
+      "level": "medium",
+      "score": 75,
       "reasons": [
-        "all_required_metrics_supported"
+        "missing_data_suppressed_claims"
       ]
     },
-    "missing_data": [],
+    "missing_data": [
+      {
+        "claim": "resource_budget_claims",
+        "reasons": [
+          "host resource profile missing"
+        ],
+        "suppressed_metrics": [
+          "resource_budget.peak_agent_concurrency",
+          "resource_budget.peak_tool_concurrency",
+          "resource_budget.peak_rch_fanout",
+          "resource_budget.peak_estimated_rss_gib",
+          "resource_budget.cpu_pressure",
+          "resource_budget.memory_pressure",
+          "resource_budget.tmpdir_pressure",
+          "resource_budget.target_dir_pressure",
+          "resource_budget.extension_lane_pressure"
+        ]
+      }
+    ],
     "rationale": [
-      "Score 51 from 4 throughput action(s), 0 validation deferral(s), risk medium.",
+      "Score 43 from 4 throughput action(s), 0 validation deferral(s), risk medium.",
       "Advances replay work through 4 advisory work-start decision(s).",
-      "Operator handoff evidence is complete."
+      "Operator handoff evidence is complete.",
+      "Suppresses resource_budget.peak_agent_concurrency,resource_budget.peak_tool_concurrency,resource_budget.peak_rch_fanout,resource_budget.peak_estimated_rss_gib,resource_budget.cpu_pressure,resource_budget.memory_pressure,resource_budget.tmpdir_pressure,resource_budget.target_dir_pressure,resource_budget.extension_lane_pressure because host resource profile missing."
     ]
   },
   {
     "policy_id": "rch_fanout_limited",
     "rank": 2,
-    "score": 37,
+    "score": 29,
     "metrics": {
       "completed_beads": 1,
       "throughput_actions": 2,
@@ -47,28 +83,64 @@
       "stale_work_reclaimed": 0,
       "validation_commands_deferred": 3,
       "evidence_freshness": "fresh",
-      "operator_handoff_quality": "complete"
+      "operator_handoff_quality": "complete",
+      "resource_budget": {
+        "profile_id": null,
+        "saturation_events": 0,
+        "first_saturation_point": null,
+        "peak_agent_concurrency": 1,
+        "peak_tool_concurrency": 3,
+        "peak_rch_fanout": 3,
+        "peak_rch_queue_depth": 3,
+        "peak_estimated_rss_gib": null,
+        "cpu_pressure": "unknown",
+        "memory_pressure": "unknown",
+        "tmpdir_pressure": "unknown",
+        "target_dir_pressure": "unknown",
+        "rch_worker_pressure": "unknown",
+        "extension_lane_pressure": "unknown",
+        "numa_hint": "unknown"
+      }
     },
     "confidence": {
-      "level": "high",
-      "score": 100,
+      "level": "medium",
+      "score": 75,
       "reasons": [
-        "all_required_metrics_supported"
+        "missing_data_suppressed_claims"
       ]
     },
-    "missing_data": [],
+    "missing_data": [
+      {
+        "claim": "resource_budget_claims",
+        "reasons": [
+          "host resource profile missing"
+        ],
+        "suppressed_metrics": [
+          "resource_budget.peak_agent_concurrency",
+          "resource_budget.peak_tool_concurrency",
+          "resource_budget.peak_rch_fanout",
+          "resource_budget.peak_estimated_rss_gib",
+          "resource_budget.cpu_pressure",
+          "resource_budget.memory_pressure",
+          "resource_budget.tmpdir_pressure",
+          "resource_budget.target_dir_pressure",
+          "resource_budget.extension_lane_pressure"
+        ]
+      }
+    ],
     "rationale": [
-      "Score 37 from 2 throughput action(s), 3 validation deferral(s), risk medium.",
+      "Score 29 from 2 throughput action(s), 3 validation deferral(s), risk medium.",
       "Advances replay work through 2 advisory work-start decision(s).",
       "Defers 3 validation command(s) when build or RCH pressure is observed.",
       "Avoids 1 reservation conflict(s) through advisory backoff or review.",
-      "Operator handoff evidence is complete."
+      "Operator handoff evidence is complete.",
+      "Suppresses resource_budget.peak_agent_concurrency,resource_budget.peak_tool_concurrency,resource_budget.peak_rch_fanout,resource_budget.peak_estimated_rss_gib,resource_budget.cpu_pressure,resource_budget.memory_pressure,resource_budget.tmpdir_pressure,resource_budget.target_dir_pressure,resource_budget.extension_lane_pressure because host resource profile missing."
     ]
   },
   {
     "policy_id": "conservative_manual",
     "rank": 3,
-    "score": 16,
+    "score": 8,
     "metrics": {
       "completed_beads": 1,
       "throughput_actions": 0,
@@ -81,21 +153,57 @@
       "stale_work_reclaimed": 0,
       "validation_commands_deferred": 0,
       "evidence_freshness": "fresh",
-      "operator_handoff_quality": "complete"
+      "operator_handoff_quality": "complete",
+      "resource_budget": {
+        "profile_id": null,
+        "saturation_events": 0,
+        "first_saturation_point": null,
+        "peak_agent_concurrency": 1,
+        "peak_tool_concurrency": 1,
+        "peak_rch_fanout": 1,
+        "peak_rch_queue_depth": 3,
+        "peak_estimated_rss_gib": null,
+        "cpu_pressure": "unknown",
+        "memory_pressure": "unknown",
+        "tmpdir_pressure": "unknown",
+        "target_dir_pressure": "unknown",
+        "rch_worker_pressure": "unknown",
+        "extension_lane_pressure": "unknown",
+        "numa_hint": "unknown"
+      }
     },
     "confidence": {
-      "level": "high",
-      "score": 100,
+      "level": "medium",
+      "score": 75,
       "reasons": [
-        "all_required_metrics_supported"
+        "missing_data_suppressed_claims"
       ]
     },
-    "missing_data": [],
+    "missing_data": [
+      {
+        "claim": "resource_budget_claims",
+        "reasons": [
+          "host resource profile missing"
+        ],
+        "suppressed_metrics": [
+          "resource_budget.peak_agent_concurrency",
+          "resource_budget.peak_tool_concurrency",
+          "resource_budget.peak_rch_fanout",
+          "resource_budget.peak_estimated_rss_gib",
+          "resource_budget.cpu_pressure",
+          "resource_budget.memory_pressure",
+          "resource_budget.tmpdir_pressure",
+          "resource_budget.target_dir_pressure",
+          "resource_budget.extension_lane_pressure"
+        ]
+      }
+    ],
     "rationale": [
-      "Score 16 from 0 throughput action(s), 0 validation deferral(s), risk low.",
+      "Score 8 from 0 throughput action(s), 0 validation deferral(s), risk low.",
       "Uses conservative advisory posture with no live-mutation decisions.",
       "Avoids 1 reservation conflict(s) through advisory backoff or review.",
-      "Operator handoff evidence is complete."
+      "Operator handoff evidence is complete.",
+      "Suppresses resource_budget.peak_agent_concurrency,resource_budget.peak_tool_concurrency,resource_budget.peak_rch_fanout,resource_budget.peak_estimated_rss_gib,resource_budget.cpu_pressure,resource_budget.memory_pressure,resource_budget.tmpdir_pressure,resource_budget.target_dir_pressure,resource_budget.extension_lane_pressure because host resource profile missing."
     ]
   }
 ]

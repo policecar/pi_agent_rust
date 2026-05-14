@@ -85,7 +85,7 @@ const SOURCE_TEMPLATES: &[SourceTemplate] = &[
         source_id: "doctor_swarm_diagnostics",
         source_kind: "doctor",
         default_path: "docs/evidence/doctor-swarm.json",
-        authoritative_for: &["doctor_finding"],
+        authoritative_for: &["doctor_finding", "host_resource_profile"],
         format: SourceInputFormat::Json,
         default_redaction_state: "redacted",
     },
@@ -308,6 +308,7 @@ pub struct SwarmReplayReport {
     pub replayed_event_count: u64,
     pub final_logical_clock: u64,
     pub snapshots: Vec<SwarmReplayStateSnapshot>,
+    pub resource_pressure_timeline: Vec<SwarmReplayResourcePressureSnapshot>,
     pub final_state: SwarmReplayState,
     pub diagnostics: Vec<SwarmReplayDiagnostic>,
     pub replay_guards: SwarmReplayEngineGuards,
@@ -356,6 +357,7 @@ pub struct SwarmReplayState {
     pub runpack_recommendations: BTreeMap<String, SwarmReplayRunpackRecommendationState>,
     pub operator_handoffs: BTreeMap<String, SwarmReplayOperatorHandoffState>,
     pub worktree: Option<SwarmReplayWorktreeState>,
+    pub resource_budget: Option<SwarmReplayResourceBudgetState>,
     pub coordination: SwarmReplayCoordinationState,
 }
 
@@ -371,6 +373,7 @@ impl Default for SwarmReplayState {
             runpack_recommendations: BTreeMap::new(),
             operator_handoffs: BTreeMap::new(),
             worktree: None,
+            resource_budget: None,
             coordination: SwarmReplayCoordinationState {
                 agent_mail_available: true,
                 missing_agent_mail_evidence: false,
@@ -466,6 +469,46 @@ pub struct SwarmReplayWorktreeState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwarmReplayResourceBudgetState {
+    pub profile_id: String,
+    pub cpu_cores: Option<u64>,
+    pub memory_gib: Option<u64>,
+    pub numa_nodes: Option<u64>,
+    pub cgroup_cpu_quota: Option<u64>,
+    pub cgroup_memory_gib: Option<u64>,
+    pub max_agent_concurrency: Option<u64>,
+    pub max_tool_concurrency: Option<u64>,
+    pub extension_hostcall_lanes: Option<u64>,
+    pub rch_worker_slots: Option<u64>,
+    pub target_dir: String,
+    pub target_free_gib: Option<u64>,
+    pub tmpdir: String,
+    pub tmpdir_free_gib: Option<u64>,
+    pub numa_hint: String,
+    pub last_event_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwarmReplayResourcePressureSnapshot {
+    pub logical_clock: u64,
+    pub event_id: String,
+    pub profile_id: Option<String>,
+    pub active_agents: u64,
+    pub active_build_slots: u64,
+    pub active_rch_jobs: u64,
+    pub rch_queue_depth: u64,
+    pub estimated_rss_gib: Option<u64>,
+    pub cpu_pressure: String,
+    pub memory_pressure: String,
+    pub tmpdir_pressure: String,
+    pub target_dir_pressure: String,
+    pub rch_worker_pressure: String,
+    pub extension_lane_pressure: String,
+    pub saturation_reasons: Vec<String>,
+    pub missing_data: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SwarmReplayCoordinationState {
     pub agent_mail_available: bool,
     pub missing_agent_mail_evidence: bool,
@@ -552,6 +595,26 @@ pub struct SwarmReplayPolicyMetrics {
     pub validation_commands_deferred: u64,
     pub evidence_freshness: String,
     pub operator_handoff_quality: String,
+    pub resource_budget: SwarmReplayPolicyResourceMetrics,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwarmReplayPolicyResourceMetrics {
+    pub profile_id: Option<String>,
+    pub saturation_events: u64,
+    pub first_saturation_point: Option<String>,
+    pub peak_agent_concurrency: u64,
+    pub peak_tool_concurrency: u64,
+    pub peak_rch_fanout: u64,
+    pub peak_rch_queue_depth: u64,
+    pub peak_estimated_rss_gib: Option<u64>,
+    pub cpu_pressure: String,
+    pub memory_pressure: String,
+    pub tmpdir_pressure: String,
+    pub target_dir_pressure: String,
+    pub rch_worker_pressure: String,
+    pub extension_lane_pressure: String,
+    pub numa_hint: String,
 }
 
 /// Confidence attached to policy comparison metrics.
@@ -774,6 +837,7 @@ fn policy_comparison_metrics(
     decisions: &[&SwarmReplayPolicyDecision],
     latency: &PolicyLatencyMetrics,
 ) -> SwarmReplayPolicyMetrics {
+    let resource_budget = policy_resource_metrics(report, decisions);
     SwarmReplayPolicyMetrics {
         completed_beads: count_completed_beads(&report.final_state),
         throughput_actions: count_throughput_actions(decisions),
@@ -790,6 +854,7 @@ fn policy_comparison_metrics(
         ),
         evidence_freshness: evidence_freshness(report, latency),
         operator_handoff_quality: operator_handoff_quality(&report.final_state),
+        resource_budget,
     }
 }
 
@@ -908,6 +973,24 @@ fn comparison_missing_data(
             ],
         });
     }
+    let resource_missing = resource_budget_missing_claims(report);
+    if !resource_missing.is_empty() {
+        missing.push(SwarmReplayPolicyMissingData {
+            claim: "resource_budget_claims".to_string(),
+            reasons: resource_missing,
+            suppressed_metrics: vec![
+                "resource_budget.peak_agent_concurrency".to_string(),
+                "resource_budget.peak_tool_concurrency".to_string(),
+                "resource_budget.peak_rch_fanout".to_string(),
+                "resource_budget.peak_estimated_rss_gib".to_string(),
+                "resource_budget.cpu_pressure".to_string(),
+                "resource_budget.memory_pressure".to_string(),
+                "resource_budget.tmpdir_pressure".to_string(),
+                "resource_budget.target_dir_pressure".to_string(),
+                "resource_budget.extension_lane_pressure".to_string(),
+            ],
+        });
+    }
     missing
 }
 
@@ -1023,6 +1106,17 @@ fn policy_comparison_rationale(
             metrics.reservation_conflicts_avoided
         ));
     }
+    if metrics.resource_budget.saturation_events > 0 {
+        rationale.push(format!(
+            "Observes {} resource saturation point(s); first saturation: {}.",
+            metrics.resource_budget.saturation_events,
+            metrics
+                .resource_budget
+                .first_saturation_point
+                .as_deref()
+                .unwrap_or("unknown")
+        ));
+    }
     if metrics.operator_handoff_quality != "not_applicable" {
         rationale.push(format!(
             "Operator handoff evidence is {}.",
@@ -1037,6 +1131,203 @@ fn policy_comparison_rationale(
         ));
     }
     rationale
+}
+
+fn policy_resource_metrics(
+    report: &SwarmReplayReport,
+    decisions: &[&SwarmReplayPolicyDecision],
+) -> SwarmReplayPolicyResourceMetrics {
+    let profile_id = report
+        .final_state
+        .resource_budget
+        .as_ref()
+        .map(|profile| profile.profile_id.clone());
+    let decision_rch_fanout = count_decisions_with_actions(
+        decisions,
+        &[
+            "acquire_build_slot_for_validation",
+            "split_validation",
+            "claim_bead",
+        ],
+    );
+    let peak_agent_concurrency = report
+        .resource_pressure_timeline
+        .iter()
+        .map(|snapshot| snapshot.active_agents)
+        .max()
+        .unwrap_or(0);
+    let peak_tool_concurrency = report
+        .resource_pressure_timeline
+        .iter()
+        .map(|snapshot| {
+            snapshot
+                .active_build_slots
+                .saturating_add(snapshot.active_rch_jobs)
+        })
+        .max()
+        .unwrap_or(0)
+        .saturating_add(decision_rch_fanout);
+    let peak_rch_fanout = report
+        .resource_pressure_timeline
+        .iter()
+        .map(|snapshot| snapshot.active_rch_jobs)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(decision_rch_fanout);
+    let peak_rch_queue_depth = report
+        .resource_pressure_timeline
+        .iter()
+        .map(|snapshot| snapshot.rch_queue_depth)
+        .max()
+        .unwrap_or(0);
+    let peak_estimated_rss_gib = report
+        .resource_pressure_timeline
+        .iter()
+        .filter_map(|snapshot| snapshot.estimated_rss_gib)
+        .max();
+    let saturation_events = report
+        .resource_pressure_timeline
+        .iter()
+        .filter(|snapshot| !snapshot.saturation_reasons.is_empty())
+        .count()
+        .try_into()
+        .unwrap_or(u64::MAX);
+    let first_saturation_point = report
+        .resource_pressure_timeline
+        .iter()
+        .find(|snapshot| !snapshot.saturation_reasons.is_empty())
+        .map(|snapshot| {
+            format!(
+                "{}:{}",
+                snapshot.logical_clock,
+                snapshot.saturation_reasons.join("+")
+            )
+        });
+    let peak = PeakResourcePressure::from_timeline(&report.resource_pressure_timeline);
+    let numa_hint = report.final_state.resource_budget.as_ref().map_or_else(
+        || "unknown".to_string(),
+        |profile| profile.numa_hint.clone(),
+    );
+
+    SwarmReplayPolicyResourceMetrics {
+        profile_id,
+        saturation_events,
+        first_saturation_point,
+        peak_agent_concurrency,
+        peak_tool_concurrency,
+        peak_rch_fanout,
+        peak_rch_queue_depth,
+        peak_estimated_rss_gib,
+        cpu_pressure: peak.cpu_pressure,
+        memory_pressure: peak.memory_pressure,
+        tmpdir_pressure: peak.tmpdir_pressure,
+        target_dir_pressure: peak.target_dir_pressure,
+        rch_worker_pressure: peak.rch_worker_pressure,
+        extension_lane_pressure: peak.extension_lane_pressure,
+        numa_hint,
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PeakResourcePressure {
+    cpu_pressure: String,
+    memory_pressure: String,
+    tmpdir_pressure: String,
+    target_dir_pressure: String,
+    rch_worker_pressure: String,
+    extension_lane_pressure: String,
+}
+
+impl PeakResourcePressure {
+    fn from_timeline(timeline: &[SwarmReplayResourcePressureSnapshot]) -> Self {
+        Self {
+            cpu_pressure: peak_pressure(
+                timeline
+                    .iter()
+                    .map(|snapshot| snapshot.cpu_pressure.as_str()),
+            ),
+            memory_pressure: peak_pressure(
+                timeline
+                    .iter()
+                    .map(|snapshot| snapshot.memory_pressure.as_str()),
+            ),
+            tmpdir_pressure: peak_pressure(
+                timeline
+                    .iter()
+                    .map(|snapshot| snapshot.tmpdir_pressure.as_str()),
+            ),
+            target_dir_pressure: peak_pressure(
+                timeline
+                    .iter()
+                    .map(|snapshot| snapshot.target_dir_pressure.as_str()),
+            ),
+            rch_worker_pressure: peak_pressure(
+                timeline
+                    .iter()
+                    .map(|snapshot| snapshot.rch_worker_pressure.as_str()),
+            ),
+            extension_lane_pressure: peak_pressure(
+                timeline
+                    .iter()
+                    .map(|snapshot| snapshot.extension_lane_pressure.as_str()),
+            ),
+        }
+    }
+}
+
+fn peak_pressure<'a>(levels: impl Iterator<Item = &'a str>) -> String {
+    levels
+        .max_by_key(|level| pressure_rank(level))
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn pressure_rank(level: &str) -> u8 {
+    match level {
+        "saturated" => 4,
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+
+fn resource_budget_missing_claims(report: &SwarmReplayReport) -> Vec<String> {
+    let Some(profile) = &report.final_state.resource_budget else {
+        return vec!["host resource profile missing".to_string()];
+    };
+    resource_budget_missing_claims_for_profile(profile)
+}
+
+fn resource_budget_missing_claims_for_profile(
+    profile: &SwarmReplayResourceBudgetState,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+    if profile.cpu_cores.is_none() && profile.cgroup_cpu_quota.is_none() {
+        reasons.push("cpu capacity missing".to_string());
+    }
+    if profile.memory_gib.is_none() && profile.cgroup_memory_gib.is_none() {
+        reasons.push("memory capacity missing".to_string());
+    }
+    if profile.max_agent_concurrency.is_none() {
+        reasons.push("agent concurrency budget missing".to_string());
+    }
+    if profile.max_tool_concurrency.is_none() {
+        reasons.push("tool concurrency budget missing".to_string());
+    }
+    if profile.extension_hostcall_lanes.is_none() {
+        reasons.push("extension hostcall lane budget missing".to_string());
+    }
+    if profile.rch_worker_slots.is_none() {
+        reasons.push("RCH worker slot budget missing".to_string());
+    }
+    if profile.target_free_gib.is_none() {
+        reasons.push("CARGO_TARGET_DIR free-space budget missing".to_string());
+    }
+    if profile.tmpdir_free_gib.is_none() {
+        reasons.push("TMPDIR free-space budget missing".to_string());
+    }
+    reasons
 }
 
 fn count_completed_beads(state: &SwarmReplayState) -> u64 {
@@ -1576,6 +1867,208 @@ fn stale_in_progress_bead<'a>(
         })
 }
 
+fn build_resource_pressure_timeline(
+    snapshots: &[SwarmReplayStateSnapshot],
+) -> Vec<SwarmReplayResourcePressureSnapshot> {
+    snapshots.iter().map(resource_pressure_snapshot).collect()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ResourceDemandSnapshot {
+    active_agents: u64,
+    active_build_slots: u64,
+    active_rch_jobs: u64,
+    rch_queue_depth: u64,
+}
+
+impl ResourceDemandSnapshot {
+    fn from_state(state: &SwarmReplayState) -> Self {
+        let active_agents = u64::try_from(state.agents.len()).unwrap_or(u64::MAX);
+        let active_build_slots = state
+            .build_slots
+            .values()
+            .filter(|slot| {
+                matches!(
+                    slot.state.as_str(),
+                    "active" | "acquired" | "held" | "running"
+                )
+            })
+            .count()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        let active_rch_jobs = state
+            .rch_jobs
+            .values()
+            .filter(|job| {
+                job.queue_position > 0
+                    || matches!(
+                        job.state.as_str(),
+                        "queued" | "running" | "syncing" | "checking" | "testing" | "building"
+                    )
+            })
+            .count()
+            .try_into()
+            .unwrap_or(u64::MAX);
+        let rch_queue_depth = state
+            .rch_jobs
+            .values()
+            .filter_map(|job| u64::try_from(job.queue_position.max(0)).ok())
+            .sum::<u64>();
+
+        Self {
+            active_agents,
+            active_build_slots,
+            active_rch_jobs,
+            rch_queue_depth,
+        }
+    }
+
+    fn estimated_rss_gib(self) -> u64 {
+        self.active_agents
+            .saturating_mul(2)
+            .saturating_add(self.active_build_slots.saturating_mul(4))
+            .saturating_add(self.active_rch_jobs.saturating_mul(4))
+    }
+
+    fn cpu_work_units(self) -> u64 {
+        self.active_agents
+            .saturating_add(self.active_build_slots.saturating_mul(4))
+            .saturating_add(self.active_rch_jobs.saturating_mul(4))
+    }
+}
+
+fn resource_pressure_snapshot(
+    snapshot: &SwarmReplayStateSnapshot,
+) -> SwarmReplayResourcePressureSnapshot {
+    let state = &snapshot.state;
+    let demand = ResourceDemandSnapshot::from_state(state);
+    let estimated_rss_gib = state
+        .resource_budget
+        .as_ref()
+        .map(|_| demand.estimated_rss_gib());
+
+    let Some(profile) = &state.resource_budget else {
+        return SwarmReplayResourcePressureSnapshot {
+            logical_clock: snapshot.logical_clock,
+            event_id: snapshot.event_id.clone(),
+            profile_id: None,
+            active_agents: demand.active_agents,
+            active_build_slots: demand.active_build_slots,
+            active_rch_jobs: demand.active_rch_jobs,
+            rch_queue_depth: demand.rch_queue_depth,
+            estimated_rss_gib,
+            cpu_pressure: "unknown".to_string(),
+            memory_pressure: "unknown".to_string(),
+            tmpdir_pressure: "unknown".to_string(),
+            target_dir_pressure: "unknown".to_string(),
+            rch_worker_pressure: "unknown".to_string(),
+            extension_lane_pressure: "unknown".to_string(),
+            saturation_reasons: Vec::new(),
+            missing_data: vec!["host resource profile missing".to_string()],
+        };
+    };
+
+    let cpu_capacity = profile.cgroup_cpu_quota.or(profile.cpu_cores);
+    let memory_capacity = profile.cgroup_memory_gib.or(profile.memory_gib);
+    let cpu_pressure = pressure_for_capacity(demand.cpu_work_units(), cpu_capacity);
+    let memory_pressure = pressure_for_capacity(estimated_rss_gib.unwrap_or(0), memory_capacity);
+    let tmpdir_pressure = pressure_for_free_gib(profile.tmpdir_free_gib);
+    let target_dir_pressure = pressure_for_free_gib(profile.target_free_gib);
+    let rch_worker_pressure = pressure_for_capacity(
+        demand
+            .active_rch_jobs
+            .saturating_add(demand.rch_queue_depth),
+        profile.rch_worker_slots,
+    );
+    let extension_lane_pressure =
+        pressure_for_capacity(demand.active_agents, profile.extension_hostcall_lanes);
+
+    let mut saturation_reasons = Vec::new();
+    push_if_saturated(&mut saturation_reasons, "cpu_saturated", &cpu_pressure);
+    push_if_saturated(
+        &mut saturation_reasons,
+        "memory_saturated",
+        &memory_pressure,
+    );
+    push_if_saturated(
+        &mut saturation_reasons,
+        "tmpdir_saturated",
+        &tmpdir_pressure,
+    );
+    push_if_saturated(
+        &mut saturation_reasons,
+        "target_dir_saturated",
+        &target_dir_pressure,
+    );
+    push_if_saturated(
+        &mut saturation_reasons,
+        "rch_workers_saturated",
+        &rch_worker_pressure,
+    );
+    push_if_saturated(
+        &mut saturation_reasons,
+        "extension_lanes_saturated",
+        &extension_lane_pressure,
+    );
+
+    SwarmReplayResourcePressureSnapshot {
+        logical_clock: snapshot.logical_clock,
+        event_id: snapshot.event_id.clone(),
+        profile_id: Some(profile.profile_id.clone()),
+        active_agents: demand.active_agents,
+        active_build_slots: demand.active_build_slots,
+        active_rch_jobs: demand.active_rch_jobs,
+        rch_queue_depth: demand.rch_queue_depth,
+        estimated_rss_gib,
+        cpu_pressure,
+        memory_pressure,
+        tmpdir_pressure,
+        target_dir_pressure,
+        rch_worker_pressure,
+        extension_lane_pressure,
+        saturation_reasons,
+        missing_data: resource_budget_missing_claims_for_profile(profile),
+    }
+}
+
+fn pressure_for_capacity(used: u64, capacity: Option<u64>) -> String {
+    let Some(capacity) = capacity else {
+        return "unknown".to_string();
+    };
+    if capacity == 0 || used > capacity {
+        return "saturated".to_string();
+    }
+    let usage = used.saturating_mul(100) / capacity;
+    if usage >= 80 {
+        "high".to_string()
+    } else if usage >= 60 {
+        "medium".to_string()
+    } else {
+        "low".to_string()
+    }
+}
+
+fn pressure_for_free_gib(free_gib: Option<u64>) -> String {
+    let Some(free_gib) = free_gib else {
+        return "unknown".to_string();
+    };
+    if free_gib < 16 {
+        "saturated".to_string()
+    } else if free_gib < 32 {
+        "high".to_string()
+    } else if free_gib < 64 {
+        "medium".to_string()
+    } else {
+        "low".to_string()
+    }
+}
+
+fn push_if_saturated(reasons: &mut Vec<String>, reason: &str, pressure: &str) {
+    if pressure == "saturated" {
+        reasons.push(reason.to_string());
+    }
+}
+
 /// Replay a normalized trace into deterministic state snapshots and diagnostics.
 pub fn replay_swarm_trace(trace: &SwarmReplayTrace) -> Result<SwarmReplayReport> {
     validate_trace_for_replay(trace)?;
@@ -1635,6 +2128,7 @@ pub fn replay_swarm_trace(trace: &SwarmReplayTrace) -> Result<SwarmReplayReport>
     }
 
     emit_end_of_trace_invariants(&state, &mut diagnostics);
+    let resource_pressure_timeline = build_resource_pressure_timeline(&snapshots);
 
     Ok(SwarmReplayReport {
         schema: SWARM_REPLAY_REPORT_SCHEMA.to_string(),
@@ -1642,6 +2136,7 @@ pub fn replay_swarm_trace(trace: &SwarmReplayTrace) -> Result<SwarmReplayReport>
         replayed_event_count: logical_clock,
         final_logical_clock: logical_clock,
         snapshots,
+        resource_pressure_timeline,
         final_state: state,
         diagnostics,
         replay_guards: SwarmReplayEngineGuards {
@@ -1696,6 +2191,7 @@ fn apply_replay_event(
         "runpack_recommendation" => apply_runpack_recommendation(event, state),
         "operator_handoff" => apply_operator_handoff(event, state),
         "worktree_state" => apply_worktree_event(event, state),
+        "host_resource_profile" => apply_resource_profile_event(event, state),
         "doctor_finding" | "validation_artifact" => {}
         _ => diagnostics.push(replay_diagnostic(
             "unknown_event_type_ignored",
@@ -1999,6 +2495,31 @@ fn apply_worktree_event(event: &SwarmReplayEvent, state: &mut SwarmReplayState) 
     });
 }
 
+fn apply_resource_profile_event(event: &SwarmReplayEvent, state: &mut SwarmReplayState) {
+    state.resource_budget = Some(SwarmReplayResourceBudgetState {
+        profile_id: payload_string(&event.payload, &["profile_id", "id"], "unknown"),
+        cpu_cores: payload_u64_optional(&event.payload, "cpu_cores"),
+        memory_gib: payload_u64_optional(&event.payload, "memory_gib"),
+        numa_nodes: payload_u64_optional(&event.payload, "numa_nodes"),
+        cgroup_cpu_quota: payload_u64_optional(&event.payload, "cgroup_cpu_quota"),
+        cgroup_memory_gib: payload_u64_optional(&event.payload, "cgroup_memory_gib"),
+        max_agent_concurrency: payload_u64_optional(&event.payload, "max_agent_concurrency"),
+        max_tool_concurrency: payload_u64_optional(&event.payload, "max_tool_concurrency"),
+        extension_hostcall_lanes: payload_u64_optional(&event.payload, "extension_hostcall_lanes"),
+        rch_worker_slots: payload_u64_optional(&event.payload, "rch_worker_slots"),
+        target_dir: payload_string(
+            &event.payload,
+            &["target_dir", "cargo_target_dir"],
+            "unknown",
+        ),
+        target_free_gib: payload_u64_optional(&event.payload, "target_free_gib"),
+        tmpdir: payload_string(&event.payload, &["tmpdir"], "unknown"),
+        tmpdir_free_gib: payload_u64_optional(&event.payload, "tmpdir_free_gib"),
+        numa_hint: payload_string(&event.payload, &["numa_hint"], "unknown"),
+        last_event_id: event.event_id.clone(),
+    });
+}
+
 fn emit_end_of_trace_invariants(
     state: &SwarmReplayState,
     diagnostics: &mut Vec<SwarmReplayDiagnostic>,
@@ -2062,6 +2583,10 @@ fn payload_string_array(value: &Value, key: &str) -> Vec<String> {
 
 fn payload_i64(value: &Value, key: &str, fallback: i64) -> i64 {
     value.get(key).and_then(Value::as_i64).unwrap_or(fallback)
+}
+
+fn payload_u64_optional(value: &Value, key: &str) -> Option<u64> {
+    value.get(key).and_then(Value::as_u64)
 }
 
 #[derive(Debug, Clone)]
@@ -2629,14 +3154,40 @@ fn doctor_events(
     value: &Value,
     redaction: &mut RedactionAccumulator,
 ) -> Vec<PendingEvent> {
+    let mut events = Vec::new();
+    if let Some(profile) = value
+        .get("host_profile")
+        .or_else(|| value.get("resource_budget"))
+        .filter(|item| item.is_object())
+    {
+        events.push(resource_profile_event_from_value(
+            request, row, profile, redaction,
+        ));
+    }
+    for profile in array_field(value, "host_profiles") {
+        events.push(resource_profile_event_from_value(
+            request, row, profile, redaction,
+        ));
+    }
+    for profile in array_field(value, "resource_profiles") {
+        events.push(resource_profile_event_from_value(
+            request, row, profile, redaction,
+        ));
+    }
+
     let findings = array_field(value, "findings");
     if findings.is_empty() {
-        return vec![doctor_event_from_value(request, row, value, redaction)];
+        if events.is_empty() {
+            events.push(doctor_event_from_value(request, row, value, redaction));
+        }
+        return events;
     }
-    findings
-        .into_iter()
-        .map(|finding| doctor_event_from_value(request, row, finding, redaction))
-        .collect()
+    events.extend(
+        findings
+            .into_iter()
+            .map(|finding| doctor_event_from_value(request, row, finding, redaction)),
+    );
+    events
 }
 
 fn doctor_event_from_value(
@@ -2658,6 +3209,44 @@ fn doctor_event_from_value(
         event_seed(
             "doctor_finding",
             format!("doctor-{finding_id}"),
+            "doctor",
+            timestamp_field(value, request.generated_at_utc.as_str()),
+            payload,
+        ),
+        redaction,
+    )
+}
+
+fn resource_profile_event_from_value(
+    request: &SwarmReplayIngestRequest,
+    row: &SwarmReplaySourceInventoryRow,
+    value: &Value,
+    redaction: &mut RedactionAccumulator,
+) -> PendingEvent {
+    let profile_id = string_field(value, &["profile_id", "id", "name"], "host-profile");
+    let payload = json!({
+        "profile_id": profile_id.clone(),
+        "cpu_cores": value.get("cpu_cores").and_then(Value::as_u64),
+        "memory_gib": value.get("memory_gib").and_then(Value::as_u64),
+        "numa_nodes": value.get("numa_nodes").and_then(Value::as_u64),
+        "cgroup_cpu_quota": value.get("cgroup_cpu_quota").and_then(Value::as_u64),
+        "cgroup_memory_gib": value.get("cgroup_memory_gib").and_then(Value::as_u64),
+        "max_agent_concurrency": value.get("max_agent_concurrency").and_then(Value::as_u64),
+        "max_tool_concurrency": value.get("max_tool_concurrency").and_then(Value::as_u64),
+        "extension_hostcall_lanes": value.get("extension_hostcall_lanes").and_then(Value::as_u64),
+        "rch_worker_slots": value.get("rch_worker_slots").and_then(Value::as_u64),
+        "target_dir": string_field(value, &["target_dir", "cargo_target_dir"], "unknown"),
+        "target_free_gib": value.get("target_free_gib").and_then(Value::as_u64),
+        "tmpdir": string_field(value, &["tmpdir"], "unknown"),
+        "tmpdir_free_gib": value.get("tmpdir_free_gib").and_then(Value::as_u64),
+        "numa_hint": string_field(value, &["numa_hint"], "unknown")
+    });
+    pending_event(
+        request,
+        row,
+        event_seed(
+            "host_resource_profile",
+            format!("resource-profile-{profile_id}"),
             "doctor",
             timestamp_field(value, request.generated_at_utc.as_str()),
             payload,

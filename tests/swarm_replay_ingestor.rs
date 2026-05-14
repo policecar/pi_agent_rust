@@ -265,6 +265,27 @@ fn replay_event(
     }
 }
 
+fn replay_event_with_actor(
+    actor: &str,
+    event_id: &str,
+    sequence: u64,
+    occurred_at_utc: &str,
+    event_type: &str,
+    source_ref: &str,
+    payload: Value,
+) -> SwarmReplayEvent {
+    let mut event = replay_event(
+        event_id,
+        sequence,
+        occurred_at_utc,
+        event_type,
+        source_ref,
+        payload,
+    );
+    event.actor = actor.to_string();
+    event
+}
+
 fn uncertain_replay_event(
     event_id: &str,
     sequence: u64,
@@ -440,6 +461,66 @@ fn malformed_rch_snapshot_suppresses_queue_claims() -> TestResult {
             .suppressed_claims
             .iter()
             .any(|claim| claim == "queue_depth")
+    );
+    Ok(())
+}
+
+#[test]
+fn doctor_preflight_budget_profile_feeds_resource_timeline() -> TestResult {
+    let root = test_workspace("doctor_preflight_resource_profile")?;
+    write_clean_sources(&root, true)?;
+    write_json(
+        &root,
+        "docs/evidence/doctor-swarm.json",
+        &json!({
+            "host_profile": {
+                "profile_id": "doctor-64-core",
+                "cpu_cores": 64,
+                "memory_gib": 256,
+                "numa_nodes": 4,
+                "cgroup_cpu_quota": 48,
+                "cgroup_memory_gib": 192,
+                "max_agent_concurrency": 32,
+                "max_tool_concurrency": 16,
+                "extension_hostcall_lanes": 24,
+                "rch_worker_slots": 8,
+                "target_dir": "/data/tmp/pi_agent_rust_cargo/doctor/target",
+                "target_free_gib": 512,
+                "tmpdir": "/data/tmp/pi_agent_rust_cargo/doctor/tmp",
+                "tmpdir_free_gib": 256,
+                "numa_hint": "pin_rch_workers_by_socket",
+                "created_at": "2026-05-13T18:05:00Z"
+            },
+            "findings": [{
+                "finding_id": "resource_budget_loaded",
+                "severity": "info",
+                "surface": "resource_governor",
+                "status": "observed",
+                "created_at": "2026-05-13T18:05:30Z"
+            }]
+        }),
+    )?;
+
+    let trace = build_swarm_replay_trace(&base_request(&root))?;
+    assert!(event_types(&trace).contains("host_resource_profile"));
+
+    let replay = replay_swarm_trace(&trace)?;
+    let profile = replay
+        .final_state
+        .resource_budget
+        .as_ref()
+        .ok_or("missing resource budget")?;
+    assert_eq!(profile.profile_id, "doctor-64-core");
+    assert_eq!(profile.cpu_cores, Some(64));
+    assert_eq!(profile.memory_gib, Some(256));
+    assert_eq!(profile.numa_nodes, Some(4));
+    assert_eq!(profile.rch_worker_slots, Some(8));
+    assert_eq!(profile.numa_hint, "pin_rch_workers_by_socket");
+    assert!(
+        replay
+            .resource_pressure_timeline
+            .iter()
+            .any(|snapshot| snapshot.profile_id.as_deref() == Some("doctor-64-core"))
     );
     Ok(())
 }
@@ -1041,6 +1122,260 @@ fn policy_comparison_suppresses_latency_when_timestamps_are_missing() -> TestRes
             .reasons
             .contains(&"missing_data_suppressed_claims".to_string())
     );
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ResourceProfileFixture<'a> {
+    profile_id: &'a str,
+    cpu_cores: u64,
+    memory_gib: u64,
+    target_free_gib: u64,
+    tmpdir_free_gib: u64,
+    extension_hostcall_lanes: u64,
+    rch_worker_slots: u64,
+    numa_hint: &'a str,
+}
+
+fn resource_profile_payload(profile: ResourceProfileFixture<'_>) -> Value {
+    json!({
+        "profile_id": profile.profile_id,
+        "cpu_cores": profile.cpu_cores,
+        "memory_gib": profile.memory_gib,
+        "numa_nodes": if profile.memory_gib >= 256 { 4 } else { 1 },
+        "cgroup_cpu_quota": profile.cpu_cores,
+        "cgroup_memory_gib": profile.memory_gib,
+        "max_agent_concurrency": profile.extension_hostcall_lanes,
+        "max_tool_concurrency": profile.rch_worker_slots,
+        "extension_hostcall_lanes": profile.extension_hostcall_lanes,
+        "rch_worker_slots": profile.rch_worker_slots,
+        "target_dir": format!("/data/tmp/pi_agent_rust_cargo/{}/target", profile.profile_id),
+        "target_free_gib": profile.target_free_gib,
+        "tmpdir": format!("/data/tmp/pi_agent_rust_cargo/{}/tmp", profile.profile_id),
+        "tmpdir_free_gib": profile.tmpdir_free_gib,
+        "numa_hint": profile.numa_hint
+    })
+}
+
+fn pressure_trace_for_profile(profile: Value) -> SwarmReplayTrace {
+    trace_from_events(vec![
+        replay_event(
+            "resource-profile",
+            1,
+            "2026-05-13T18:00:00Z",
+            "host_resource_profile",
+            "synthetic_host_profile",
+            profile,
+        ),
+        replay_event_with_actor(
+            "AgentOne",
+            "agent-one",
+            2,
+            "2026-05-13T18:01:00Z",
+            "agent_message",
+            "agent_mail_archive",
+            json!({
+                "thread_id": "bd-resource",
+                "sender": "AgentOne",
+                "recipients": ["AgentTwo"],
+                "importance": "normal",
+                "ack_required": false
+            }),
+        ),
+        replay_event_with_actor(
+            "AgentTwo",
+            "agent-two",
+            3,
+            "2026-05-13T18:02:00Z",
+            "agent_message",
+            "agent_mail_archive",
+            json!({
+                "thread_id": "bd-resource",
+                "sender": "AgentTwo",
+                "recipients": ["AgentThree"],
+                "importance": "normal",
+                "ack_required": false
+            }),
+        ),
+        replay_event_with_actor(
+            "AgentThree",
+            "agent-three",
+            4,
+            "2026-05-13T18:03:00Z",
+            "agent_message",
+            "agent_mail_archive",
+            json!({
+                "thread_id": "bd-resource",
+                "sender": "AgentThree",
+                "recipients": ["AgentOne"],
+                "importance": "normal",
+                "ack_required": false
+            }),
+        ),
+        replay_event(
+            "build-slot",
+            5,
+            "2026-05-13T18:04:00Z",
+            "build_slot_state",
+            "agent_mail_archive",
+            json!({
+                "slot": "cargo-all-targets",
+                "holder": "AgentOne",
+                "state": "active",
+                "expires_at_utc": "2026-05-13T19:00:00Z"
+            }),
+        ),
+        replay_event(
+            "rch-queued",
+            6,
+            "2026-05-13T18:05:00Z",
+            "rch_job_state",
+            "rch_queue_status",
+            json!({
+                "job_id": "rch-pressure",
+                "state": "queued",
+                "worker": "worker-1",
+                "command": "rch exec -- cargo check --all-targets",
+                "queue_position": 3
+            }),
+        ),
+    ])
+}
+
+#[test]
+fn resource_budget_profiles_model_small_ci_large_hosts() -> TestResult {
+    let small = replay_swarm_trace(&pressure_trace_for_profile(resource_profile_payload(
+        ResourceProfileFixture {
+            profile_id: "small-laptop",
+            cpu_cores: 4,
+            memory_gib: 8,
+            target_free_gib: 8,
+            tmpdir_free_gib: 8,
+            extension_hostcall_lanes: 2,
+            rch_worker_slots: 1,
+            numa_hint: "single_socket",
+        },
+    )))?;
+    let small_peak = small
+        .resource_pressure_timeline
+        .last()
+        .ok_or("missing small peak")?;
+    assert_eq!(small_peak.cpu_pressure, "saturated");
+    assert_eq!(small_peak.memory_pressure, "saturated");
+    assert_eq!(small_peak.tmpdir_pressure, "saturated");
+    assert_eq!(small_peak.target_dir_pressure, "saturated");
+    assert_eq!(small_peak.rch_worker_pressure, "saturated");
+    assert_eq!(small_peak.extension_lane_pressure, "saturated");
+    assert!(
+        small_peak
+            .saturation_reasons
+            .contains(&"cpu_saturated".to_string())
+    );
+
+    let ci = replay_swarm_trace(&pressure_trace_for_profile(resource_profile_payload(
+        ResourceProfileFixture {
+            profile_id: "default-ci",
+            cpu_cores: 8,
+            memory_gib: 16,
+            target_free_gib: 64,
+            tmpdir_free_gib: 64,
+            extension_hostcall_lanes: 4,
+            rch_worker_slots: 4,
+            numa_hint: "shared_runner",
+        },
+    )))?;
+    let ci_peak = ci
+        .resource_pressure_timeline
+        .last()
+        .ok_or("missing ci peak")?;
+    assert_eq!(ci_peak.cpu_pressure, "saturated");
+    assert_eq!(ci_peak.memory_pressure, "high");
+    assert_eq!(ci_peak.tmpdir_pressure, "low");
+    assert_eq!(ci_peak.target_dir_pressure, "low");
+    assert_eq!(ci_peak.rch_worker_pressure, "high");
+
+    let large_64 = replay_swarm_trace(&pressure_trace_for_profile(resource_profile_payload(
+        ResourceProfileFixture {
+            profile_id: "large-64-core",
+            cpu_cores: 64,
+            memory_gib: 128,
+            target_free_gib: 256,
+            tmpdir_free_gib: 256,
+            extension_hostcall_lanes: 16,
+            rch_worker_slots: 8,
+            numa_hint: "spread_agents_across_sockets",
+        },
+    )))?;
+    let large_peak = large_64
+        .resource_pressure_timeline
+        .last()
+        .ok_or("missing large peak")?;
+    assert_eq!(large_peak.cpu_pressure, "low");
+    assert_eq!(large_peak.memory_pressure, "low");
+    assert_eq!(large_peak.rch_worker_pressure, "low");
+
+    let huge = replay_swarm_trace(&pressure_trace_for_profile(resource_profile_payload(
+        ResourceProfileFixture {
+            profile_id: "huge-256gb",
+            cpu_cores: 64,
+            memory_gib: 256,
+            target_free_gib: 512,
+            tmpdir_free_gib: 512,
+            extension_hostcall_lanes: 32,
+            rch_worker_slots: 16,
+            numa_hint: "pin_rch_workers_by_socket",
+        },
+    )))?;
+    let huge_profile = huge
+        .final_state
+        .resource_budget
+        .as_ref()
+        .ok_or("missing huge profile")?;
+    assert_eq!(huge_profile.memory_gib, Some(256));
+    assert_eq!(huge_profile.numa_nodes, Some(4));
+    assert_eq!(huge_profile.numa_hint, "pin_rch_workers_by_socket");
+    assert!(
+        huge.resource_pressure_timeline
+            .iter()
+            .all(|snapshot| snapshot.saturation_reasons.is_empty())
+    );
+    Ok(())
+}
+
+#[test]
+fn policy_comparison_suppresses_resource_claims_without_host_facts() -> TestResult {
+    let trace = trace_from_events(vec![replay_event(
+        "ready-bead",
+        1,
+        "2026-05-13T18:00:00Z",
+        "bead_lifecycle",
+        "beads_jsonl",
+        json!({
+            "bead_id": "bd-no-host-facts",
+            "to_status": "open",
+            "priority": 2,
+            "assignee": "unassigned"
+        }),
+    )]);
+    let replay = replay_swarm_trace(&trace)?;
+    let report = evaluate_swarm_replay_baseline_policies(
+        &replay,
+        &[SwarmReplayBaselinePolicy::ExistingAutopilot],
+    )?;
+    let comparison = report
+        .policy_comparisons
+        .iter()
+        .find(|row| row.policy_id == "existing_autopilot")
+        .ok_or("missing autopilot comparison")?;
+
+    assert_eq!(comparison.metrics.resource_budget.profile_id, None);
+    assert_eq!(comparison.metrics.resource_budget.cpu_pressure, "unknown");
+    assert!(comparison.missing_data.iter().any(|missing| {
+        missing.claim == "resource_budget_claims"
+            && missing
+                .reasons
+                .contains(&"host resource profile missing".to_string())
+    }));
     Ok(())
 }
 
