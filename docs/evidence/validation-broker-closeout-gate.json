@@ -1,0 +1,686 @@
+{
+  "schema": "pi.validation_broker.closeout_gate.v1",
+  "generated_at": "2026-05-14T18:12:48Z",
+  "status": "pass",
+  "purpose": "prompt_to_artifact_validation_broker_closeout_gate_not_source_of_truth",
+  "parent_epic": {
+    "id": "bd-gusp4",
+    "title": "[IDEA-WIZARD] Swarm validation slot broker and build budget governor",
+    "status_before_closeout": "open"
+  },
+  "final_gate_bead": {
+    "id": "bd-gusp4.11",
+    "title": "[IDEA-WIZARD] Final validation broker closeout gate",
+    "status_before_closeout": "in_progress"
+  },
+  "required_checks": [
+    "child_beads_closed",
+    "contract_and_source_inventory",
+    "lease_store_schema",
+    "source_normalization",
+    "admission_policy",
+    "cli_surface",
+    "fault_corpus_stale_recovery",
+    "doctor_runpack",
+    "no_mock_e2e",
+    "stress_budgets",
+    "operator_docs_privacy",
+    "readme_freshness",
+    "source_boundaries",
+    "pushed_commits",
+    "quality_gates"
+  ],
+  "child_artifact_map": [
+    {
+      "bead_id": "bd-gusp4.1",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Define validation slot broker contract and source inventory",
+      "close_reason": "Defined validation broker contract and source inventory with fail-closed contract tests",
+      "commit": "cf653c29b5836afabf979bb44325d4712de7088d",
+      "code_paths": [
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "test_paths": [
+        "tests/validation_broker_contract.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_contract -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.2",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Implement validation slot lease store and schema",
+      "close_reason": "Implemented durable validation slot lease store and schema",
+      "commit": "3048e53f30635276472ec9af5646871216f085a2",
+      "code_paths": [
+        "src/validation_broker.rs",
+        "src/lib.rs"
+      ],
+      "test_paths": [
+        "tests/validation_broker_store.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_store -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.3",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Normalize RCH cargo Doctor git and Beads inputs",
+      "close_reason": "Implemented validation broker source input normalization with degraded provenance",
+      "commit": "7e3f3d708a87364a6f64ac84d42a6da6649579e7",
+      "code_paths": [
+        "src/validation_broker.rs"
+      ],
+      "test_paths": [
+        "tests/validation_broker_store.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_store source -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.4",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Build validation admission policy and gate coalescer",
+      "close_reason": "Implemented deterministic validation admission policy and gate coalescer",
+      "commit": "d4d4bbc111aef7f21004043719b0775a460fb501",
+      "code_paths": [
+        "src/validation_broker.rs"
+      ],
+      "test_paths": [
+        "tests/validation_broker_store.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_store admission -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.5",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Expose validation broker CLI status plan and lease flow",
+      "close_reason": "Implemented validation broker CLI status, plan, and lease flow",
+      "commit": "830d9c0c048555a6c9864850e5de42ea8695f805",
+      "code_paths": [
+        "src/cli.rs",
+        "src/main.rs",
+        "src/validation_broker.rs"
+      ],
+      "test_paths": [
+        "tests/validation_broker_cli.rs",
+        "tests/conformance/fixture_runner.rs",
+        "tests/validation_broker_contract.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_cli -- --nocapture",
+        "rch exec -- cargo test --test validation_broker_contract validation_broker_contract_declares_cli_surface -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.6",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Add validation build-storm fault corpus and stale-slot recovery",
+      "close_reason": "Added validation broker build-storm fault corpus and stale-slot recovery coverage",
+      "commit": "4b1d03ff07a4b5608eed479d6c59b2cd8d27eb4c",
+      "code_paths": [
+        "src/validation_broker.rs"
+      ],
+      "test_paths": [
+        "tests/validation_broker_contract.rs",
+        "tests/validation_broker_store.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "tests/golden_corpus/validation_broker/fault_corpus.json",
+        "tests/golden_corpus/validation_broker/fault_events.jsonl",
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_contract validation_broker_contract_declares_fault_corpus -- --nocapture",
+        "rch exec -- cargo test --test validation_broker_store stale -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.7",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Project validation broker posture into Doctor and runpacks",
+      "close_reason": "Projected validation broker posture into Doctor and runpacks",
+      "commit": "52ed0dc3870b830bf04db09723df7439300538c1",
+      "code_paths": [
+        "src/doctor.rs",
+        "scripts/build_swarm_operator_runpack.py"
+      ],
+      "test_paths": [
+        "tests/doctor_swarm_temp_dir_json.rs",
+        "tests/validation_broker_contract.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "README.md",
+        "docs/contracts/swarm-operator-runpack-contract.json",
+        "docs/contracts/swarm-autopilot-input-pack-contract.json",
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test doctor_swarm_temp_dir_json validation_broker -- --nocapture",
+        "python3 scripts/build_swarm_operator_runpack.py --self-test"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.8",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Add no-mock validation broker E2E harness",
+      "close_reason": "Completed no-mock validation broker E2E harness with checked-in fixtures, broker decision coverage, runpack/Doctor projection assertions, and negative malformed/missing artifact cases.",
+      "commit": "1474b476b8bc28717a0ae18ab764dd802215474a",
+      "code_paths": [
+        "tests/validation_broker_e2e.rs",
+        "tests/golden_corpus/validation_broker/e2e"
+      ],
+      "test_paths": [
+        "tests/validation_broker_e2e.rs",
+        "tests/validation_broker_cli.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "tests/golden_corpus/validation_broker/e2e/activity_digest.json",
+        "tests/golden_corpus/validation_broker/e2e/agent_mail_status.json",
+        "tests/golden_corpus/validation_broker/e2e/beads_export.json",
+        "tests/golden_corpus/validation_broker/e2e/doctor_swarm.json",
+        "tests/golden_corpus/validation_broker/e2e/rch_queue_healthy.txt",
+        "tests/golden_corpus/validation_broker/e2e/rch_queue_saturated.txt"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_e2e -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.9",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Add validation broker large-host stress budgets",
+      "close_reason": "Added validation broker large-host stress budgets and synthetic evidence",
+      "commit": "727215ea30f4ae23127d8797be739470a910ade3",
+      "code_paths": [
+        "src/validation_broker.rs"
+      ],
+      "test_paths": [
+        "tests/validation_broker_contract.rs",
+        "tests/validation_broker_store.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "docs/evidence/validation-broker-stress-budgets.json",
+        "tests/golden_corpus/validation_broker/stress_profiles.json",
+        "docs/contracts/validation-broker-contract.json"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_contract validation_broker_contract_declares_large_host_stress_budgets -- --nocapture",
+        "rch exec -- cargo test --test validation_broker_store stress -- --nocapture"
+      ]
+    },
+    {
+      "bead_id": "bd-gusp4.10",
+      "status": "closed",
+      "title": "[IDEA-WIZARD] Document validation broker operator workflow and privacy posture",
+      "close_reason": "Documented validation broker operator workflow and privacy posture",
+      "commit": "6bb09423ec19174610d25c9c05e270d033dfa563",
+      "code_paths": [
+        "docs/swarm-operations-runbook.md",
+        "README.md"
+      ],
+      "test_paths": [
+        "tests/validation_broker_contract.rs"
+      ],
+      "docs_or_evidence_paths": [
+        "docs/swarm-operations-runbook.md",
+        "README.md"
+      ],
+      "validation_commands": [
+        "rch exec -- cargo test --test validation_broker_contract validation_broker_operator_docs_cover_workflow_privacy_and_cli_flags -- --nocapture"
+      ]
+    }
+  ],
+  "source_boundary_checks": [
+    {
+      "id": "beads_soft_lock",
+      "status": "pass",
+      "evidence": [
+        "bd-gusp4.11 was claimed in Beads; Agent Mail schema health was corrupt, so Beads assignee is the soft lock."
+      ]
+    },
+    {
+      "id": "agent_mail_degraded",
+      "status": "pass",
+      "evidence": [
+        "Agent Mail health returned recovery_mode=corrupt and macro_start_session failed with a database error; closeout does not infer missing reservations as absence of ownership."
+      ]
+    },
+    {
+      "id": "rch_required",
+      "status": "pass",
+      "evidence": [
+        "Every heavy Cargo gate in quality_gate_results records an rch exec -- command with isolated CARGO_TARGET_DIR and TMPDIR."
+      ]
+    },
+    {
+      "id": "cargo_headroom",
+      "status": "pass",
+      "evidence": [
+        "Validation commands use /data/tmp/pi_agent_rust_cargo/codex_bdgusp411 target and tmp directories instead of repo-local target output."
+      ]
+    },
+    {
+      "id": "doctor_runpack_advisory",
+      "status": "pass",
+      "evidence": [
+        "Doctor and runpack validation-broker posture remains advisory and does not replace RCH, Beads, Agent Mail, CI, or source artifacts."
+      ]
+    },
+    {
+      "id": "no_release_claims",
+      "status": "pass",
+      "evidence": [
+        "Closeout evidence does not make strict drop-in, release performance, benchmark, or CI-success claims."
+      ]
+    },
+    {
+      "id": "staged_ubs_required",
+      "status": "pass",
+      "evidence": [
+        "The staged UBS gate remains mandatory before the closeout commit."
+      ]
+    },
+    {
+      "id": "beads_ledger_required",
+      "status": "pass",
+      "evidence": [
+        "The Beads ledger reconciliation gate remains mandatory before the closeout commit."
+      ]
+    },
+    {
+      "id": "advisory_only",
+      "status": "pass",
+      "evidence": [
+        "The validation-broker closeout gate is prompt-to-artifact evidence, not a new authority over Beads, git, RCH, Doctor, runpacks, Agent Mail, CI, UBS, or source files."
+      ]
+    },
+    {
+      "id": "agent_mail_degraded_soft_lock",
+      "status": "pass",
+      "evidence": [
+        "Agent Mail degradation is represented explicitly and Beads ownership remains the soft lock."
+      ]
+    },
+    {
+      "id": "claim_integrity",
+      "status": "pass",
+      "evidence": [
+        "The closeout artifact preserves no-claim boundaries for release performance, strict replacement, and gate-skipping claims."
+      ]
+    }
+  ],
+  "quality_gate_results": [
+    {
+      "id": "json_contracts",
+      "status": "pass",
+      "command": "python3 -m json.tool docs/contracts/validation-broker-contract.json >/dev/null; python3 -m json.tool docs/contracts/validation-broker-closeout-gate-contract.json >/dev/null; python3 -m json.tool docs/evidence/validation-broker-closeout-gate.json >/dev/null"
+    },
+    {
+      "id": "validation_broker_contract_rch",
+      "status": "pass",
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/target TMPDIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/tmp rch exec -- cargo test --test validation_broker_contract --test validation_broker_store --test validation_broker_cli --test validation_broker_e2e --test validation_broker_closeout_gate_contract -- --nocapture"
+    },
+    {
+      "id": "validation_broker_store_rch",
+      "status": "pass",
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/target TMPDIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/tmp rch exec -- cargo test --test validation_broker_contract --test validation_broker_store --test validation_broker_cli --test validation_broker_e2e --test validation_broker_closeout_gate_contract -- --nocapture"
+    },
+    {
+      "id": "validation_broker_cli_rch",
+      "status": "pass",
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/target TMPDIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/tmp rch exec -- cargo test --test validation_broker_contract --test validation_broker_store --test validation_broker_cli --test validation_broker_e2e --test validation_broker_closeout_gate_contract -- --nocapture"
+    },
+    {
+      "id": "validation_broker_e2e_rch",
+      "status": "pass",
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/target TMPDIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/tmp rch exec -- cargo test --test validation_broker_contract --test validation_broker_store --test validation_broker_cli --test validation_broker_e2e --test validation_broker_closeout_gate_contract -- --nocapture"
+    },
+    {
+      "id": "validation_broker_closeout_gate_contract_rch",
+      "status": "pass",
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/target TMPDIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/tmp rch exec -- cargo test --test validation_broker_contract --test validation_broker_store --test validation_broker_cli --test validation_broker_e2e --test validation_broker_closeout_gate_contract -- --nocapture"
+    },
+    {
+      "id": "cargo_fmt",
+      "status": "pass",
+      "command": "cargo fmt --check"
+    },
+    {
+      "id": "git_diff_check",
+      "status": "pass",
+      "command": "git diff --check"
+    },
+    {
+      "id": "cargo_check_all_targets_rch",
+      "status": "pass",
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/target TMPDIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/tmp rch exec -- cargo check --all-targets"
+    },
+    {
+      "id": "cargo_clippy_all_targets_rch",
+      "status": "pass",
+      "command": "CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/target TMPDIR=/data/tmp/pi_agent_rust_cargo/codex_bdgusp411/tmp rch exec -- cargo clippy --all-targets -- -D warnings"
+    },
+    {
+      "id": "staged_ubs",
+      "status": "pass",
+      "command": "ubs --staged --only=rust ."
+    },
+    {
+      "id": "beads_ledger_reconcile",
+      "status": "pass",
+      "command": "./scripts/reconcile_beads_ledger.sh"
+    }
+  ],
+  "checklist": [
+    {
+      "id": "child_beads_closed",
+      "status": "pass",
+      "requirement": "All validation-broker implementation child beads are closed and mapped to artifacts.",
+      "evidence": [
+        {
+          "path": ".beads/issues.jsonl",
+          "child_statuses": {
+            "bd-gusp4.1": "closed",
+            "bd-gusp4.2": "closed",
+            "bd-gusp4.3": "closed",
+            "bd-gusp4.4": "closed",
+            "bd-gusp4.5": "closed",
+            "bd-gusp4.6": "closed",
+            "bd-gusp4.7": "closed",
+            "bd-gusp4.8": "closed",
+            "bd-gusp4.9": "closed",
+            "bd-gusp4.10": "closed"
+          },
+          "artifact_path_count": 25
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "contract_and_source_inventory",
+      "status": "pass",
+      "requirement": "Validation broker contract declares advisory purpose, source inventory, fail-closed missing-source policy, request/slot/decision schemas, redaction, and downstream dependencies.",
+      "evidence": [
+        {
+          "path": "docs/contracts/validation-broker-contract.json"
+        },
+        {
+          "path": "tests/validation_broker_contract.rs"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "lease_store_schema",
+      "status": "pass",
+      "requirement": "Durable slot store records active, reusable, stale, failed, malformed, and degraded validation slot states without deleting evidence.",
+      "evidence": [
+        {
+          "path": "src/validation_broker.rs"
+        },
+        {
+          "path": "tests/validation_broker_store.rs"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "source_normalization",
+      "status": "pass",
+      "requirement": "RCH, cargo headroom, Doctor, git, Beads, scratch headroom, Agent Mail, and artifact inputs normalize with provenance and degraded reasons.",
+      "evidence": [
+        {
+          "path": "src/validation_broker.rs"
+        },
+        {
+          "path": "tests/validation_broker_store.rs"
+        },
+        {
+          "path": "tests/golden_corpus/validation_broker/e2e"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "admission_policy",
+      "status": "pass",
+      "requirement": "Admission decisions cover allow, wait, coalesce, narrow, deny_local_fallback, stale_recover, and degraded_block with conservative equivalence checks.",
+      "evidence": [
+        {
+          "path": "src/validation_broker.rs"
+        },
+        {
+          "path": "tests/validation_broker_store.rs"
+        },
+        {
+          "path": "tests/validation_broker_e2e.rs"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "cli_surface",
+      "status": "pass",
+      "requirement": "`pi validation-broker` exposes status, read-only plan, acquire, renew, and release with stable text/JSON output and overwrite refusal.",
+      "evidence": [
+        {
+          "path": "src/cli.rs"
+        },
+        {
+          "path": "src/main.rs"
+        },
+        {
+          "path": "tests/validation_broker_cli.rs"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "fault_corpus_stale_recovery",
+      "status": "pass",
+      "requirement": "Build-storm, stale-slot, local-fallback, headroom, duplicate, and reusable-artifact faults are frozen in the golden corpus and event log.",
+      "evidence": [
+        {
+          "path": "tests/golden_corpus/validation_broker/fault_corpus.json"
+        },
+        {
+          "path": "tests/golden_corpus/validation_broker/fault_events.jsonl"
+        },
+        {
+          "path": "tests/validation_broker_contract.rs"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "doctor_runpack",
+      "status": "pass",
+      "requirement": "Doctor, swarm runpack, and dry-run autopilot projection carry validation-broker posture as advisory source status and never as CI/RCH/Beads/Agent Mail authority.",
+      "evidence": [
+        {
+          "path": "src/doctor.rs"
+        },
+        {
+          "path": "scripts/build_swarm_operator_runpack.py"
+        },
+        {
+          "path": "docs/contracts/swarm-operator-runpack-contract.json"
+        },
+        {
+          "path": "docs/contracts/swarm-autopilot-input-pack-contract.json"
+        },
+        {
+          "path": "tests/doctor_swarm_temp_dir_json.rs"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "no_mock_e2e",
+      "status": "pass",
+      "requirement": "No-mock validation-broker E2E harness exercises checked-in Beads, git, RCH-shaped, Doctor, headroom, Agent Mail, decision, runpack, and malformed-source artifacts.",
+      "evidence": [
+        {
+          "path": "tests/validation_broker_e2e.rs"
+        },
+        {
+          "path": "tests/golden_corpus/validation_broker/e2e"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "stress_budgets",
+      "status": "pass",
+      "requirement": "Large-host stress budgets cover nominal, saturated, and missing-data synthetic profiles with cache/provenance fields and non-release-claim caveats.",
+      "evidence": [
+        {
+          "path": "docs/evidence/validation-broker-stress-budgets.json"
+        },
+        {
+          "path": "tests/golden_corpus/validation_broker/stress_profiles.json"
+        },
+        {
+          "path": "tests/validation_broker_contract.rs"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "operator_docs_privacy",
+      "status": "pass",
+      "requirement": "Operator docs cover workflow, privacy posture, degraded Agent Mail/RCH/headroom troubleshooting, reusable evidence, stale recovery, and mandatory gates.",
+      "evidence": [
+        {
+          "path": "docs/swarm-operations-runbook.md"
+        },
+        {
+          "path": "tests/validation_broker_contract.rs"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "readme_freshness",
+      "status": "pass",
+      "requirement": "README links validation-broker operator docs, contract, closeout contract, and closeout evidence without adding unsupported performance or drop-in claims.",
+      "evidence": [
+        {
+          "path": "README.md"
+        },
+        {
+          "path": "docs/contracts/validation-broker-closeout-gate-contract.json"
+        },
+        {
+          "path": "docs/evidence/validation-broker-closeout-gate.json"
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "source_boundaries",
+      "status": "pass",
+      "requirement": "Closeout records the degraded Agent Mail soft-lock path, RCH requirement, advisory-only Doctor/runpack posture, no-release-claim boundaries, staged UBS, and Beads ledger requirements.",
+      "evidence": [
+        {
+          "source_boundary_check_ids": [
+            "beads_soft_lock",
+            "agent_mail_degraded",
+            "rch_required",
+            "cargo_headroom",
+            "doctor_runpack_advisory",
+            "no_release_claims",
+            "staged_ubs_required",
+            "beads_ledger_required",
+            "advisory_only",
+            "agent_mail_degraded_soft_lock",
+            "claim_integrity"
+          ]
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "pushed_commits",
+      "status": "pass",
+      "requirement": "All child validation-broker commits and the final-gate claim commit are pushed to origin before closeout artifact generation.",
+      "evidence": [
+        {
+          "head_before_closeout_commit": "5f70714c4587c2eec54131e2c79e6e50e669f2d3",
+          "origin_main_before_closeout_commit": "5f70714c4587c2eec54131e2c79e6e50e669f2d3",
+          "origin_legacy_mirror_before_closeout_commit": "5f70714c4587c2eec54131e2c79e6e50e669f2d3",
+          "child_commits": [
+            "cf653c29b5836afabf979bb44325d4712de7088d",
+            "3048e53f30635276472ec9af5646871216f085a2",
+            "7e3f3d708a87364a6f64ac84d42a6da6649579e7",
+            "d4d4bbc111aef7f21004043719b0775a460fb501",
+            "830d9c0c048555a6c9864850e5de42ea8695f805",
+            "4b1d03ff07a4b5608eed479d6c59b2cd8d27eb4c",
+            "52ed0dc3870b830bf04db09723df7439300538c1",
+            "1474b476b8bc28717a0ae18ab764dd802215474a",
+            "727215ea30f4ae23127d8797be739470a910ade3",
+            "6bb09423ec19174610d25c9c05e270d033dfa563"
+          ]
+        }
+      ],
+      "issue": null
+    },
+    {
+      "id": "quality_gates",
+      "status": "pass",
+      "requirement": "Required repo gates are recorded, heavy Cargo gates use RCH, and staged UBS plus Beads ledger reconciliation are included before commit.",
+      "evidence": [
+        {
+          "quality_gate_ids": [
+            "json_contracts",
+            "validation_broker_contract_rch",
+            "validation_broker_store_rch",
+            "validation_broker_cli_rch",
+            "validation_broker_e2e_rch",
+            "validation_broker_closeout_gate_contract_rch",
+            "cargo_fmt",
+            "git_diff_check",
+            "cargo_check_all_targets_rch",
+            "cargo_clippy_all_targets_rch",
+            "staged_ubs",
+            "beads_ledger_reconcile"
+          ],
+          "heavy_cargo_uses_rch": true
+        }
+      ],
+      "issue": null
+    }
+  ],
+  "missing_checks": [],
+  "remaining_follow_ups": [],
+  "known_limitations": [
+    "Agent Mail was schema-corrupt during this closeout, so the artifact records Beads soft-lock evidence and does not infer unreserved files from missing mail data.",
+    "Stress-budget evidence remains synthetic and is not release performance evidence.",
+    "This closeout is not permission to skip RCH, cargo fmt, cargo check, cargo clippy, staged UBS, Beads ledger reconciliation, CI, or source review."
+  ],
+  "follow_up_required": false,
+  "follow_up_beads": [],
+  "decision": "close_final_gate_and_parent_epic",
+  "epic_can_close_after_this_commit": true
+}
