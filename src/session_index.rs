@@ -954,7 +954,7 @@ mod tests {
     use std::fs;
     #[cfg(unix)]
     use std::process::Command;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     fn write_session_jsonl(path: &Path, header: &SessionHeader, entries: &[SessionEntry]) {
         let mut jsonl = String::new();
@@ -1993,6 +1993,214 @@ mod tests {
         let after = index.list_sessions(None).expect("list after prune");
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].path, existing_path.display().to_string());
+    }
+
+    const SESSION_INDEX_SCALE_SESSION_COUNT: usize = 256;
+    const SESSION_INDEX_SCALE_EVIDENCE_SCHEMA: &str = "pi.session_index.cold_start_scalability.v1";
+
+    struct SessionIndexScaleEvidence {
+        seed_summary: SessionIndexRefreshSummary,
+        seed_elapsed_us: u128,
+        listed_sessions: usize,
+        list_elapsed_us: u128,
+        refresh_summary: SessionIndexRefreshSummary,
+        refresh_elapsed_us: u128,
+    }
+
+    fn write_swarm_scale_sessions(project_dir: &Path, cwd: &str) -> Vec<PathBuf> {
+        (0..SESSION_INDEX_SCALE_SESSION_COUNT)
+            .map(|i| {
+                let path = project_dir.join(format!("session-{i:04}.jsonl"));
+                let header = make_header(&format!("id-{i:04}"), cwd);
+                let entries = vec![make_user_entry(None, "m1", &format!("message {i}"))];
+                write_session_jsonl(&path, &header, &entries);
+                path
+            })
+            .collect()
+    }
+
+    fn seed_missing_session_index_row(index: &SessionIndex, path: &Path, cwd: &str) {
+        index
+            .apply_refresh_changes(
+                vec![SessionMeta {
+                    path: path.display().to_string(),
+                    id: "id-missing".to_string(),
+                    cwd: cwd.to_string(),
+                    timestamp: "2026-05-15T00:00:00Z".to_string(),
+                    message_count: 1,
+                    last_modified_ms: 1,
+                    size_bytes: 1,
+                    name: None,
+                }],
+                Vec::new(),
+            )
+            .expect("seed missing row without creating file");
+    }
+
+    fn refresh_summary_evidence_row(
+        scenario: &str,
+        summary: SessionIndexRefreshSummary,
+        elapsed_us: u128,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "schema": SESSION_INDEX_SCALE_EVIDENCE_SCHEMA,
+            "scenario": scenario,
+            "session_count": SESSION_INDEX_SCALE_SESSION_COUNT,
+            "scanned_files": summary.scanned_files,
+            "reused_files": summary.reused_files,
+            "refreshed_files": summary.refreshed_files,
+            "pruned_rows": summary.pruned_rows,
+            "failed_files": summary.failed_files,
+            "elapsed_us": elapsed_us,
+            "verdict": "pass",
+        })
+    }
+
+    fn write_session_index_cold_start_evidence(
+        harness: &TestHarness,
+        evidence: &SessionIndexScaleEvidence,
+    ) {
+        let evidence_path = harness.temp_path("session_index_cold_start_scalability.jsonl");
+        let evidence_rows = [
+            refresh_summary_evidence_row(
+                "seed_index",
+                evidence.seed_summary,
+                evidence.seed_elapsed_us,
+            ),
+            serde_json::json!({
+                "schema": SESSION_INDEX_SCALE_EVIDENCE_SCHEMA,
+                "scenario": "fresh_index_common_path",
+                "session_count": SESSION_INDEX_SCALE_SESSION_COUNT,
+                "listed_sessions": evidence.listed_sessions,
+                "triggered_reindex": false,
+                "scanned_files": 0,
+                "elapsed_us": evidence.list_elapsed_us,
+                "verdict": "pass",
+            }),
+            refresh_summary_evidence_row(
+                "bounded_stale_refresh",
+                evidence.refresh_summary,
+                evidence.refresh_elapsed_us,
+            ),
+        ];
+        let mut jsonl = String::new();
+        for row in &evidence_rows {
+            jsonl.push_str(&serde_json::to_string(row).expect("serialize evidence row"));
+            jsonl.push('\n');
+        }
+        fs::write(&evidence_path, jsonl).expect("write evidence");
+        harness.record_artifact("session_index_cold_start_scalability.jsonl", &evidence_path);
+
+        let written = fs::read_to_string(&evidence_path).expect("read evidence");
+        let parsed: std::result::Result<Vec<serde_json::Value>, serde_json::Error> =
+            written.lines().map(serde_json::from_str).collect();
+        let parsed = parsed.expect("parse evidence rows");
+        assert_eq!(parsed.len(), evidence_rows.len());
+        assert!(parsed.iter().all(|row| matches!(
+            row.get("schema").and_then(serde_json::Value::as_str),
+            Some(SESSION_INDEX_SCALE_EVIDENCE_SCHEMA)
+        )));
+        assert!(parsed.iter().all(|row| matches!(
+            row.get("verdict").and_then(serde_json::Value::as_str),
+            Some("pass")
+        )));
+    }
+
+    #[test]
+    fn cold_start_scalability_evidence_preserves_fast_index_and_bounded_refresh() {
+        let harness = TestHarness::new(
+            "cold_start_scalability_evidence_preserves_fast_index_and_bounded_refresh",
+        );
+        let root = harness.temp_path("sessions");
+        let project_dir = root.join("swarm-project");
+        fs::create_dir_all(&project_dir).expect("create session project dir");
+        let index = SessionIndex::for_sessions_root(&root);
+        let cwd = "cwd-swarm-scale";
+
+        let session_paths = write_swarm_scale_sessions(&project_dir, cwd);
+
+        let seed_start = Instant::now();
+        let seed_summary = index.refresh_incremental().expect("seed index");
+        let seed_elapsed_us = seed_start.elapsed().as_micros();
+        assert_eq!(
+            seed_summary.scanned_files,
+            SESSION_INDEX_SCALE_SESSION_COUNT
+        );
+        assert_eq!(
+            seed_summary.refreshed_files,
+            SESSION_INDEX_SCALE_SESSION_COUNT
+        );
+        assert_eq!(seed_summary.reused_files, 0);
+        assert_eq!(seed_summary.pruned_rows, 0);
+        assert_eq!(seed_summary.failed_files, 0);
+
+        let list_start = Instant::now();
+        let listed = index
+            .list_sessions(Some(cwd))
+            .expect("list from fresh index");
+        let list_elapsed_us = list_start.elapsed().as_micros();
+        assert_eq!(listed.len(), SESSION_INDEX_SCALE_SESSION_COUNT);
+        assert!(
+            !index
+                .reindex_if_stale(Duration::from_secs(3600))
+                .expect("fresh index should not reindex"),
+            "fresh index should skip disk refresh on common cold-start list path",
+        );
+
+        let changed_path = session_paths[SESSION_INDEX_SCALE_SESSION_COUNT / 2].clone();
+        let changed_header = make_header("id-changed", cwd);
+        let changed_entries = vec![
+            make_user_entry(None, "m1", "changed"),
+            make_session_info_entry(Some("m1".to_string()), "info1", Some("renamed")),
+        ];
+        write_session_jsonl(&changed_path, &changed_header, &changed_entries);
+
+        let missing_path = project_dir.join("session-missing-row.jsonl");
+        seed_missing_session_index_row(&index, &missing_path, cwd);
+
+        let refresh_start = Instant::now();
+        let refresh_summary = index.refresh_incremental().expect("bounded stale refresh");
+        let refresh_elapsed_us = refresh_start.elapsed().as_micros();
+        assert_eq!(
+            refresh_summary.scanned_files,
+            SESSION_INDEX_SCALE_SESSION_COUNT
+        );
+        assert_eq!(
+            refresh_summary.reused_files,
+            SESSION_INDEX_SCALE_SESSION_COUNT - 1
+        );
+        assert_eq!(refresh_summary.refreshed_files, 1);
+        assert_eq!(refresh_summary.pruned_rows, 1);
+        assert_eq!(refresh_summary.failed_files, 0);
+
+        let after_refresh = index
+            .list_sessions(Some(cwd))
+            .expect("list after bounded refresh");
+        assert_eq!(after_refresh.len(), SESSION_INDEX_SCALE_SESSION_COUNT);
+        assert!(
+            after_refresh
+                .iter()
+                .any(|meta| matches!(meta.name.as_deref(), Some("renamed"))),
+            "changed session should refresh its derived name",
+        );
+        assert!(
+            after_refresh
+                .iter()
+                .all(|meta| !meta.path.ends_with("session-missing-row.jsonl")),
+            "missing-path row should be pruned without a full rebuild",
+        );
+
+        write_session_index_cold_start_evidence(
+            &harness,
+            &SessionIndexScaleEvidence {
+                seed_summary,
+                seed_elapsed_us,
+                listed_sessions: listed.len(),
+                list_elapsed_us,
+                refresh_summary,
+                refresh_elapsed_us,
+            },
+        );
     }
 
     // ── build_meta ──────────────────────────────────────────────────

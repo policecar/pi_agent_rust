@@ -18,7 +18,11 @@
 //! - [`sdk`] module
 
 #![forbid(unsafe_code)]
-#![allow(dead_code, clippy::unused_async, unused_attributes)]
+// rch clippy probes without these allowances currently expose broad, cross-module
+// dormant surfaces in extension/session/SDK paths. Keep the crate-wide allowance
+// while Beads tracks the larger cleanup instead of hiding it behind a scaffolding
+// claim.
+#![allow(dead_code, clippy::unused_async)]
 #![cfg_attr(
     test,
     allow(

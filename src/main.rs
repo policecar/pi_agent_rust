@@ -6,8 +6,6 @@
 //! - Efficiency: Single binary, minimal dependencies
 
 #![forbid(unsafe_code)]
-// Allow dead code and unused async during scaffolding phase - remove once implementation is complete
-#![allow(dead_code, clippy::unused_async)]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -1824,7 +1822,7 @@ async fn handle_subcommand(command: cli::Commands, cwd: &Path) -> Result<()> {
             handle_search(&query, tag.as_deref(), &sort, limit).await?;
         }
         cli::Commands::Info { name } => {
-            handle_info(&name).await?;
+            handle_info_blocking(&name)?;
         }
         cli::Commands::List => {
             handle_package_list(&manager).await?;
@@ -4071,10 +4069,6 @@ fn print_search_results(hits: &[pi::extension_index::ExtensionSearchHit]) {
         "extensions"
     };
     println!("\n  {count} {noun} found. Install with: pi install <name>");
-}
-
-async fn handle_info(name: &str) -> Result<()> {
-    handle_info_blocking(name)
 }
 
 fn handle_info_blocking(name: &str) -> Result<()> {
@@ -6919,6 +6913,7 @@ fn format_token_count(count: u32) -> String {
     }
 }
 
+#[cfg(test)]
 fn fuzzy_match(pattern: &str, value: &str) -> bool {
     let mut needle = pattern
         .chars()
