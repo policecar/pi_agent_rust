@@ -3868,17 +3868,6 @@ impl SessionHeader {
         )
     }
 
-    fn branch_fallback_model_pair(&self) -> Option<(String, String)> {
-        let (provider, model_id) = self.branch_fallback_model_fields();
-        provider.zip(model_id)
-    }
-
-    fn branch_fallback_thinking_level(&self) -> Option<String> {
-        self.fallback_thinking_level
-            .clone()
-            .or_else(|| self.thinking_level.clone())
-    }
-
     fn materialize_branch_fallbacks(&mut self) -> bool {
         // Track mutations as booleans, then materialize them.
         // This pattern avoids clippy::useless_let_if_seq while
@@ -4623,21 +4612,6 @@ fn entry_id_set(entries: &[SessionEntry]) -> HashSet<String> {
         .iter()
         .filter_map(|e| e.base_id().cloned())
         .collect()
-}
-
-fn session_entry_stats(entries: &[SessionEntry]) -> (u64, Option<String>) {
-    let mut message_count = 0u64;
-    let mut name = None;
-    for entry in entries {
-        match entry {
-            SessionEntry::Message(_) => message_count += 1,
-            SessionEntry::SessionInfo(info) if info.name.is_some() => {
-                name.clone_from(&info.name);
-            }
-            _ => {}
-        }
-    }
-    (message_count, name)
 }
 
 /// Minimum entry count to activate parallel deserialization (Gap E).
@@ -5563,6 +5537,7 @@ fn session_entry_id_cache_enabled() -> bool {
     })
 }
 
+#[cfg(test)]
 fn ensure_entry_ids(entries: &mut [SessionEntry]) {
     let mut existing = entry_id_set(entries);
     for entry in entries.iter_mut() {

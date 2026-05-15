@@ -272,6 +272,7 @@ struct RpcOutputPressureState {
     coalesced_tool_update_count: u64,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RpcOutputPressureSnapshot {
     pending: usize,
@@ -346,6 +347,7 @@ impl RpcOutputPressureState {
         }
     }
 
+    #[cfg(test)]
     fn snapshot(&self) -> RpcOutputPressureSnapshot {
         RpcOutputPressureSnapshot {
             pending: self.pending.len(),

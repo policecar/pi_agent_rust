@@ -3397,6 +3397,7 @@ fn normalize_remote_git_repo(repo_raw: &str) -> (String, String, String) {
     (repo, host, path)
 }
 
+#[cfg(test)]
 fn normalized_git_repo_key(spec: &str) -> String {
     let (repo_raw, _) = split_git_spec_ref(spec);
     if looks_like_local_path(repo_raw) {
@@ -4087,6 +4088,7 @@ struct NormalizedSource {
     key: String,
 }
 
+#[cfg(test)]
 fn sources_match(a: &str, b: &str) -> bool {
     normalize_source(a).is_some_and(|left| normalize_source(b).is_some_and(|right| left == right))
 }
@@ -4096,6 +4098,7 @@ fn sources_match_in_dir(a: &str, b: &str, cwd: &Path) -> bool {
         .is_some_and(|left| normalize_source_in_dir(b, cwd).is_some_and(|right| left == right))
 }
 
+#[cfg(test)]
 fn normalize_source(source: &str) -> Option<NormalizedSource> {
     let source = source.trim();
     if source.is_empty() {

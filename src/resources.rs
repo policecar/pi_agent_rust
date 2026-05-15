@@ -1043,6 +1043,7 @@ pub fn load_skills(options: LoadSkillsOptions) -> LoadSkillsResult {
     }
 }
 
+#[cfg(test)]
 fn load_skills_from_dir(
     dir: PathBuf,
     source: String,
@@ -1981,13 +1982,6 @@ fn module_cache_dir() -> Option<PathBuf> {
         };
     }
     dirs::home_dir().map(|home| home.join(".pi").join("agent").join("cache").join("modules"))
-}
-
-/// Returns `true` when `path` resides under the transpiled module cache directory
-/// (`~/.pi/agent/cache/modules/` or `$PIJS_MODULE_CACHE_DIR`).
-fn is_cache_module_path(path: &Path) -> bool {
-    let cache_dir = module_cache_dir();
-    is_cache_module_path_with_cache_dir(path, cache_dir.as_deref())
 }
 
 fn is_cache_module_path_with_cache_dir(path: &Path, cache_dir: Option<&Path>) -> bool {

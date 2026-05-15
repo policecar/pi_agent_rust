@@ -922,6 +922,7 @@ fn resolve_api_key_source(raw: &str) -> std::result::Result<Option<String>, Stri
 }
 
 /// Testable version of [`resolve_api_key_source`] with injectable env lookup.
+#[cfg(test)]
 fn resolve_api_key_source_with_env<F>(
     raw: &str,
     env_lookup: F,
@@ -1074,6 +1075,7 @@ fn api_key_from_credential(credential: &AuthCredential) -> Option<String> {
     }
 }
 
+#[cfg(test)]
 fn env_key_for_provider(provider: &str) -> Option<&'static str> {
     env_keys_for_provider(provider).first().copied()
 }
@@ -4839,12 +4841,6 @@ fn lock_file_shared(file: File, timeout: Duration) -> Result<LockedFile> {
 /// A file handle with an exclusive lock. Unlocks on drop.
 struct LockedFile {
     file: File,
-}
-
-impl LockedFile {
-    const fn as_file_mut(&mut self) -> &mut File {
-        &mut self.file
-    }
 }
 
 impl Drop for LockedFile {

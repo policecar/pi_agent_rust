@@ -774,6 +774,10 @@ impl RpcTransportClient {
         })
     }
 
+    #[allow(
+        clippy::unused_async,
+        reason = "SDK RPC transport keeps an async public API"
+    )]
     pub async fn request(&mut self, command: &str, payload: Map<String, Value>) -> Result<Value> {
         let request_id = self.next_request_id();
         let mut command_payload = Map::new();
@@ -1037,6 +1041,10 @@ impl RpcTransportClient {
         self.prompt_with_options(message, None, None).await
     }
 
+    #[allow(
+        clippy::unused_async,
+        reason = "SDK RPC transport keeps an async public API"
+    )]
     pub async fn prompt_with_options(
         &mut self,
         message: impl Into<String>,

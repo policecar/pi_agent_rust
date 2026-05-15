@@ -150,6 +150,10 @@ fn compute_message_count_and_name(entries: &[SessionEntry]) -> (u64, Option<Stri
     (message_count, name)
 }
 
+#[allow(
+    clippy::unused_async,
+    reason = "session storage keeps an async backend contract"
+)]
 pub async fn load_session(path: &Path) -> Result<(SessionHeader, Vec<SessionEntry>)> {
     let metrics = session_metrics::global();
     let _timer = metrics.start_timer(&metrics.sqlite_load);
@@ -182,6 +186,10 @@ pub async fn load_session(path: &Path) -> Result<(SessionHeader, Vec<SessionEntr
     Ok((header, entries))
 }
 
+#[allow(
+    clippy::unused_async,
+    reason = "session storage keeps an async backend contract"
+)]
 pub async fn load_session_meta(path: &Path) -> Result<SqliteSessionMeta> {
     let metrics = session_metrics::global();
     let _timer = metrics.start_timer(&metrics.sqlite_load_meta);
@@ -872,6 +880,10 @@ pub async fn save_session(
 ///
 /// This avoids the DELETE+reinsert cost of [`save_session`] for the common
 /// case where a few entries are appended between saves.
+#[allow(
+    clippy::unused_async,
+    reason = "session storage keeps an async backend contract"
+)]
 pub async fn append_entries(
     path: &Path,
     new_entries: &[SessionEntry],

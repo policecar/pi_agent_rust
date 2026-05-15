@@ -1952,6 +1952,7 @@ fn should_apply_headers_override(
     configured_headers.is_some_and(|headers| headers.is_empty() || !resolved_headers.is_empty())
 }
 
+#[cfg(test)]
 fn resolve_headers(headers: Option<&HashMap<String, String>>) -> HashMap<String, String> {
     resolve_headers_with_base(headers, None)
 }
@@ -1971,6 +1972,7 @@ fn resolve_headers_with_base(
     resolved
 }
 
+#[cfg(test)]
 fn resolve_value(value: &str) -> Option<String> {
     resolve_value_with_base(value, None)
 }
