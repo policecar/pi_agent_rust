@@ -221,6 +221,31 @@ fn swarm_runpack_freshness_script_self_test_passes() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn extension_conformance_triage_script_self_test_passes() -> TestResult {
+    let output = run_output(
+        {
+            let mut command = Command::new("python3");
+            command
+                .current_dir(repo_root())
+                .args([
+                    "scripts/summarize_ext_conformance_failures.py",
+                    "--self-test",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            command
+        },
+        "summarize_ext_conformance_failures_self_test",
+    )?;
+    require(
+        output_text(&output.stdout).contains("SELF-TEST PASS"),
+        "extension conformance triage script self-test should report PASS",
+    )?;
+    Ok(())
+}
+
 fn run_pi(args: &[String], label: &str) -> TestResult<Output> {
     let mut command = Command::new(binary_path()); // ubs:ignore Cargo provides this test binary path.
     command

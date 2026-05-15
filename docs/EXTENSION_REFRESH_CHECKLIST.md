@@ -176,6 +176,18 @@ category in the baseline:
 | `runtime_error` | JS throws during load/registration |
 | `test_fixture` | Not a real extension (test infrastructure) |
 
+Before editing the baseline, generate the deterministic triage report:
+
+```bash
+python3 scripts/summarize_ext_conformance_failures.py \
+  --out-json /tmp/ext-conformance-triage.json \
+  --out-md /tmp/ext-conformance-triage.md
+```
+
+The report collapses duplicate failure signatures, labels known-baseline versus
+new/untracked failures, flags stale baselines, and includes bead-ready titles,
+labels, bodies, and RCH reproducer commands for follow-up fixes.
+
 ---
 
 ## Phase 5: Performance Benchmarking
