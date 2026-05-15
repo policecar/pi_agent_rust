@@ -320,6 +320,20 @@ fn command_value(command: Option<&Commands>) -> Value {
             "max_bytes": max_bytes,
             "query": query,
         }),
+        Some(Commands::SwarmProgress {
+            input,
+            since,
+            format,
+            out_json,
+            out_text,
+        }) => json!({
+            "name": "swarm-progress",
+            "input": input,
+            "since": since,
+            "format": format,
+            "out_json": out_json,
+            "out_text": out_text,
+        }),
         Some(Commands::SwarmReplayPreview {
             trace,
             policies,

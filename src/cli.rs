@@ -34,6 +34,7 @@ const ROOT_SUBCOMMANDS: &[&str] = &[
     "update",
     "update-index",
     "context-preview",
+    "swarm-progress",
     "swarm-replay-preview",
     "validation-broker",
     "search",
@@ -907,6 +908,38 @@ mod tests {
     }
 
     #[test]
+    fn parse_swarm_progress_subcommand() -> Result<(), String> {
+        let cli = Cli::parse_from([
+            "pi",
+            "swarm-progress",
+            "--input",
+            "progress-input.json",
+            "--since",
+            "HEAD~1",
+            "--format",
+            "json",
+            "--out-json",
+            "progress.json",
+        ]);
+        let Some(Commands::SwarmProgress {
+            input,
+            since,
+            format,
+            out_json,
+            out_text,
+        }) = cli.command
+        else {
+            return Err(format!("unexpected command: {:?}", cli.command));
+        };
+        assert_eq!(input, "progress-input.json");
+        assert_eq!(since.as_deref(), Some("HEAD~1"));
+        assert_eq!(format, "json");
+        assert_eq!(out_json.as_deref(), Some("progress.json"));
+        assert!(out_text.is_none());
+        Ok(())
+    }
+
+    #[test]
     fn parse_info_subcommand() -> Result<(), String> {
         let cli = Cli::parse_from(["pi", "info", "auto-commit-on-exit"]);
         let Some(Commands::Info { name }) = cli.command else {
@@ -1730,7 +1763,7 @@ mod tests {
             fn preprocess_subcommand_barrier(
                 subcommand in prop::sample::select(vec![
                     "install", "remove", "update", "search", "info", "list", "config", "doctor",
-                    "migrate",
+                    "migrate", "swarm-progress",
                 ]),
             ) {
                 let args: Vec<String> = vec![
@@ -1820,6 +1853,26 @@ pub enum Commands {
         /// Task query text used to score candidate context
         #[arg(trailing_var_arg = true)]
         query: Vec<String>,
+    },
+
+    /// Evaluate a normalized swarm progress SLO snapshot without live mutations
+    #[command(name = "swarm-progress")]
+    SwarmProgress {
+        /// Normalized ProgressSloEvaluationInput JSON to evaluate
+        #[arg(long)]
+        input: String,
+        /// Optional operator baseline; must match input.time_window.comparison_baseline
+        #[arg(long)]
+        since: Option<String>,
+        /// Output format for stdout when no output path is supplied
+        #[arg(long, default_value = "text", value_parser = ["text", "json"])]
+        format: String,
+        /// Write schema-governed progress SLO JSON; refuses to overwrite
+        #[arg(long = "out-json")]
+        out_json: Option<String>,
+        /// Write concise progress SLO text; refuses to overwrite
+        #[arg(long = "out-text")]
+        out_text: Option<String>,
     },
 
     /// Preview an offline swarm replay trace and policy comparison

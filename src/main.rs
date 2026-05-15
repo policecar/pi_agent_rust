@@ -51,6 +51,9 @@ use pi::providers;
 use pi::resources::{ResourceCliOptions, ResourceLoader};
 use pi::session::Session;
 use pi::session_index::SessionIndex;
+use pi::swarm_progress_slo::{
+    ProgressSloEvaluationInput, ProgressSloReport, SWARM_PROGRESS_SLO_SCHEMA, evaluate_progress_slo,
+};
 use pi::swarm_replay::{
     SWARM_REPLAY_POLICY_REPORT_SCHEMA, SWARM_REPLAY_REPORT_SCHEMA, SWARM_REPLAY_TRACE_SCHEMA,
     SwarmReplayBaselinePolicy, SwarmReplayPolicyAdapter, SwarmReplayPolicyComparison,
@@ -79,7 +82,9 @@ const USAGE_ERROR_PATTERNS: &[&str] = &[
     "@file arguments are not supported in rpc mode",
     "--api-key requires a model to be specified via --provider/--model or --models",
     "context-preview requires",
+    "swarm-progress requires",
     "swarm-replay-preview requires",
+    "unsupported swarm-progress format",
     "unsupported swarm-replay-preview policy",
     "unknown --only categories",
     "--only must include at least one category",
@@ -325,6 +330,23 @@ fn main_impl() -> Result<()> {
                     *max_items,
                     *max_bytes,
                     query,
+                )?;
+                return Ok(());
+            }
+            cli::Commands::SwarmProgress {
+                input,
+                since,
+                format,
+                out_json,
+                out_text,
+            } => {
+                handle_swarm_progress_blocking(
+                    &cwd,
+                    input,
+                    since.as_deref(),
+                    format,
+                    out_json.as_deref(),
+                    out_text.as_deref(),
                 )?;
                 return Ok(());
             }
@@ -1755,6 +1777,22 @@ async fn handle_subcommand(command: cli::Commands, cwd: &Path) -> Result<()> {
                 &query,
             )?;
         }
+        cli::Commands::SwarmProgress {
+            input,
+            since,
+            format,
+            out_json,
+            out_text,
+        } => {
+            handle_swarm_progress_blocking(
+                cwd,
+                &input,
+                since.as_deref(),
+                &format,
+                out_json.as_deref(),
+                out_text.as_deref(),
+            )?;
+        }
         cli::Commands::SwarmReplayPreview {
             trace,
             policies,
@@ -2486,6 +2524,224 @@ fn push_validation_list(output: &mut String, label: &str, values: &[String]) {
             let _ = writeln!(output, "- {value}");
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_swarm_progress_blocking(
+    cwd: &Path,
+    input: &str,
+    since: Option<&str>,
+    format: &str,
+    out_json: Option<&str>,
+    out_text: Option<&str>,
+) -> Result<()> {
+    let input = read_swarm_progress_input(cwd, input)?;
+    validate_swarm_progress_since(&input, since)?;
+    let report = evaluate_progress_slo(input);
+    if report.schema != SWARM_PROGRESS_SLO_SCHEMA {
+        bail!(
+            "swarm-progress produced unexpected schema {}, expected {SWARM_PROGRESS_SLO_SCHEMA}",
+            report.schema
+        );
+    }
+    emit_swarm_progress_output(cwd, &report, format, out_json, out_text)
+}
+
+fn read_swarm_progress_input(cwd: &Path, input: &str) -> Result<ProgressSloEvaluationInput> {
+    let input_arg = non_empty_string(input)
+        .ok_or_else(|| anyhow::anyhow!("swarm-progress requires --input"))?;
+    let input_path = resolve_cli_path(cwd, &input_arg);
+    let raw = fs::read_to_string(&input_path).map_err(|err| {
+        anyhow::anyhow!(
+            "swarm-progress failed to read --input {}: {err}",
+            input_path.display()
+        )
+    })?;
+    serde_json::from_str::<ProgressSloEvaluationInput>(&raw).map_err(|err| {
+        anyhow::anyhow!(
+            "swarm-progress requires normalized progress SLO input JSON at {}: {err}",
+            input_path.display()
+        )
+    })
+}
+
+fn validate_swarm_progress_since(
+    input: &ProgressSloEvaluationInput,
+    since: Option<&str>,
+) -> Result<()> {
+    let Some(since) = since else {
+        return Ok(());
+    };
+    let Some(since) = non_empty_string(since) else {
+        bail!("swarm-progress requires non-empty --since values");
+    };
+    if input.time_window.comparison_baseline != since {
+        bail!(
+            "swarm-progress --since {since} does not match input time_window.comparison_baseline {}",
+            input.time_window.comparison_baseline
+        );
+    }
+    Ok(())
+}
+
+fn emit_swarm_progress_output(
+    cwd: &Path,
+    report: &ProgressSloReport,
+    format: &str,
+    out_json: Option<&str>,
+    out_text: Option<&str>,
+) -> Result<()> {
+    let json_output = serde_json::to_string_pretty(report)?;
+    let text_output = render_swarm_progress_text(report);
+    if let Some(path) = out_json {
+        write_swarm_progress_output(&resolve_cli_path(cwd, path), &json_output, "JSON output")?;
+    }
+    if let Some(path) = out_text {
+        write_swarm_progress_output(&resolve_cli_path(cwd, path), &text_output, "text output")?;
+    }
+    if out_json.is_none() && out_text.is_none() {
+        match format {
+            "json" => println!("{json_output}"),
+            "text" => print!("{text_output}"),
+            other => bail!("unsupported swarm-progress format: {other}"),
+        }
+    }
+    Ok(())
+}
+
+fn write_swarm_progress_output(path: &Path, content: &str, label: &str) -> Result<()> {
+    if path.exists() {
+        bail!(
+            "refusing to overwrite existing swarm-progress {label}: {}",
+            path.display()
+        );
+    }
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(path, content)?;
+    Ok(())
+}
+
+fn render_swarm_progress_text(report: &ProgressSloReport) -> String {
+    let mut output = String::new();
+    let _ = writeln!(output, "Swarm Progress SLO");
+    let _ = writeln!(output, "schema: {}", report.schema);
+    let _ = writeln!(output, "generated_at: {}", report.generated_at);
+    let _ = writeln!(
+        output,
+        "status: {}",
+        swarm_progress_json_key(&report.status)
+    );
+    let _ = writeln!(output, "confidence: {:.3}", report.confidence);
+    let _ = writeln!(
+        output,
+        "window: {} -> {} ({}s, baseline={})",
+        report.time_window.start_utc,
+        report.time_window.end_utc,
+        report.time_window.duration_seconds,
+        report.time_window.comparison_baseline
+    );
+    let _ = writeln!(output, "advisory_only: true");
+    let _ = writeln!(output, "read_only: true");
+    let _ = writeln!(output, "live_mutations: 0");
+    let _ = writeln!(
+        output,
+        "authority_boundary: no live Beads/git/Agent Mail/RCH mutations"
+    );
+    push_swarm_progress_list(&mut output, "reasons", &report.reason_ids);
+    push_swarm_progress_metrics(&mut output, report);
+    push_swarm_progress_saturation(&mut output, report);
+    push_swarm_progress_list(&mut output, "next_actions", &report.next_actions);
+    push_swarm_progress_list(&mut output, "suppressed_claims", &report.suppressed_claims);
+    let _ = writeln!(output, "source_statuses: {}", report.source_statuses.len());
+    output
+}
+
+fn push_swarm_progress_metrics(output: &mut String, report: &ProgressSloReport) {
+    let metrics = &report.progress_metrics;
+    let _ = writeln!(output, "metrics:");
+    let _ = writeln!(output, "- closed_beads: {}", metrics.closed_beads);
+    let _ = writeln!(output, "- open_beads: {}", metrics.open_beads);
+    let _ = writeln!(output, "- in_progress_beads: {}", metrics.in_progress_beads);
+    let _ = writeln!(output, "- ready_beads: {}", metrics.ready_beads);
+    let _ = writeln!(
+        output,
+        "- dependency_blocked_beads: {}",
+        metrics.dependency_blocked_beads
+    );
+    let _ = writeln!(output, "- commits: {}", metrics.commits);
+    let _ = writeln!(output, "- pushed_commits: {}", metrics.pushed_commits);
+    let _ = writeln!(
+        output,
+        "- stale_in_progress_candidates: {}",
+        metrics.stale_in_progress_candidates
+    );
+    let _ = writeln!(
+        output,
+        "- agent_mail_health: {}",
+        swarm_progress_json_key(&metrics.agent_mail_health)
+    );
+    let _ = writeln!(
+        output,
+        "- rch_posture: {}",
+        swarm_progress_json_key(&metrics.rch_posture)
+    );
+    let _ = writeln!(
+        output,
+        "- validation_broker_posture: {}",
+        swarm_progress_json_key(&metrics.validation_broker_posture)
+    );
+}
+
+fn push_swarm_progress_saturation(output: &mut String, report: &ProgressSloReport) {
+    let saturation = &report.saturation_summary;
+    let _ = writeln!(output, "saturation:");
+    let _ = writeln!(
+        output,
+        "- coordination_saturation: {}",
+        swarm_progress_json_key(&saturation.coordination_saturation)
+    );
+    let _ = writeln!(
+        output,
+        "- build_saturation: {}",
+        swarm_progress_json_key(&saturation.build_saturation)
+    );
+    let _ = writeln!(
+        output,
+        "- validation_saturation: {}",
+        swarm_progress_json_key(&saturation.validation_saturation)
+    );
+    let _ = writeln!(
+        output,
+        "- queue_convergence: {}",
+        swarm_progress_json_key(&saturation.queue_convergence)
+    );
+    let _ = writeln!(
+        output,
+        "- recommended_operator_posture: {}",
+        swarm_progress_json_key(&saturation.recommended_operator_posture)
+    );
+}
+
+fn push_swarm_progress_list(output: &mut String, label: &str, values: &[String]) {
+    let _ = writeln!(output, "{label}:");
+    if values.is_empty() {
+        let _ = writeln!(output, "- none");
+    } else {
+        for value in values {
+            let _ = writeln!(output, "- {value}");
+        }
+    }
+}
+
+fn swarm_progress_json_key(value: &impl Serialize) -> String {
+    serde_json::to_string(value)
+        .map(|raw| raw.trim_matches('"').to_string())
+        .unwrap_or_else(|_| "unknown".to_string())
 }
 
 const SWARM_REPLAY_PREVIEW_SCHEMA: &str = "pi.swarm.replay_preview.v1";

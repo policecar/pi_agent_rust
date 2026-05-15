@@ -698,6 +698,10 @@ pi doctor --only sessions --format json
 pi doctor --only swarm --format json
 pi doctor ./path/to/extension --policy safe --fix
 
+# Read-only swarm progress SLO evaluation from normalized evidence
+pi swarm-progress --input progress-slo-input.json --format json
+pi swarm-progress --input progress-slo-input.json --since HEAD~1 --out-json progress-slo.json
+
 # Session storage migration (JSONL -> v2 sidecar store)
 pi migrate ~/.pi/agent/sessions --dry-run
 pi migrate ~/.pi/agent/sessions
@@ -706,6 +710,7 @@ pi migrate ~/.pi/agent/sessions
 - `update-index` refreshes extension index metadata used by `search` and `info`.
 - `search` and `info` let you discover and inspect extension metadata without leaving the CLI.
 - `doctor` checks config, directories, auth, shell setup, sessions, swarm coordination readiness, and extension compatibility. `pi doctor --only swarm --format json` also reports cgroup CPU quota, cpuset size, NUMA topology, cgroup memory limits, target/tmp headroom, and recommended concurrency budgets before large multi-agent runs.
+- `swarm-progress` evaluates a normalized progress SLO snapshot and emits advisory JSON/text only; it does not mutate Beads, git, Agent Mail, RCH, validation broker slots, runpacks, or source files.
 - `migrate` validates or creates the v2 session sidecar format for faster resume on larger histories.
 
 ---
