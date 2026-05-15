@@ -694,6 +694,7 @@
   "operator_next_actions": [
     "Review stale in-progress Beads before assigning more work",
     "Treat cargo/RCH admission as blocked or degraded before heavy builds",
+    "Inspect remote validation proof ledger before closing RCH-required beads",
     "Back off heavy cargo validation until the RCH queue forecast recovers",
     "Use activity-digest saturation evidence to narrow or redirect the swarm",
     "Account for dirty files before using the runpack as handoff evidence",
@@ -734,6 +735,141 @@
       "validation_outputs[0].snippet"
     ],
     "redacted_count": 2
+  },
+  "remote_validation_proof_ledger": {
+    "claim_boundaries": {
+      "operator_evidence_only": true,
+      "release_performance_claims_allowed": false,
+      "strict_dropin_claims_allowed": false
+    },
+    "entries": [
+      {
+        "artifact_retrieval": {
+          "missing_paths": [],
+          "retrieval_elapsed_ms": null,
+          "retrieval_exit_code": null,
+          "retrieved_paths": [],
+          "status": "not_applicable",
+          "warning_details": []
+        },
+        "bead_id": "bd-e5le6.2",
+        "command": {
+          "argv": [
+            "cargo",
+            "check",
+            "--all-targets"
+          ],
+          "command_fingerprint": "sha256:a9e5cc4af1a4dae98fa5355ba9c19edd6fc65b0d22fa8ad25d5db20a46547ee1",
+          "cwd": "/data/projects/pi_agent_rust",
+          "env_allowlist": [
+            "CARGO_TARGET_DIR",
+            "TMPDIR"
+          ],
+          "feature_flags": [],
+          "rendered": "rch exec -- cargo check --all-targets"
+        },
+        "command_class": "cargo_check",
+        "entry_id": "rvpe-3a546a5f40287059",
+        "evidence_classification": {
+          "clean_remote_proof": false,
+          "degraded_reasons": [
+            "local_fallback_refused",
+            "queue_backoff",
+            "remote_execution_not_observed"
+          ],
+          "next_actions": [
+            "Rerun the validation gate through RCH before closeout."
+          ],
+          "operator_evidence_only": true,
+          "status": "blocked",
+          "suppressed_claims": [
+            "release_performance",
+            "strict_dropin",
+            "benchmark_throughput",
+            "memory_or_startup_claim"
+          ]
+        },
+        "exit": {
+          "exit_code": null,
+          "stderr_excerpt": "",
+          "stdout_excerpt": "",
+          "success": false,
+          "termination_reason": "queue_backoff"
+        },
+        "paths": {
+          "artifact_paths": [],
+          "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/test/target",
+          "remote_target_dir": null,
+          "remote_tmpdir": null,
+          "tmpdir": "/data/tmp/pi_agent_rust_cargo/test/tmp"
+        },
+        "runner": {
+          "command_rewrite": {},
+          "fallback_reason": "rch_queue_saturated",
+          "local_fallback": "refused",
+          "queue_state": "queue_saturated",
+          "rch_job_id": null,
+          "remote_execution": false,
+          "requested_runner": "rch",
+          "resolved_runner": "not_run",
+          "runner_requirement": "rch_required",
+          "status_excerpt": "rch_queue_saturated",
+          "worker_host": null,
+          "worker_id": null,
+          "worker_state": "queue_backoff"
+        },
+        "schema": "pi.remote_validation.proof_entry.v1",
+        "timing": {
+          "duration_ms": 0,
+          "ended_at_utc": "2026-05-09T09:00:00Z",
+          "heartbeat_at_utc": "2026-05-09T09:00:00Z",
+          "stale_progress_detected": false,
+          "started_at_utc": "2026-05-09T09:00:00Z"
+        },
+        "warnings": [
+          {
+            "message": "RCH queue forecast required backoff; validation command did not run.",
+            "redacted": true,
+            "severity": "error",
+            "source": "cargo_admission",
+            "warning_id": "queue_backoff"
+          },
+          {
+            "message": "Local fallback was refused for an RCH-required validation gate.",
+            "redacted": true,
+            "severity": "error",
+            "source": "cargo_admission",
+            "warning_id": "local_fallback_refused"
+          }
+        ]
+      }
+    ],
+    "generated_at_utc": "2026-05-09T09:00:00Z",
+    "git": {
+      "branch": "main",
+      "dirty_paths": [],
+      "head": "abc123fixture"
+    },
+    "ledger_id": "rvpl-6420e86ac008d731",
+    "producer": {
+      "name": "scripts/build_swarm_operator_runpack.py",
+      "version": "1.0.0"
+    },
+    "redaction_summary": {
+      "policy": "derived from redacted runpack sources; no raw logs stored",
+      "redacted_count": 2
+    },
+    "schema": "pi.remote_validation.proof_ledger.v1",
+    "summary": {
+      "blocked_entries": 1,
+      "clean_remote_proof_entries": 0,
+      "degraded_entries": 0,
+      "failed_entries": 0
+    },
+    "worktree": {
+      "cwd": "/data/projects/pi_agent_rust",
+      "dirty_policy": "reported_in_runpack"
+    }
   },
   "resume_commands": [
     {
@@ -831,7 +967,7 @@
       "path": "[WORKSPACE]/cargo.json",
       "schema": "pi.cargo_headroom.admission.v1",
       "sha256": "[SHA256]",
-      "size_bytes": 764,
+      "size_bytes": 806,
       "status": "ok"
     },
     {

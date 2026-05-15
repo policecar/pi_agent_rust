@@ -15,6 +15,7 @@
     "beads",
     "agent_mail",
     "rch_admission",
+    "remote_validation_proof_ledger",
     "evidence_readiness",
     "git_state",
     "activity_digest",
@@ -50,6 +51,10 @@
     "agent_mail.build_slots",
     "rch_admission.decision",
     "rch_admission.queue_forecast.recommended_action",
+    "remote_validation_proof_ledger.schema",
+    "remote_validation_proof_ledger.entries",
+    "remote_validation_proof_ledger.summary.clean_remote_proof_entries",
+    "remote_validation_proof_ledger.claim_boundaries.operator_evidence_only",
     "evidence_readiness.overall_status",
     "git_state.dirty",
     "activity_digest.evidence_pointers",
@@ -111,6 +116,7 @@
   "required_next_action_fragments": [
     "Review stale in-progress Beads",
     "Treat cargo/RCH admission",
+    "Inspect remote validation proof ledger",
     "Back off heavy cargo validation",
     "Use activity-digest saturation evidence",
     "Account for dirty files",
@@ -164,7 +170,7 @@
     },
     {
       "id": "RUNPACK-MUST-004",
-      "description": "Runpack summaries preserve actionable paths for doctor, Beads, Agent Mail, RCH admission, evidence readiness, git state, activity digest, smoke harness, bottleneck attribution, redaction, and next actions.",
+      "description": "Runpack summaries preserve actionable paths for doctor, Beads, Agent Mail, RCH admission, remote validation proof, evidence readiness, git state, activity digest, smoke harness, bottleneck attribution, redaction, and next actions.",
       "validated_by": [
         "required_summary_paths"
       ]
@@ -186,7 +192,7 @@
     },
     {
       "id": "RUNPACK-MUST-006",
-      "description": "Runpack next actions include operator-facing remediation text for stale beads, cargo/RCH admission, activity saturation, and dirty git state.",
+      "description": "Runpack next actions include operator-facing remediation text for stale beads, cargo/RCH admission, remote validation proof ledger review, activity saturation, and dirty git state.",
       "validated_by": [
         "required_next_action_fragments"
       ]
@@ -239,6 +245,14 @@
       "validated_by": [
         "optional_source_ids",
         "optional_summary_paths"
+      ]
+    },
+    {
+      "id": "RUNPACK-MUST-013",
+      "description": "Runpack output embeds the remote-validation proof ledger so operators can inspect whether each cargo/RCH gate ran remotely, refused local fallback, or carried artifact retrieval warnings before closing beads.",
+      "validated_by": [
+        "required_top_level_keys",
+        "required_summary_paths"
       ]
     }
   ]

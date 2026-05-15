@@ -130,6 +130,24 @@ Interpretation rules:
 - Artifact retrieval warnings must stay visible in handoff. A remote command can
   exit 0 while artifact retrieval is degraded; that is not clean remote proof.
 
+When the proof ledger is embedded in an operator runpack, inspect these fields
+before closing any RCH-required bead:
+
+```bash
+jq '.remote_validation_proof_ledger.summary' runpack.json
+jq '.remote_validation_proof_ledger.entries[] | {
+  command: .command.rendered,
+  class: .command_class,
+  resolved: .runner.resolved_runner,
+  remote: .runner.remote_execution,
+  local_fallback: .runner.local_fallback,
+  artifacts: .artifact_retrieval.status,
+  clean: .evidence_classification.clean_remote_proof,
+  status: .evidence_classification.status,
+  warnings: [.warnings[].warning_id]
+}' runpack.json
+```
+
 Golden examples live in
 `tests/golden_corpus/remote_validation_proof_ledger/examples.json` and cover a
 clean remote pass, local-fallback refusal, queue backoff, and artifact retrieval

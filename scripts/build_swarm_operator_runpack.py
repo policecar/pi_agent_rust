@@ -45,6 +45,11 @@ HOSTCALL_SWARM_PROFILE_SCHEMA = "pi.ext.hostcall_admission_swarm_profile.v1"
 SESSION_RECOVERY_SWARM_PROFILE_SCHEMA = "pi.session_store_v2.recovery_swarm_profile.v1"
 RPC_SWARM_E2E_SCHEMA = "pi.rpc.concurrent_swarm_e2e.v1"
 RCH_ARTIFACT_SYNC_SCHEMA = "pi.rch.artifact_sync_preflight.v1"
+REMOTE_VALIDATION_LEDGER_SCHEMA = "pi.remote_validation.proof_ledger.v1"
+REMOTE_VALIDATION_ENTRY_SCHEMA = "pi.remote_validation.proof_entry.v1"
+REMOTE_VALIDATION_CONTRACT_PATH = Path(
+    "docs/contracts/remote-validation-proof-ledger-contract.json"
+)
 GIT_CONTEXT_SCHEMA = "pi.swarm.git_context.v1"
 RUNPACK_CAPTURE_SCHEMA = "pi.swarm.operator_runpack_capture.v1"
 AUTOPILOT_INPUT_PACK_SCHEMA = "pi.swarm.autopilot_input_pack.v1"
@@ -2723,6 +2728,505 @@ def summarize_cargo_admission(source: SourcePayload) -> dict[str, Any]:
     }
 
 
+def utc_z(value: datetime) -> str:
+    return value.astimezone(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
+
+
+def proof_string(value: Any, default: str = "") -> str:
+    return value if isinstance(value, str) and value else default
+
+
+def proof_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def proof_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def command_argv_from_admission(payload: dict[str, Any]) -> list[str]:
+    proof = proof_dict(
+        payload.get("remote_validation_proof") or payload.get("remote_validation")
+    )
+    command = proof_dict(proof.get("command"))
+    argv = command.get("argv")
+    if isinstance(argv, list) and all(isinstance(part, str) for part in argv):
+        return argv
+
+    cargo_command = payload.get("cargo_command")
+    if isinstance(cargo_command, str) and cargo_command.strip():
+        parts = shlex.split(cargo_command)
+        if parts and parts[0] == "cargo":
+            return parts
+        return ["cargo", *parts]
+    return ["cargo", "<unknown>"]
+
+
+def classify_remote_validation_command(argv: list[str], payload: dict[str, Any]) -> str:
+    proof = proof_dict(
+        payload.get("remote_validation_proof") or payload.get("remote_validation")
+    )
+    command = proof_dict(proof.get("command"))
+    explicit = command.get("command_class") or proof.get("command_class")
+    allowed = {
+        "cargo_check",
+        "cargo_clippy",
+        "cargo_test",
+        "cargo_build",
+        "cargo_fmt_check",
+        "script_self_test",
+        "ubs_staged",
+        "beads_ledger_reconcile",
+        "custom_validation",
+    }
+    if isinstance(explicit, str) and explicit in allowed:
+        return explicit
+
+    subcommand = argv[1] if len(argv) > 1 else ""
+    if subcommand == "check":
+        return "cargo_check"
+    if subcommand == "clippy":
+        return "cargo_clippy"
+    if subcommand == "test":
+        return "cargo_test"
+    if subcommand == "build":
+        return "cargo_build"
+    if subcommand == "fmt" and "--check" in argv:
+        return "cargo_fmt_check"
+    if subcommand == "fmt":
+        return "custom_validation"
+    if payload.get("command_class") == "safe_local":
+        return "custom_validation"
+    return "custom_validation"
+
+
+def command_fingerprint(
+    argv: list[str],
+    cwd: str,
+    git_head: str | None,
+    command_class: str,
+    cargo_target_dir: Any,
+    tmpdir: Any,
+    runner_requirement: str,
+) -> str:
+    payload = {
+        "argv": argv,
+        "cwd": cwd,
+        "git_head": git_head,
+        "command_class": command_class,
+        "feature_flags": [],
+        "cargo_target_dir": cargo_target_dir,
+        "tmpdir": tmpdir,
+        "runner_requirement": runner_requirement,
+        "dirty_path_policy": "reported_in_runpack",
+    }
+    digest = hashlib.sha256(json_dumps(payload).encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def artifact_retrieval_summary(source: SourcePayload | None) -> dict[str, Any]:
+    payload = source.payload if source is not None else None
+    if not isinstance(payload, dict):
+        return {
+            "status": "unknown",
+            "retrieved_paths": [],
+            "missing_paths": [],
+            "warning_details": ["RCH artifact-sync source not provided"],
+            "retrieval_exit_code": None,
+            "retrieval_elapsed_ms": None,
+        }
+
+    required_paths = proof_list(payload.get("required_paths"))
+    retrieved_paths = []
+    missing_paths = []
+    for item in required_paths:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        if not isinstance(path, str) or not path:
+            continue
+        if item.get("included") is True or item.get("updated") is True:
+            retrieved_paths.append(path)
+        elif item.get("included") is False or item.get("updated") is False:
+            missing_paths.append(path)
+
+    violations = proof_list(payload.get("violations"))
+    warning_details = []
+    for violation in violations:
+        if isinstance(violation, str):
+            warning_details.append(violation)
+        elif isinstance(violation, dict):
+            path = proof_string(violation.get("path"), "<unknown>")
+            reason = proof_string(violation.get("reason"), "artifact retrieval warning")
+            warning_details.append(f"{path}: {reason}")
+
+    raw_status = proof_string(payload.get("status"), "unknown").lower()
+    if raw_status in {"pass", "ok", "clean", "ready"} and not warning_details:
+        status = "clean"
+    elif raw_status in {"fail", "failed", "error"}:
+        status = "failed"
+    elif raw_status in {"warn", "warning", "degraded"} or warning_details:
+        status = "warning"
+    elif raw_status in {"skipped", "not_applicable"}:
+        status = raw_status
+    else:
+        status = "unknown"
+
+    return {
+        "status": status,
+        "retrieved_paths": retrieved_paths,
+        "missing_paths": missing_paths,
+        "warning_details": warning_details,
+        "retrieval_exit_code": payload.get("exit_code"),
+        "retrieval_elapsed_ms": payload.get("elapsed_ms") or payload.get("duration_ms"),
+    }
+
+
+def remote_validation_warning(
+    warning_id: str, severity: str, message: str, source: str
+) -> dict[str, Any]:
+    return {
+        "warning_id": warning_id,
+        "severity": severity,
+        "message": message,
+        "source": source,
+        "redacted": True,
+    }
+
+
+def build_remote_validation_proof_entry(
+    *,
+    cargo_source: SourcePayload,
+    artifact_source: SourcePayload | None,
+    generated_at: datetime,
+    git_state: dict[str, Any],
+    bead_id: str | None,
+) -> dict[str, Any]:
+    payload = cargo_source.payload if isinstance(cargo_source.payload, dict) else {}
+    proof = proof_dict(
+        payload.get("remote_validation_proof") or payload.get("remote_validation")
+    )
+    entry_bead_id = proof_string(
+        proof.get("bead_id"),
+        proof_string(payload.get("bead_id"), bead_id or "operator-runpack"),
+    )
+    argv = command_argv_from_admission(payload)
+    command_class = classify_remote_validation_command(argv, payload)
+    requested_runner = proof_string(payload.get("requested_runner"), "read_only")
+    admission_runner = proof_string(payload.get("resolved_runner"), "not_run")
+    decision = proof_string(payload.get("decision"), "unknown")
+    reason = proof_string(payload.get("reason"), "unknown")
+    runner = proof_dict(proof.get("runner"))
+    timing = proof_dict(proof.get("timing"))
+    exit_payload = proof_dict(proof.get("exit"))
+    paths_payload = proof_dict(proof.get("paths"))
+
+    runner_requirement = proof_string(runner.get("runner_requirement"))
+    if not runner_requirement:
+        runner_requirement = (
+            "rch_required" if requested_runner in {"rch", "auto"} else "local_allowed"
+        )
+
+    remote_execution = bool(runner.get("remote_execution"))
+    if runner.get("resolved_runner") == "rch_remote":
+        remote_execution = True
+    if admission_runner == "rch" and exit_payload.get("exit_code") is not None:
+        remote_execution = True
+
+    resolved_runner = proof_string(runner.get("resolved_runner"))
+    if not resolved_runner:
+        if remote_execution:
+            resolved_runner = "rch_remote"
+        elif admission_runner == "local":
+            resolved_runner = "local"
+        else:
+            resolved_runner = "not_run"
+
+    local_fallback = proof_string(runner.get("local_fallback"))
+    if not local_fallback:
+        if admission_runner == "local" and requested_runner in {"rch", "auto"}:
+            local_fallback = "observed"
+        elif decision in {"backoff", "deny"} and runner_requirement == "rch_required":
+            local_fallback = "refused"
+        else:
+            local_fallback = "none"
+
+    artifact = artifact_retrieval_summary(artifact_source)
+    if resolved_runner == "not_run":
+        artifact = {
+            **artifact,
+            "status": "not_applicable",
+            "retrieved_paths": [],
+            "missing_paths": [],
+            "warning_details": [],
+        }
+
+    started_at = proof_string(timing.get("started_at_utc"))
+    ended_at = proof_string(timing.get("ended_at_utc"))
+    if not started_at:
+        started_at = utc_z(generated_at)
+    if not ended_at:
+        ended_at = utc_z(generated_at)
+    duration_ms = timing.get("duration_ms")
+    if not isinstance(duration_ms, int) or duration_ms < 0:
+        duration_ms = 0
+
+    termination_reason = proof_string(exit_payload.get("termination_reason"))
+    exit_code = exit_payload.get("exit_code")
+    if not termination_reason:
+        if decision == "backoff" and "queue" in reason:
+            termination_reason = "queue_backoff"
+        elif local_fallback == "refused":
+            termination_reason = "local_fallback_refused"
+        elif exit_code is None:
+            termination_reason = "not_run"
+        elif exit_code == 0:
+            termination_reason = "completed"
+        else:
+            termination_reason = "failed"
+    success = exit_payload.get("success")
+    if not isinstance(success, bool):
+        success = exit_code == 0 if isinstance(exit_code, int) else False
+
+    warnings: list[dict[str, Any]] = []
+    queue_forecast = proof_dict(payload.get("rch_queue_forecast"))
+    if termination_reason == "queue_backoff" or queue_forecast.get("recommended_action") == "backoff":
+        warnings.append(
+            remote_validation_warning(
+                "queue_backoff",
+                "error",
+                "RCH queue forecast required backoff; validation command did not run.",
+                "cargo_admission",
+            )
+        )
+    if local_fallback == "refused":
+        warnings.append(
+            remote_validation_warning(
+                "local_fallback_refused",
+                "error",
+                "Local fallback was refused for an RCH-required validation gate.",
+                "cargo_admission",
+            )
+        )
+    if local_fallback == "observed":
+        warnings.append(
+            remote_validation_warning(
+                "local_fallback_observed",
+                "error",
+                "Validation ran locally after an RCH request; this is not remote proof.",
+                "cargo_admission",
+            )
+        )
+    if timing.get("stale_progress_detected") is True:
+        warnings.append(
+            remote_validation_warning(
+                "stale_progress",
+                "warning",
+                "RCH progress heartbeat became stale before completion.",
+                "remote_validation_proof",
+            )
+        )
+    if artifact["status"] in {"warning", "failed"}:
+        warnings.append(
+            remote_validation_warning(
+                "artifact_retrieval_warning",
+                "warning" if artifact["status"] == "warning" else "error",
+                "RCH artifact retrieval was not clean.",
+                "rch_artifact_sync",
+            )
+        )
+
+    clean_remote_proof = (
+        success
+        and remote_execution
+        and local_fallback == "none"
+        and artifact["status"] in {"clean", "not_applicable"}
+        and not any(warning["severity"] == "error" for warning in warnings)
+    )
+    degraded_reasons: list[str] = []
+    if not remote_execution:
+        degraded_reasons.append("remote_execution_not_observed")
+    if local_fallback != "none":
+        degraded_reasons.append(f"local_fallback_{local_fallback}")
+    if artifact["status"] not in {"clean", "not_applicable"}:
+        degraded_reasons.append(f"artifact_retrieval_{artifact['status']}")
+    if warnings:
+        degraded_reasons.extend(warning["warning_id"] for warning in warnings)
+    if not success and termination_reason not in {"queue_backoff", "local_fallback_refused", "not_run"}:
+        degraded_reasons.append("validation_exit_failed")
+
+    if clean_remote_proof:
+        status = "pass"
+        next_actions: list[str] = []
+    elif termination_reason in {"queue_backoff", "local_fallback_refused", "not_run"}:
+        status = "blocked"
+        next_actions = ["Rerun the validation gate through RCH before closeout."]
+    elif artifact["status"] == "failed" or (exit_code not in {None, 0}):
+        status = "fail"
+        next_actions = ["Inspect the failed validation command and RCH artifact retrieval output."]
+    else:
+        status = "degraded"
+        next_actions = ["Treat this as degraded operator evidence, not clean remote proof."]
+
+    cwd = proof_string(proof_dict(proof.get("command")).get("cwd"), str(Path.cwd()))
+    requested_runner_contract = (
+        requested_runner
+        if requested_runner in {"rch", "local", "read_only"}
+        else "rch"
+        if runner_requirement == "rch_required"
+        else "local"
+    )
+    rendered = proof_string(
+        proof_dict(proof.get("command")).get("rendered"),
+        " ".join(["rch", "exec", "--", *argv])
+        if requested_runner_contract == "rch"
+        else " ".join(argv),
+    )
+    fingerprint = proof_string(
+        proof_dict(proof.get("command")).get("command_fingerprint"),
+        command_fingerprint(
+            argv,
+            cwd,
+            git_state.get("head") if isinstance(git_state, dict) else None,
+            command_class,
+            payload.get("cargo_target_dir"),
+            payload.get("tmpdir"),
+            runner_requirement,
+        ),
+    )
+
+    return {
+        "schema": REMOTE_VALIDATION_ENTRY_SCHEMA,
+        "entry_id": f"rvpe-{hashlib.sha256(fingerprint.encode('utf-8')).hexdigest()[:16]}",
+        "bead_id": entry_bead_id,
+        "command_class": command_class,
+        "command": {
+            "argv": argv,
+            "rendered": rendered,
+            "cwd": cwd,
+            "command_fingerprint": fingerprint,
+            "feature_flags": proof_list(proof_dict(proof.get("command")).get("feature_flags")),
+            "env_allowlist": ["CARGO_TARGET_DIR", "TMPDIR"],
+        },
+        "runner": {
+            "requested_runner": requested_runner_contract,
+            "resolved_runner": resolved_runner,
+            "runner_requirement": runner_requirement,
+            "remote_execution": remote_execution,
+            "local_fallback": local_fallback,
+            "fallback_reason": proof_string(runner.get("fallback_reason"), reason),
+            "rch_job_id": runner.get("rch_job_id"),
+            "worker_id": runner.get("worker_id"),
+            "worker_host": runner.get("worker_host"),
+            "queue_state": proof_string(runner.get("queue_state"), queue_forecast.get("reason") or reason),
+            "worker_state": proof_string(runner.get("worker_state"), termination_reason),
+            "command_rewrite": proof_dict(runner.get("command_rewrite")),
+            "status_excerpt": proof_string(runner.get("status_excerpt"), payload.get("rch_detail") or reason),
+        },
+        "timing": {
+            "started_at_utc": started_at,
+            "ended_at_utc": ended_at,
+            "duration_ms": duration_ms,
+            "heartbeat_at_utc": proof_string(timing.get("heartbeat_at_utc"), ended_at),
+            "stale_progress_detected": timing.get("stale_progress_detected") is True,
+        },
+        "exit": {
+            "exit_code": exit_code,
+            "success": success,
+            "termination_reason": termination_reason,
+            "stderr_excerpt": proof_string(exit_payload.get("stderr_excerpt")),
+            "stdout_excerpt": proof_string(exit_payload.get("stdout_excerpt")),
+        },
+        "paths": {
+            "cargo_target_dir": payload.get("cargo_target_dir"),
+            "tmpdir": payload.get("tmpdir"),
+            "remote_target_dir": paths_payload.get("remote_target_dir"),
+            "remote_tmpdir": paths_payload.get("remote_tmpdir"),
+            "artifact_paths": paths_payload.get("artifact_paths")
+            if isinstance(paths_payload.get("artifact_paths"), list)
+            else artifact.get("retrieved_paths", []) + artifact.get("missing_paths", []),
+        },
+        "artifact_retrieval": artifact,
+        "warnings": warnings,
+        "evidence_classification": {
+            "status": status,
+            "clean_remote_proof": clean_remote_proof,
+            "operator_evidence_only": True,
+            "suppressed_claims": [
+                "release_performance",
+                "strict_dropin",
+                "benchmark_throughput",
+                "memory_or_startup_claim",
+            ],
+            "degraded_reasons": sorted(set(degraded_reasons)),
+            "next_actions": next_actions,
+        },
+    }
+
+
+def build_remote_validation_proof_ledger(
+    *,
+    by_id: dict[str, SourcePayload],
+    generated_at: datetime,
+    git_state: dict[str, Any],
+    bead_id: str | None,
+) -> dict[str, Any]:
+    cargo_source = by_id["cargo_admission"]
+    artifact_source = by_id.get("rch_artifact_sync")
+    entries = [
+        build_remote_validation_proof_entry(
+            cargo_source=cargo_source,
+            artifact_source=artifact_source,
+            generated_at=generated_at,
+            git_state=git_state,
+            bead_id=bead_id,
+        )
+    ]
+    classifications = [
+        entry["evidence_classification"]["status"] for entry in entries
+    ]
+    redacted_warning_count = sum(
+        1
+        for entry in entries
+        for warning in entry.get("warnings", [])
+        if isinstance(warning, dict) and warning.get("redacted") is True
+    )
+    return {
+        "schema": REMOTE_VALIDATION_LEDGER_SCHEMA,
+        "ledger_id": f"rvpl-{hashlib.sha256(json_dumps(entries).encode('utf-8')).hexdigest()[:16]}",
+        "generated_at_utc": utc_z(generated_at),
+        "producer": {
+            "name": "scripts/build_swarm_operator_runpack.py",
+            "version": "1.0.0",
+        },
+        "git": {
+            "head": git_state.get("head") if isinstance(git_state, dict) else None,
+            "branch": git_state.get("branch") if isinstance(git_state, dict) else None,
+            "dirty_paths": git_state.get("porcelain_lines", []) if isinstance(git_state, dict) else [],
+        },
+        "worktree": {
+            "cwd": str(Path.cwd()),
+            "dirty_policy": "reported_in_runpack",
+        },
+        "entries": entries,
+        "summary": {
+            "clean_remote_proof_entries": classifications.count("pass"),
+            "degraded_entries": classifications.count("degraded"),
+            "blocked_entries": classifications.count("blocked"),
+            "failed_entries": classifications.count("fail"),
+        },
+        "redaction_summary": {
+            "redacted_count": redacted_warning_count,
+            "policy": "derived from redacted runpack sources; no raw logs stored",
+        },
+        "claim_boundaries": {
+            "operator_evidence_only": True,
+            "release_performance_claims_allowed": False,
+            "strict_dropin_claims_allowed": False,
+        },
+    }
+
+
 def numeric_value(value: Any) -> float | None:
     if isinstance(value, bool) or value is None:
         return None
@@ -4956,6 +5460,15 @@ def derive_status(runpack: dict[str, Any]) -> str:
         status = "degraded"
     if runpack["rch_admission"].get("decision") in {"backoff", "degraded", "deny"}:
         status = "degraded"
+    proof_ledger = runpack.get("remote_validation_proof_ledger")
+    if isinstance(proof_ledger, dict):
+        proof_summary = proof_ledger.get("summary")
+        if isinstance(proof_summary, dict) and (
+            proof_summary.get("blocked_entries", 0)
+            or proof_summary.get("degraded_entries", 0)
+            or proof_summary.get("failed_entries", 0)
+        ):
+            status = "degraded"
     if runpack["smoke_harness"].get("harness_status") == "fail":
         status = "degraded"
     if runpack["bottleneck_attribution"].get("status") != "ready":
@@ -4982,6 +5495,13 @@ def build_runpack(args: argparse.Namespace) -> dict[str, Any]:
         args.max_items,
     )
     redaction.merge(validation_redaction)
+    git_summary = summarize_git_status(by_id["git_status"], args.max_items)
+    proof_ledger = build_remote_validation_proof_ledger(
+        by_id=by_id,
+        generated_at=generated_at,
+        git_state=git_summary,
+        bead_id=getattr(args, "active_bead_id", None),
+    )
     runpack = {
         "schema": RUNPACK_SCHEMA,
         "generated_at": generated_at.isoformat(),
@@ -5007,8 +5527,9 @@ def build_runpack(args: argparse.Namespace) -> dict[str, Any]:
             args.max_items,
         ),
         "rch_admission": summarize_cargo_admission(by_id["cargo_admission"]),
+        "remote_validation_proof_ledger": proof_ledger,
         "evidence_readiness": summarize_claim_readiness(by_id["claim_readiness"], args.max_items),
-        "git_state": summarize_git_status(by_id["git_status"], args.max_items),
+        "git_state": git_summary,
         "activity_digest": summarize_activity_digest(by_id["activity_digest"], args.max_items),
         "smoke_harness": smoke_summary,
         "validation_outputs": validation_summary,
@@ -5058,6 +5579,17 @@ def operator_next_actions(runpack: dict[str, Any]) -> list[str]:
         actions.append("Review stale in-progress Beads before assigning more work")
     if runpack["rch_admission"].get("decision") in {"backoff", "degraded", "deny"}:
         actions.append("Treat cargo/RCH admission as blocked or degraded before heavy builds")
+    proof_ledger = runpack.get("remote_validation_proof_ledger")
+    if isinstance(proof_ledger, dict):
+        proof_summary = proof_ledger.get("summary")
+        if isinstance(proof_summary, dict) and (
+            proof_summary.get("blocked_entries", 0)
+            or proof_summary.get("degraded_entries", 0)
+            or proof_summary.get("failed_entries", 0)
+        ):
+            actions.append(
+                "Inspect remote validation proof ledger before closing RCH-required beads"
+            )
     forecast_action = runpack["rch_admission"].get("queue_forecast", {}).get("recommended_action")
     if forecast_action == "split":
         actions.append("Split heavy cargo validation based on RCH queue forecast pressure")
@@ -5140,6 +5672,14 @@ def render_markdown(runpack: dict[str, Any]) -> str:
     lines.append(f"- Beads active/stale: `{runpack['beads'].get('active_count')}` active, `{len(runpack['beads'].get('stale') or [])}` stale")
     lines.append(f"- RCH admission: `{runpack['rch_admission'].get('decision')}`")
     lines.append(f"- RCH queue forecast: `{runpack['rch_admission'].get('queue_forecast', {}).get('recommended_action')}`")
+    proof_summary = runpack["remote_validation_proof_ledger"].get("summary", {})
+    lines.append(
+        "- Remote validation proof: "
+        f"`{proof_summary.get('clean_remote_proof_entries')}` clean, "
+        f"`{proof_summary.get('degraded_entries')}` degraded, "
+        f"`{proof_summary.get('blocked_entries')}` blocked, "
+        f"`{proof_summary.get('failed_entries')}` failed"
+    )
     lines.append(f"- Evidence readiness: `{runpack['evidence_readiness'].get('overall_status')}`")
     lines.append(f"- Git dirty: `{runpack['git_state'].get('dirty')}`")
     lines.append(f"- Agent Mail read state: `{runpack['agent_mail_read_state'].get('status')}`")
@@ -5207,6 +5747,19 @@ def render_markdown(runpack: dict[str, Any]) -> str:
                 f"- `{output.get('path')}`: `{output.get('inferred_status')}` "
                 f"({output.get('size_bytes')} bytes)"
             )
+    proof_ledger = runpack["remote_validation_proof_ledger"]
+    lines.extend(["", "## Remote Validation Proof Ledger"])
+    lines.append(f"- Schema: `{proof_ledger.get('schema')}`")
+    for entry in proof_ledger.get("entries", []):
+        classification = entry.get("evidence_classification", {})
+        runner = entry.get("runner", {})
+        artifact = entry.get("artifact_retrieval", {})
+        lines.append(
+            f"- `{entry.get('command_class')}`: `{classification.get('status')}` "
+            f"(remote `{runner.get('remote_execution')}`, "
+            f"fallback `{runner.get('local_fallback')}`, "
+            f"artifacts `{artifact.get('status')}`)"
+        )
     if isinstance(runpack.get("tail_latency"), dict):
         tail_latency = runpack["tail_latency"]
         lines.append(
@@ -5447,6 +6000,73 @@ def assert_runpack_contract(runpack: dict[str, Any]) -> None:
     assert not unknown_source_ids, f"unexpected source ids: {sorted(unknown_source_ids)}"
     for path in contract.get("required_summary_paths", []):
         get_dotted(runpack, path)
+    remote_contract_path = repo_root / REMOTE_VALIDATION_CONTRACT_PATH
+    try:
+        remote_contract = json.loads(remote_contract_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise AssertionError(
+            f"missing remote validation contract: {remote_contract_path}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            f"remote validation contract is malformed JSON: {remote_contract_path}: {exc}"
+        ) from exc
+    ledger = runpack.get("remote_validation_proof_ledger")
+    assert isinstance(ledger, dict)
+    assert ledger.get("schema") == remote_contract.get("ledger_schema")
+    for key in remote_contract.get("required_ledger_top_level_keys", []):
+        assert key in ledger, f"remote validation ledger missing key: {key}"
+    entries = ledger.get("entries")
+    assert isinstance(entries, list) and entries
+    for entry in entries:
+        assert isinstance(entry, dict)
+        assert entry.get("schema") == remote_contract.get("entry_schema")
+        for key in remote_contract.get("required_entry_keys", []):
+            assert key in entry, f"remote validation entry missing key: {key}"
+        for section, contract_key in (
+            ("command", "command_contract"),
+            ("runner", "runner_contract"),
+            ("timing", "timing_contract"),
+            ("exit", "exit_contract"),
+            ("paths", "paths_contract"),
+            ("artifact_retrieval", "artifact_retrieval_contract"),
+            ("evidence_classification", "evidence_classification_contract"),
+        ):
+            section_payload = entry.get(section)
+            assert isinstance(section_payload, dict)
+            for field in remote_contract.get(contract_key, {}).get("required_fields", []):
+                assert field in section_payload, (
+                    f"remote validation {section} missing field: {field}"
+                )
+        assert entry["command_class"] in set(
+            remote_contract.get("command_contract", {}).get("allowed_command_classes", [])
+        )
+        assert entry["runner"]["requested_runner"] in set(
+            remote_contract.get("runner_contract", {}).get("allowed_requested_runners", [])
+        )
+        assert entry["runner"]["resolved_runner"] in set(
+            remote_contract.get("runner_contract", {}).get("allowed_resolved_runners", [])
+        )
+        assert entry["runner"]["local_fallback"] in set(
+            remote_contract.get("runner_contract", {}).get("allowed_local_fallback", [])
+        )
+        assert entry["exit"]["termination_reason"] in set(
+            remote_contract.get("exit_contract", {}).get("allowed_termination_reasons", [])
+        )
+        assert entry["artifact_retrieval"]["status"] in set(
+            remote_contract.get("artifact_retrieval_contract", {}).get("allowed_status", [])
+        )
+        assert entry["evidence_classification"]["status"] in set(
+            remote_contract.get("evidence_classification_contract", {}).get("allowed_status", [])
+        )
+        suppressed = set(entry["evidence_classification"]["suppressed_claims"])
+        required_suppressed = set(
+            remote_contract.get("evidence_classification_contract", {}).get(
+                "required_suppressed_claims",
+                [],
+            )
+        )
+        assert suppressed.issuperset(required_suppressed)
     for path in contract.get("optional_summary_paths", []):
         parts = path.split(".")
         optional_root = (
@@ -8155,6 +8775,7 @@ def run_self_test() -> int:
             "resolved_runner": "none",
             "command_class": "heavy",
             "allow_local_fallback": False,
+            "cargo_command": "check --all-targets",
             "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/test/target",
             "tmpdir": "/data/tmp/pi_agent_rust_cargo/test/tmp",
             "rch_queue_forecast": {
@@ -8394,6 +9015,7 @@ def run_self_test() -> int:
         activity_digest_json=activity_path,
         swarm_replay_preview_json=None,
         cargo_admission_json=cargo_path,
+        active_bead_id="bd-e5le6.2",
         beads_json=beads_path,
         beads_ready_json=None,
         agent_mail_status_json=agent_mail_status_path,
@@ -8473,6 +9095,19 @@ def run_self_test() -> int:
         assert runpack["agent_mail_read_state"]["status"] == "degraded"
         assert runpack["validation_outputs"]["status"] == "failed"
         assert runpack["validation_outputs"]["outputs"][0]["inferred_status"] == "failed"
+        proof_ledger = runpack["remote_validation_proof_ledger"]
+        assert proof_ledger["schema"] == REMOTE_VALIDATION_LEDGER_SCHEMA
+        assert proof_ledger["summary"]["blocked_entries"] == 1
+        queue_entry = proof_ledger["entries"][0]
+        assert queue_entry["bead_id"] == "bd-e5le6.2"
+        assert queue_entry["evidence_classification"]["status"] == "blocked"
+        assert queue_entry["runner"]["requested_runner"] == "rch"
+        assert queue_entry["runner"]["resolved_runner"] == "not_run"
+        assert queue_entry["runner"]["local_fallback"] == "refused"
+        assert any(
+            warning["warning_id"] == "queue_backoff"
+            for warning in queue_entry["warnings"]
+        )
         context = runpack["doctor_swarm"]["context_intelligence"]
         assert context["schema"] == CONTEXT_INTELLIGENCE_SCHEMA
         assert context["status"] == "degraded"
@@ -8535,6 +9170,209 @@ def run_self_test() -> int:
             and item.get("path") == "tests/full_suite_gate/full_suite_verdict.json"
             and item.get("reason") == "generated_artifact_not_updated"
             for item in postcondition_runpack["bottleneck_attribution"]["bottlenecks"]
+        )
+        remote_pass_cargo_path = write_json(
+            workspace / "cargo-remote-pass.json",
+            {
+                "schema": "pi.cargo_headroom.admission.v1",
+                "decision": "admit",
+                "reason": "rch_available",
+                "requested_runner": "rch",
+                "resolved_runner": "rch",
+                "command_class": "heavy",
+                "allow_local_fallback": False,
+                "cargo_command": "check --all-targets",
+                "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/test/target",
+                "tmpdir": "/data/tmp/pi_agent_rust_cargo/test/tmp",
+                "rch_queue_forecast": {
+                    "schema": "pi.cargo_headroom.rch_queue_forecast.v1",
+                    "status": "ok",
+                    "recommended_action": "proceed",
+                    "reason": "workers_available",
+                    "slot_pressure": "available",
+                    "queue_depth": 0,
+                    "active_builds": 1,
+                    "queued_builds": 0,
+                    "slots_available": 7,
+                    "slots_total": 8,
+                    "workers_healthy": 8,
+                    "workers_total": 8,
+                    "estimated_wait_seconds": 0,
+                },
+                "remote_validation_proof": {
+                    "bead_id": "bd-e5le6.2",
+                    "runner": {
+                        "requested_runner": "rch",
+                        "resolved_runner": "rch_remote",
+                        "runner_requirement": "rch_required",
+                        "remote_execution": True,
+                        "local_fallback": "none",
+                        "rch_job_id": "selftest-rch-job",
+                        "worker_id": "worker-fixture",
+                        "worker_host": "ubuntu@worker-fixture",
+                        "queue_state": "admitted",
+                        "worker_state": "completed",
+                        "command_rewrite": {
+                            "tmpdir_rewritten": True,
+                            "target_dir_rewritten": True,
+                        },
+                        "status_excerpt": "Remote command finished: exit=0",
+                    },
+                    "timing": {
+                        "started_at_utc": "2026-05-09T09:01:00Z",
+                        "ended_at_utc": "2026-05-09T09:04:00Z",
+                        "duration_ms": 180000,
+                        "heartbeat_at_utc": "2026-05-09T09:03:50Z",
+                        "stale_progress_detected": False,
+                    },
+                    "exit": {
+                        "exit_code": 0,
+                        "success": True,
+                        "termination_reason": "completed",
+                        "stderr_excerpt": "",
+                        "stdout_excerpt": "Finished dev profile",
+                    },
+                    "paths": {
+                        "remote_target_dir": "/data/projects/pi_agent_rust/.rch-target-selftest",
+                        "remote_tmpdir": "/data/projects/pi_agent_rust/.rch-tmp-selftest",
+                        "artifact_paths": ["target/debug/.fingerprint"],
+                    },
+                },
+            },
+        )
+        remote_pass_sync_path = write_json(
+            workspace / "rch-artifact-sync-remote-pass.json",
+            {
+                "schema": RCH_ARTIFACT_SYNC_SCHEMA,
+                "generated_at": generated_at,
+                "status": "pass",
+                "required_paths": [
+                    {"path": "target/debug/.fingerprint", "included": True}
+                ],
+                "violations": [],
+                "exit_code": 0,
+                "elapsed_ms": 24,
+            },
+        )
+        remote_pass_runpack = build_runpack(
+            argparse.Namespace(
+                **{
+                    **vars(args),
+                    "cargo_admission_json": remote_pass_cargo_path,
+                    "rch_artifact_sync_json": remote_pass_sync_path,
+                    "out_json": None,
+                    "out_md": None,
+                }
+            )
+        )
+        remote_pass_entry = remote_pass_runpack["remote_validation_proof_ledger"][
+            "entries"
+        ][0]
+        assert remote_pass_entry["evidence_classification"]["status"] == "pass"
+        assert remote_pass_entry["evidence_classification"]["clean_remote_proof"] is True
+        assert remote_pass_entry["runner"]["remote_execution"] is True
+        assert remote_pass_entry["artifact_retrieval"]["status"] == "clean"
+        assert remote_pass_runpack["remote_validation_proof_ledger"]["summary"][
+            "clean_remote_proof_entries"
+        ] == 1
+        local_refusal_cargo_path = write_json(
+            workspace / "cargo-local-fallback-refusal.json",
+            {
+                "schema": "pi.cargo_headroom.admission.v1",
+                "decision": "deny",
+                "reason": "rch_unavailable_and_remote_required",
+                "requested_runner": "rch",
+                "resolved_runner": "none",
+                "command_class": "heavy",
+                "allow_local_fallback": False,
+                "cargo_command": "clippy --all-targets -- -D warnings",
+                "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/test/target",
+                "tmpdir": "/data/tmp/pi_agent_rust_cargo/test/tmp",
+                "remote_validation_proof": {
+                    "bead_id": "bd-e5le6.2",
+                    "runner": {
+                        "resolved_runner": "not_run",
+                        "runner_requirement": "rch_required",
+                        "remote_execution": False,
+                        "local_fallback": "refused",
+                        "fallback_reason": "rch_unavailable_and_remote_required",
+                        "queue_state": "unavailable",
+                        "worker_state": "not_run",
+                        "status_excerpt": "RCH unavailable; refusing local fallback",
+                    },
+                    "exit": {
+                        "exit_code": None,
+                        "success": False,
+                        "termination_reason": "local_fallback_refused",
+                        "stderr_excerpt": "remote execution required",
+                        "stdout_excerpt": "",
+                    },
+                },
+            },
+        )
+        local_refusal_runpack = build_runpack(
+            argparse.Namespace(
+                **{
+                    **vars(args),
+                    "cargo_admission_json": local_refusal_cargo_path,
+                    "rch_artifact_sync_json": None,
+                    "out_json": None,
+                    "out_md": None,
+                }
+            )
+        )
+        local_refusal_entry = local_refusal_runpack["remote_validation_proof_ledger"][
+            "entries"
+        ][0]
+        assert local_refusal_entry["evidence_classification"]["status"] == "blocked"
+        assert local_refusal_entry["runner"]["local_fallback"] == "refused"
+        assert any(
+            warning["warning_id"] == "local_fallback_refused"
+            for warning in local_refusal_entry["warnings"]
+        )
+        retrieval_warning_sync_path = write_json(
+            workspace / "rch-artifact-sync-warning.json",
+            {
+                "schema": RCH_ARTIFACT_SYNC_SCHEMA,
+                "generated_at": generated_at,
+                "status": "warning",
+                "required_paths": [
+                    {"path": "target/debug/.fingerprint", "included": False}
+                ],
+                "violations": [
+                    {
+                        "path": "target/debug/.fingerprint",
+                        "reason": "rsync reported partial transfer",
+                    }
+                ],
+                "exit_code": 23,
+                "elapsed_ms": 37,
+            },
+        )
+        retrieval_warning_runpack = build_runpack(
+            argparse.Namespace(
+                **{
+                    **vars(args),
+                    "cargo_admission_json": remote_pass_cargo_path,
+                    "rch_artifact_sync_json": retrieval_warning_sync_path,
+                    "out_json": None,
+                    "out_md": None,
+                }
+            )
+        )
+        retrieval_warning_entry = retrieval_warning_runpack[
+            "remote_validation_proof_ledger"
+        ]["entries"][0]
+        assert retrieval_warning_entry["evidence_classification"]["status"] == "degraded"
+        assert (
+            retrieval_warning_entry["evidence_classification"]["clean_remote_proof"]
+            is False
+        )
+        assert retrieval_warning_entry["runner"]["remote_execution"] is True
+        assert retrieval_warning_entry["artifact_retrieval"]["status"] == "warning"
+        assert any(
+            warning["warning_id"] == "artifact_retrieval_warning"
+            for warning in retrieval_warning_entry["warnings"]
         )
         scorecard = runpack["swarm_scale_safety_scorecard"]
         assert scorecard["schema"] == SAFETY_SCORECARD_SCHEMA
@@ -9909,6 +10747,10 @@ def parse_args() -> argparse.Namespace:
         "--cargo-admission-json",
         type=Path,
         help="JSON or JSONL from cargo_headroom.sh --admit-only",
+    )
+    parser.add_argument(
+        "--active-bead-id",
+        help="Beads issue ID associated with the validation proof ledger entries",
     )
     parser.add_argument(
         "--beads-json",
