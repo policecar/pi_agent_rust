@@ -13,6 +13,7 @@ import contextlib
 import difflib
 import fnmatch
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -434,6 +435,28 @@ WORK_SURFACE_RULES: tuple[dict[str, Any], ...] = (
 )
 FAILURE_ACTION_CATALOG_SCHEMA = "pi.swarm.failure_action_catalog.v1"
 FAILURE_ACTION_MAX_EXCERPT_CHARS = 520
+RCH_DRIFT_CATEGORY_METADATA: dict[str, dict[str, str]] = {
+    "missing_remote_target_directory": {
+        "drift_class": "infrastructure_drift",
+        "remediation": "Create or remap the worker-side target/output directory before rerunning the RCH-backed evidence refresh.",
+    },
+    "rsync_mkstemp_no_such_file": {
+        "drift_class": "evidence_retrieval_drift",
+        "remediation": "Fix RCH artifact retrieval/writeback path creation or rerun with worker-local output paths.",
+    },
+    "disk_pressure": {
+        "drift_class": "infrastructure_drift",
+        "remediation": "Move CARGO_TARGET_DIR and TMPDIR to high-capacity scratch, clear disposable build pressure with approved cleanup, then rerun the gate.",
+    },
+    "remote_dependency_preflight_blocked": {
+        "drift_class": "code_regression",
+        "remediation": "Fix the dependency/source preflight failure or pin the missing dependency before rerunning RCH validation.",
+    },
+    "artifact_retrieval_warning_after_success": {
+        "drift_class": "evidence_retrieval_drift",
+        "remediation": "Treat the remote command as inconclusive for evidence until artifact retrieval is clean or the expected artifacts are regenerated locally.",
+    },
+}
 FAILURE_ACTION_RULES: tuple[dict[str, Any], ...] = (
     {
         "id": "FAIL-RCH-QUEUE-SATURATED",
@@ -460,10 +483,69 @@ FAILURE_ACTION_RULES: tuple[dict[str, Any], ...] = (
         ),
     },
     {
+        "id": "FAIL-RCH-MISSING-REMOTE-TARGET-DIRECTORY",
+        "category": "rch",
+        "confidence": "high",
+        "drift_category_id": "missing_remote_target_directory",
+        "drift_class": RCH_DRIFT_CATEGORY_METADATA["missing_remote_target_directory"]["drift_class"],
+        "remediation": RCH_DRIFT_CATEGORY_METADATA["missing_remote_target_directory"]["remediation"],
+        "terms": ("remote target dir", "remote target directory"),
+        "secondary_terms": ("missing", "not found", "no such file"),
+        "title": "RCH artifact retrieval cannot find the worker target directory",
+        "explanation": (
+            "The RCH worker-side target or output directory was absent when "
+            "artifact retrieval ran, so the evidence refresh did not prove a "
+            "clean remote validation result."
+        ),
+        "safe_commands": (
+            ("Inspect RCH jobs and workers", "rch status --workers --jobs"),
+            ("Inspect RCH queue", "rch queue"),
+            (
+                "Retry with explicit scratch paths",
+                "env CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/${USER:-agent}/target TMPDIR=/data/tmp/pi_agent_rust_cargo/${USER:-agent}/tmp rch exec -- cargo check --all-targets",
+            ),
+        ),
+        "escalation": RCH_DRIFT_CATEGORY_METADATA["missing_remote_target_directory"]["remediation"],
+    },
+    {
+        "id": "FAIL-RCH-RSYNC-MKSTEMP-NO-SUCH-FILE",
+        "category": "rch",
+        "confidence": "high",
+        "drift_category_id": "rsync_mkstemp_no_such_file",
+        "drift_class": RCH_DRIFT_CATEGORY_METADATA["rsync_mkstemp_no_such_file"]["drift_class"],
+        "remediation": RCH_DRIFT_CATEGORY_METADATA["rsync_mkstemp_no_such_file"]["remediation"],
+        "terms": ("rsync", "mkstemp"),
+        "secondary_terms": ("no such file", "artifact", "retrieval"),
+        "title": "RCH artifact rsync failed while creating a local temp file",
+        "explanation": (
+            "Rsync reached artifact retrieval but could not create the local "
+            "temporary file path. Treat the command as inconclusive for evidence "
+            "until the writeback path is fixed."
+        ),
+        "safe_commands": (
+            ("Inspect RCH jobs and workers", "rch status --workers --jobs"),
+            ("Inspect local scratch headroom", "df -h /data/tmp /tmp"),
+            (
+                "Retry with explicit scratch paths",
+                "env CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/${USER:-agent}/target TMPDIR=/data/tmp/pi_agent_rust_cargo/${USER:-agent}/tmp rch exec -- cargo check --all-targets",
+            ),
+        ),
+        "escalation": RCH_DRIFT_CATEGORY_METADATA["rsync_mkstemp_no_such_file"]["remediation"],
+    },
+    {
         "id": "FAIL-RCH-ARTIFACT-RETRIEVAL-DISK",
         "category": "rch",
         "confidence": "high",
-        "terms": ("artifact retrieval", "artifact sync", "retrieve artifacts", "rch-e21"),
+        "drift_category_id": "disk_pressure",
+        "drift_class": RCH_DRIFT_CATEGORY_METADATA["disk_pressure"]["drift_class"],
+        "remediation": RCH_DRIFT_CATEGORY_METADATA["disk_pressure"]["remediation"],
+        "terms": (
+            "artifact retrieval",
+            "artifact sync",
+            "retrieve artifacts",
+            "retrieving artifacts",
+            "rch-e21",
+        ),
         "secondary_terms": ("no space left on device", "disk", "space", "storage"),
         "title": "RCH artifact retrieval is blocked by disk or artifact-sync pressure",
         "explanation": (
@@ -481,6 +563,62 @@ FAILURE_ACTION_RULES: tuple[dict[str, Any], ...] = (
             "code and worker id; do not delete cache or build directories without "
             "explicit operator approval."
         ),
+    },
+    {
+        "id": "FAIL-RCH-REMOTE-DEPENDENCY-PREFLIGHT-BLOCKED",
+        "category": "rch",
+        "confidence": "high",
+        "drift_category_id": "remote_dependency_preflight_blocked",
+        "drift_class": RCH_DRIFT_CATEGORY_METADATA["remote_dependency_preflight_blocked"]["drift_class"],
+        "remediation": RCH_DRIFT_CATEGORY_METADATA["remote_dependency_preflight_blocked"]["remediation"],
+        "terms": (
+            "remote dependency preflight blocked",
+            "dependency preflight blocked",
+            "failed to load source for dependency",
+            "failed to get `",
+        ),
+        "secondary_terms": ("dependency", "preflight", "source"),
+        "title": "RCH dependency preflight failed before evidence refresh",
+        "explanation": (
+            "The remote validation was blocked before compiler evidence could be "
+            "trusted because dependency/source resolution failed in preflight."
+        ),
+        "safe_commands": (
+            ("Inspect RCH worker health", "rch status --workers --jobs"),
+            (
+                "Retry the focused validation after fixing dependency state",
+                "env CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/${USER:-agent}/target TMPDIR=/data/tmp/pi_agent_rust_cargo/${USER:-agent}/tmp rch exec -- cargo check --all-targets",
+            ),
+        ),
+        "escalation": RCH_DRIFT_CATEGORY_METADATA["remote_dependency_preflight_blocked"]["remediation"],
+    },
+    {
+        "id": "FAIL-RCH-ARTIFACT-RETRIEVAL-WARNING-AFTER-SUCCESS",
+        "category": "rch",
+        "confidence": "high",
+        "drift_category_id": "artifact_retrieval_warning_after_success",
+        "drift_class": RCH_DRIFT_CATEGORY_METADATA["artifact_retrieval_warning_after_success"]["drift_class"],
+        "remediation": RCH_DRIFT_CATEGORY_METADATA["artifact_retrieval_warning_after_success"]["remediation"],
+        "terms": (
+            "artifact retrieval warning",
+            "no artifacts retrieved",
+            "rsync reported partial transfer",
+        ),
+        "secondary_terms": ("remote command finished: exit=0", "exit=0", "after success", "post-success"),
+        "title": "RCH reported success before artifact retrieval warnings",
+        "explanation": (
+            "The remote command reported a successful exit, but artifact retrieval "
+            "was not clean. Treat the proof as degraded operator evidence."
+        ),
+        "safe_commands": (
+            ("Inspect RCH jobs and workers", "rch status --workers --jobs"),
+            ("Inspect RCH queue", "rch queue"),
+            (
+                "Regenerate expected artifacts through RCH",
+                "env CARGO_TARGET_DIR=/data/tmp/pi_agent_rust_cargo/${USER:-agent}/target TMPDIR=/data/tmp/pi_agent_rust_cargo/${USER:-agent}/tmp rch exec -- cargo check --all-targets",
+            ),
+        ),
+        "escalation": RCH_DRIFT_CATEGORY_METADATA["artifact_retrieval_warning_after_success"]["remediation"],
     },
     {
         "id": "FAIL-CARGO-LOCAL-TARGET-DISK",
@@ -652,6 +790,22 @@ TIMESTAMP_KEYS = (
     "run_started_at",
     "completed_at",
 )
+
+
+def load_dashboard_rch_drift_categories() -> dict[str, dict[str, Any]]:
+    dashboard_path = Path(__file__).with_name("generate_maintenance_dashboard.py")
+    spec = importlib.util.spec_from_file_location(
+        "generate_maintenance_dashboard",
+        dashboard_path,
+    )
+    if spec is None or spec.loader is None:
+        raise RunpackError(f"unable to import dashboard category source: {dashboard_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    categories = getattr(module, "RCH_DRIFT_CATEGORIES", None)
+    if not isinstance(categories, dict):
+        raise RunpackError("dashboard RCH drift categories are not available")
+    return categories
 
 
 class RunpackError(RuntimeError):
@@ -4828,7 +4982,7 @@ def build_failure_action(
         bounded_text(str(signal.get("text") or ""), FAILURE_ACTION_MAX_EXCERPT_CHARS),
         f"failure_actions.{rule.get('id')}.raw_excerpt",
     )
-    return {
+    action = {
         "id": rule.get("id"),
         "catalog_schema": FAILURE_ACTION_CATALOG_SCHEMA,
         "category": rule.get("category"),
@@ -4845,6 +4999,11 @@ def build_failure_action(
         "raw_excerpt": excerpt,
         "redaction_summary": redaction.to_json(),
     }
+    for key in ("drift_category_id", "drift_class", "remediation"):
+        value = rule.get(key)
+        if value is not None:
+            action[key] = value
+    return action
 
 
 def merge_failure_action_evidence(
@@ -11490,6 +11649,69 @@ def run_self_test() -> int:
             assert_autopilot_plan_contract(plan)
             return action
 
+        dashboard_rch_categories = load_dashboard_rch_drift_categories()
+        rch_catalog_by_category = {
+            str(rule["drift_category_id"]): rule
+            for rule in FAILURE_ACTION_RULES
+            if rule.get("drift_category_id") is not None
+        }
+        assert set(rch_catalog_by_category) == set(dashboard_rch_categories), {
+            "catalog": sorted(rch_catalog_by_category),
+            "dashboard": sorted(dashboard_rch_categories),
+        }
+        for category_id, dashboard_category in dashboard_rch_categories.items():
+            catalog_rule = rch_catalog_by_category[category_id]
+            assert catalog_rule["drift_class"] == dashboard_category["drift_class"], category_id
+            assert catalog_rule["remediation"] == dashboard_category["remediation"], category_id
+
+        def require_rch_drift_action(
+            plan: dict[str, Any],
+            action_id: str,
+            category_id: str,
+        ) -> dict[str, Any]:
+            action = require_failure_action(plan, action_id)
+            dashboard_category = dashboard_rch_categories[category_id]
+            assert action["drift_category_id"] == category_id
+            assert action["drift_class"] == dashboard_category["drift_class"]
+            assert action["remediation"] == dashboard_category["remediation"]
+            return action
+
+        missing_remote_target_plan = build_failure_fixture_plan(
+            "failure-rch-missing-remote-target",
+            commands=[
+                {
+                    "id": "rch_artifact_sync",
+                    "command": "rch exec -- cargo check --all-targets",
+                    "status": "failed",
+                    "exit_code": 1,
+                    "issue": "RCH-E213 remote target directory /worker/missing-target not found while retrieving artifacts",
+                }
+            ],
+        )
+        require_rch_drift_action(
+            missing_remote_target_plan,
+            "FAIL-RCH-MISSING-REMOTE-TARGET-DIRECTORY",
+            "missing_remote_target_directory",
+        )
+
+        rsync_mkstemp_plan = build_failure_fixture_plan(
+            "failure-rch-rsync-mkstemp",
+            commands=[
+                {
+                    "id": "rch_artifact_sync",
+                    "command": "rch exec -- cargo check --all-targets",
+                    "status": "failed",
+                    "exit_code": 1,
+                    "issue": 'rsync artifact retrieval failed: mkstemp "/tmp/out/.artifact.tmp" failed: No such file or directory (2)',
+                }
+            ],
+        )
+        require_rch_drift_action(
+            rsync_mkstemp_plan,
+            "FAIL-RCH-RSYNC-MKSTEMP-NO-SUCH-FILE",
+            "rsync_mkstemp_no_such_file",
+        )
+
         rch_retrieval_plan = build_failure_fixture_plan(
             "failure-rch-retrieval",
             commands=[
@@ -11502,9 +11724,46 @@ def run_self_test() -> int:
                 }
             ],
         )
-        require_failure_action(
+        require_rch_drift_action(
             rch_retrieval_plan,
             "FAIL-RCH-ARTIFACT-RETRIEVAL-DISK",
+            "disk_pressure",
+        )
+
+        remote_dependency_plan = build_failure_fixture_plan(
+            "failure-rch-remote-dependency",
+            commands=[
+                {
+                    "id": "rch_dependency_preflight",
+                    "command": "rch exec -- cargo check --all-targets",
+                    "status": "failed",
+                    "exit_code": 1,
+                    "issue": "remote dependency preflight blocked: failed to load source for dependency `asupersync`",
+                }
+            ],
+        )
+        require_rch_drift_action(
+            remote_dependency_plan,
+            "FAIL-RCH-REMOTE-DEPENDENCY-PREFLIGHT-BLOCKED",
+            "remote_dependency_preflight_blocked",
+        )
+
+        post_success_warning_plan = build_failure_fixture_plan(
+            "failure-rch-post-success-retrieval-warning",
+            commands=[
+                {
+                    "id": "rch_artifact_sync",
+                    "command": "rch exec -- cargo check --all-targets",
+                    "status": "degraded",
+                    "exit_code": 0,
+                    "issue": "Remote command finished: exit=0; artifact retrieval warning: no artifacts retrieved from worker after success",
+                }
+            ],
+        )
+        require_rch_drift_action(
+            post_success_warning_plan,
+            "FAIL-RCH-ARTIFACT-RETRIEVAL-WARNING-AFTER-SUCCESS",
+            "artifact_retrieval_warning_after_success",
         )
 
         local_target_plan = build_failure_fixture_plan(
