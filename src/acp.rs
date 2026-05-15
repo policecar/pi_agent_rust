@@ -100,7 +100,6 @@ const INTERNAL_ERROR: i64 = -32603;
 // ACP-specific error codes.
 const SESSION_NOT_FOUND: i64 = -32001;
 const PROMPT_IN_PROGRESS: i64 = -32002;
-const PROMPT_NOT_FOUND: i64 = -32003;
 
 fn json_rpc_ok(id: Value, result: Value) -> String {
     serde_json::to_string(&JsonRpcResponse {
@@ -176,7 +175,6 @@ struct AcpSessionState {
     /// out during prompt execution without holding the session lock.
     agent_session: Option<AgentSession>,
     cwd: PathBuf,
-    session_id: String,
 }
 
 // ============================================================================
@@ -323,7 +321,7 @@ async fn run(
                     continue;
                 }
 
-                match handle_session_new(&request.params, &options, &cx).await {
+                match handle_session_new(&request.params, &options) {
                     Ok((session_id, state)) => {
                         let models: Vec<AcpModel> = options
                             .available_models
@@ -939,11 +937,7 @@ fn build_acp_system_prompt(cwd: &std::path::Path, enabled_tools: &[&str]) -> Str
     prompt
 }
 
-async fn handle_session_new(
-    params: &Value,
-    options: &AcpOptions,
-    _cx: &AgentCx,
-) -> Result<(String, AcpSessionState)> {
+fn handle_session_new(params: &Value, options: &AcpOptions) -> Result<(String, AcpSessionState)> {
     let cwd = params.get("cwd").and_then(Value::as_str).map_or_else(
         || std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         PathBuf::from,
@@ -1011,11 +1005,10 @@ async fn handle_session_new(
         .with_runtime_handle(options.runtime_handle.clone());
 
     Ok((
-        session_id.clone(),
+        session_id,
         AcpSessionState {
             agent_session: Some(agent_session),
             cwd,
-            session_id,
         },
     ))
 }

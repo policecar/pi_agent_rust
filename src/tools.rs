@@ -762,6 +762,8 @@ struct ToolOutputCacheStats {
     inserts: usize,
     invalidations: usize,
     disabled: usize,
+    side_effect_accesses: usize,
+    side_effect_insert_attempts: usize,
 }
 
 #[derive(Debug, Default)]
@@ -778,6 +780,12 @@ impl ToolOutputCache {
     fn get(&mut self, key: &str, deps: &[ToolCacheDependency]) -> Option<ToolOutput> {
         self.generation = self.generation.saturating_add(1);
         let generation = self.generation;
+        #[cfg(test)]
+        {
+            if is_side_effect_tool_cache_key(key) {
+                self.stats.side_effect_accesses = self.stats.side_effect_accesses.saturating_add(1);
+            }
+        }
 
         if self
             .entries
@@ -823,6 +831,14 @@ impl ToolOutputCache {
                 self.stats.disabled = self.stats.disabled.saturating_add(1);
             }
             return;
+        }
+
+        #[cfg(test)]
+        {
+            if is_side_effect_tool_cache_key(&key) {
+                self.stats.side_effect_insert_attempts =
+                    self.stats.side_effect_insert_attempts.saturating_add(1);
+            }
         }
 
         if let Some(removed) = self.entries.remove(&key) {
@@ -882,6 +898,11 @@ fn lock_tool_output_cache() -> std::sync::MutexGuard<'static, ToolOutputCache> {
 fn tool_cache_key(tool: &str, cwd: &Path, input: &serde_json::Value) -> String {
     let input_json = serde_json::to_string(input).unwrap_or_else(|_| input.to_string());
     format!("{tool}\0{}\0{input_json}", cwd.display())
+}
+
+#[cfg(test)]
+fn is_side_effect_tool_cache_key(key: &str) -> bool {
+    key.starts_with("write\0") || key.starts_with("edit\0") || key.starts_with("bash\0")
 }
 
 fn cached_tool_output(key: &str, deps: Option<&[ToolCacheDependency]>) -> Option<ToolOutput> {
@@ -1114,6 +1135,7 @@ fn format_size(bytes: usize) -> String {
     }
 }
 
+#[cfg(test)]
 fn js_string_length(s: &str) -> usize {
     // Match JavaScript's String.length (UTF-16 code units), not UTF-8 bytes.
     s.encode_utf16().count()
@@ -1134,20 +1156,7 @@ fn normalize_unicode_spaces(s: &str) -> String {
         .collect()
 }
 
-fn normalize_quotes(s: &str) -> String {
-    s.replace(['\u{2018}', '\u{2019}'], "'")
-        .replace(['\u{201C}', '\u{201D}', '\u{201E}', '\u{201F}'], "\"")
-}
-
-fn normalize_dashes(s: &str) -> String {
-    s.replace(
-        [
-            '\u{2010}', '\u{2011}', '\u{2012}', '\u{2013}', '\u{2014}', '\u{2015}', '\u{2212}',
-        ],
-        "-",
-    )
-}
-
+#[cfg(test)]
 fn normalize_for_match(s: &str) -> String {
     // Single-pass normalization: spaces, quotes, and dashes in one allocation.
     // Avoids 3 intermediate String allocations from chained replace calls.
@@ -1168,10 +1177,6 @@ fn normalize_for_match(s: &str) -> String {
         }
     }
     out
-}
-
-fn normalize_line_for_match(line: &str) -> String {
-    normalize_for_match(line.trim_end())
 }
 
 fn expand_path(file_path: &str) -> String {
@@ -3224,6 +3229,7 @@ fn build_normalized_content(content: &str) -> String {
     normalized
 }
 
+#[cfg(test)]
 fn fuzzy_find_text(content: &str, old_text: &str) -> FuzzyMatchResult {
     fuzzy_find_text_with_normalized(content, old_text, None, None)
 }
@@ -5400,6 +5406,7 @@ pub(crate) fn read_to_end_capped_and_drain<R: Read>(
 // `Sync`, and this helper awaits between polls, so `&Receiver` would make the
 // surrounding future non-Send.
 #[allow(clippy::needless_pass_by_ref_mut)]
+#[cfg(test)]
 async fn drain_bash_output(
     rx: &mut mpsc::Receiver<BashPipeFrame>,
     bash_output: &mut BashOutputState,
@@ -7062,9 +7069,16 @@ mod tests {
             .await
             .expect("run uncached bash");
 
+        let side_effect_stats_after = tool_output_cache_stats_for_tests();
         assert_eq!(
-            tool_output_cache_stats_for_tests(),
-            side_effect_stats_before,
+            (
+                side_effect_stats_after.side_effect_accesses,
+                side_effect_stats_after.side_effect_insert_attempts
+            ),
+            (
+                side_effect_stats_before.side_effect_accesses,
+                side_effect_stats_before.side_effect_insert_attempts
+            ),
             "write, edit, and bash must not consult or populate the read-only output cache"
         );
     }
