@@ -9081,6 +9081,21 @@ def run_self_test() -> int:
         max_items=4,
     )
     try:
+        def assert_proof(condition: bool, message: str, entry: dict[str, Any]) -> None:
+            if condition:
+                return
+            excerpt = {
+                "runner": entry.get("runner"),
+                "timing": entry.get("timing"),
+                "exit": entry.get("exit"),
+                "artifact_retrieval": entry.get("artifact_retrieval"),
+                "evidence_classification": entry.get("evidence_classification"),
+                "warnings": entry.get("warnings"),
+            }
+            raise AssertionError(
+                f"{message}; proof_entry_excerpt={json_dumps(excerpt)}"
+            )
+
         runpack = build_runpack(args)
         write_outputs(args, runpack)
         assert runpack["schema"] == RUNPACK_SCHEMA
@@ -9268,13 +9283,203 @@ def run_self_test() -> int:
         remote_pass_entry = remote_pass_runpack["remote_validation_proof_ledger"][
             "entries"
         ][0]
-        assert remote_pass_entry["evidence_classification"]["status"] == "pass"
-        assert remote_pass_entry["evidence_classification"]["clean_remote_proof"] is True
-        assert remote_pass_entry["runner"]["remote_execution"] is True
-        assert remote_pass_entry["artifact_retrieval"]["status"] == "clean"
+        assert_proof(
+            remote_pass_entry["evidence_classification"]["status"] == "pass",
+            "remote RCH pass should classify as pass",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["evidence_classification"]["clean_remote_proof"] is True,
+            "remote RCH pass should be clean remote proof",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["runner"]["remote_execution"] is True,
+            "remote RCH pass should preserve remote_execution=true",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["runner"]["worker_id"] == "worker-fixture",
+            "remote RCH pass should retain selected worker id",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["runner"]["worker_host"] == "ubuntu@worker-fixture",
+            "remote RCH pass should retain selected worker host",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["runner"]["rch_job_id"] == "selftest-rch-job",
+            "remote RCH pass should retain RCH job id",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["runner"]["command_rewrite"]
+            == {"tmpdir_rewritten": True, "target_dir_rewritten": True},
+            "remote RCH pass should retain TMPDIR and CARGO_TARGET_DIR rewrite evidence",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["command"]["rendered"] == "rch exec -- cargo check --all-targets",
+            "remote RCH pass should render the offloaded command",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["timing"]["heartbeat_at_utc"] == "2026-05-09T09:03:50Z",
+            "remote RCH pass should retain heartbeat timestamp",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["paths"]["remote_target_dir"]
+            == "/data/projects/pi_agent_rust/.rch-target-selftest",
+            "remote RCH pass should retain remote target dir",
+            remote_pass_entry,
+        )
+        assert_proof(
+            remote_pass_entry["artifact_retrieval"]["status"] == "clean",
+            "remote RCH pass should retain clean artifact retrieval status",
+            remote_pass_entry,
+        )
         assert remote_pass_runpack["remote_validation_proof_ledger"]["summary"][
             "clean_remote_proof_entries"
         ] == 1
+
+        stale_progress_payload = json.loads(
+            remote_pass_cargo_path.read_text(encoding="utf-8")
+        )
+        stale_progress_payload["remote_validation_proof"]["timing"][
+            "heartbeat_at_utc"
+        ] = "2026-05-09T09:02:00Z"
+        stale_progress_payload["remote_validation_proof"]["timing"][
+            "stale_progress_detected"
+        ] = True
+        stale_progress_payload["remote_validation_proof"]["runner"][
+            "status_excerpt"
+        ] = "Remote command finished: exit=0 after stale progress heartbeat"
+        stale_progress_cargo_path = write_json(
+            workspace / "cargo-stale-progress.json",
+            stale_progress_payload,
+        )
+        stale_progress_runpack = build_runpack(
+            argparse.Namespace(
+                **{
+                    **vars(args),
+                    "cargo_admission_json": stale_progress_cargo_path,
+                    "rch_artifact_sync_json": remote_pass_sync_path,
+                    "out_json": None,
+                    "out_md": None,
+                }
+            )
+        )
+        stale_progress_entry = stale_progress_runpack[
+            "remote_validation_proof_ledger"
+        ]["entries"][0]
+        assert_proof(
+            stale_progress_entry["timing"]["stale_progress_detected"] is True,
+            "stale progress case should retain heartbeat staleness",
+            stale_progress_entry,
+        )
+        assert_proof(
+            stale_progress_entry["timing"]["heartbeat_at_utc"]
+            == "2026-05-09T09:02:00Z",
+            "stale progress case should retain stale heartbeat timestamp",
+            stale_progress_entry,
+        )
+        assert_proof(
+            any(
+                warning["warning_id"] == "stale_progress"
+                for warning in stale_progress_entry["warnings"]
+            ),
+            "stale progress case should emit stale_progress warning",
+            stale_progress_entry,
+        )
+        assert_proof(
+            "stale_progress"
+            in stale_progress_entry["evidence_classification"]["degraded_reasons"],
+            "stale progress case should keep stale_progress in degraded reasons",
+            stale_progress_entry,
+        )
+
+        observed_local_payload = json.loads(
+            remote_pass_cargo_path.read_text(encoding="utf-8")
+        )
+        observed_local_payload["reason"] = "rch_failed_open_local_fallback"
+        observed_local_payload["resolved_runner"] = "local"
+        observed_local_payload["remote_validation_proof"]["runner"].update(
+            {
+                "resolved_runner": "local",
+                "remote_execution": False,
+                "local_fallback": "observed",
+                "fallback_reason": "rch_failed_open_local_fallback",
+                "rch_job_id": "",
+                "worker_id": "",
+                "worker_host": "",
+                "queue_state": "unavailable",
+                "worker_state": "completed_locally",
+                "command_rewrite": {
+                    "tmpdir_rewritten": False,
+                    "target_dir_rewritten": False,
+                },
+                "status_excerpt": "RCH unavailable; command ran locally",
+            }
+        )
+        observed_local_cargo_path = write_json(
+            workspace / "cargo-local-fallback-observed.json",
+            observed_local_payload,
+        )
+        observed_local_runpack = build_runpack(
+            argparse.Namespace(
+                **{
+                    **vars(args),
+                    "cargo_admission_json": observed_local_cargo_path,
+                    "rch_artifact_sync_json": remote_pass_sync_path,
+                    "out_json": None,
+                    "out_md": None,
+                }
+            )
+        )
+        observed_local_entry = observed_local_runpack[
+            "remote_validation_proof_ledger"
+        ]["entries"][0]
+        assert_proof(
+            observed_local_entry["runner"]["local_fallback"] == "observed",
+            "observed local fallback should be explicit",
+            observed_local_entry,
+        )
+        assert_proof(
+            observed_local_entry["runner"]["remote_execution"] is False,
+            "observed local fallback should not claim remote execution",
+            observed_local_entry,
+        )
+        assert_proof(
+            observed_local_entry["exit"]["success"] is True,
+            "observed local fallback fixture should model an otherwise successful command",
+            observed_local_entry,
+        )
+        assert_proof(
+            observed_local_entry["artifact_retrieval"]["status"] == "clean",
+            "observed local fallback fixture should isolate fallback from retrieval status",
+            observed_local_entry,
+        )
+        assert_proof(
+            observed_local_entry["evidence_classification"]["clean_remote_proof"]
+            is False,
+            "observed local fallback must never be clean remote proof",
+            observed_local_entry,
+        )
+        assert_proof(
+            observed_local_entry["evidence_classification"]["status"] == "degraded",
+            "observed local fallback should degrade even when command exit is 0",
+            observed_local_entry,
+        )
+        assert_proof(
+            any(
+                warning["warning_id"] == "local_fallback_observed"
+                for warning in observed_local_entry["warnings"]
+            ),
+            "observed local fallback should emit local_fallback_observed warning",
+            observed_local_entry,
+        )
         local_refusal_cargo_path = write_json(
             workspace / "cargo-local-fallback-refusal.json",
             {
@@ -9370,6 +9575,26 @@ def run_self_test() -> int:
         )
         assert retrieval_warning_entry["runner"]["remote_execution"] is True
         assert retrieval_warning_entry["artifact_retrieval"]["status"] == "warning"
+        assert_proof(
+            retrieval_warning_entry["artifact_retrieval"]["missing_paths"]
+            == ["target/debug/.fingerprint"],
+            "retrieval warning should preserve missing artifact paths",
+            retrieval_warning_entry,
+        )
+        assert_proof(
+            retrieval_warning_entry["artifact_retrieval"]["warning_details"]
+            == ["target/debug/.fingerprint: rsync reported partial transfer"],
+            "retrieval warning should preserve warning details",
+            retrieval_warning_entry,
+        )
+        assert_proof(
+            retrieval_warning_runpack["remote_validation_proof_ledger"]["summary"][
+                "degraded_entries"
+            ]
+            == 1,
+            "retrieval warning should increment degraded proof summary",
+            retrieval_warning_entry,
+        )
         assert any(
             warning["warning_id"] == "artifact_retrieval_warning"
             for warning in retrieval_warning_entry["warnings"]
