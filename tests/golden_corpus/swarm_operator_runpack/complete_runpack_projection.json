@@ -831,6 +831,7 @@
     "Close finished work with `br close <issue-id> --reason \"...\"` and `br sync --flush-only`.",
     "Final handoff must say Agent Mail was unavailable and Beads ownership was used as the coordination record.",
     "Inspect failed validation output before resuming or closing the active bead",
+    "Review turn pressure ledger before adding prompt/tool/session load to the next turn",
     "Review degraded swarm-scale safety scorecard dimensions before release runpack signoff",
     "Review progress SLO `build_saturated` before launching more swarm work"
   ],
@@ -1499,6 +1500,16 @@
         "p999_us": 300,
         "p99_us": 300,
         "sample_count": 3
+      },
+      {
+        "count": 6,
+        "id": "tui_frame_render",
+        "label": "TUI frame render",
+        "max_us": 24000,
+        "p95_us": 21000,
+        "p999_us": 24000,
+        "p99_us": 22000,
+        "sample_count": 6
       }
     ],
     "purpose": "operator_observability_not_release_performance_claim",
@@ -1511,6 +1522,194 @@
     "schema": "pi.operator_tail_latency.v1",
     "status": "ok",
     "telemetry_enabled": true
+  },
+  "turn_pressure_ledger": {
+    "dimensions": [
+      {
+        "evidence_paths": [
+          "smoke_harness.harness_status",
+          "validation_outputs.status",
+          "git_state.dirty",
+          "beads.active_count"
+        ],
+        "id": "normal_turn_baseline",
+        "metrics": {
+          "active_beads": 2,
+          "git_dirty": true,
+          "smoke_status": "pass",
+          "validation_status": "failed"
+        },
+        "recommendation": "Treat the turn as normal only when smoke, validation, git, and active-Beads signals are clean.",
+        "signal": "validation_failed_during_turn",
+        "status": "blocked"
+      },
+      {
+        "evidence_paths": [
+          "smoke_harness.artifact_manifest",
+          "validation_outputs.outputs"
+        ],
+        "id": "tool_artifact_spillover",
+        "metrics": {
+          "artifact_count": 2,
+          "largest_bytes": 2500000,
+          "total_bytes": 2500071
+        },
+        "recommendation": "Keep large tool output in evidence artifacts and avoid embedding bulky payloads into prompts.",
+        "signal": "tool_artifact_spillover",
+        "status": "pressured"
+      },
+      {
+        "evidence_paths": [
+          "doctor_swarm.context_intelligence.bundle.estimated_tokens",
+          "doctor_swarm.context_intelligence.cache.pressure",
+          "doctor_swarm.context_intelligence.bundle.missing_test_link_count"
+        ],
+        "id": "compaction_admission",
+        "metrics": {
+          "cache_pressure": true,
+          "cache_pressure_count": 1,
+          "estimated_tokens": 2048,
+          "missing_test_link_count": 2
+        },
+        "recommendation": "Gate compaction or prompt expansion on current context-intelligence evidence before adding more source material.",
+        "signal": "compaction_admission_pressure",
+        "status": "pressured"
+      },
+      {
+        "evidence_paths": [
+          "flight_recorder.provider_routing",
+          "flight_recorder.component_counts.provider"
+        ],
+        "id": "provider_routing",
+        "metrics": {
+          "fallback_count": 1,
+          "fallback_routes": [
+            {
+              "from": "openai_responses",
+              "reason": "stream_resume_degraded",
+              "to": "openai_chat"
+            }
+          ],
+          "provider_event_count": 3,
+          "route_count": 1
+        },
+        "recommendation": "Record provider reroutes as pressure evidence before treating latency or success-rate samples as stable.",
+        "signal": "provider_reroute_or_fallback",
+        "status": "pressured"
+      },
+      {
+        "evidence_paths": [
+          "tail_latency.metrics"
+        ],
+        "id": "tui_frame_budget",
+        "metrics": {
+          "frame_budget_us": 16667,
+          "frame_metric_count": 1,
+          "frame_metrics": [
+            {
+              "id": "tui_frame_render",
+              "label": "TUI frame render",
+              "max_us": 24000.0,
+              "p99_us": 22000.0
+            }
+          ],
+          "worst_p99_us": 22000.0
+        },
+        "recommendation": "Keep TUI pressure separate from provider/tool pressure so frame-budget regressions do not hide in aggregate latency.",
+        "signal": "tui_frame_budget_pressure",
+        "status": "pressured"
+      },
+      {
+        "evidence_paths": [
+          "session_recovery_swarm_profile.counts",
+          "session_recovery_swarm_profile.timings_us",
+          "session_recovery_swarm_profile.write_amplification"
+        ],
+        "id": "session_write_amplification",
+        "metrics": {
+          "base_entries": 200,
+          "bytes_written": 1200000,
+          "entries_per_turn": 80.0,
+          "entries_written": 320,
+          "logical_turns": 4,
+          "slowest_us": 1500.0,
+          "tail_entries_appended": 32
+        },
+        "recommendation": "Track session write amplification per turn before widening replay, branching, or compaction workflows.",
+        "signal": "session_write_backpressure",
+        "status": "pressured"
+      }
+    ],
+    "generated_at": "2026-05-09T09:00:00+00:00",
+    "guards": {
+      "advisory_only": true,
+      "does_not_replace_source_runtime_metrics": true,
+      "no_embedded_bodies": true,
+      "not_release_claim_evidence": true,
+      "stable_for_action_planner_consumption": true
+    },
+    "pressure_events": [
+      {
+        "dimension_id": "normal_turn_baseline",
+        "evidence_paths": [
+          "smoke_harness.harness_status",
+          "validation_outputs.status",
+          "git_state.dirty",
+          "beads.active_count"
+        ],
+        "recommendation": "Treat the turn as normal only when smoke, validation, git, and active-Beads signals are clean.",
+        "signal": "validation_failed_during_turn",
+        "status": "blocked"
+      },
+      {
+        "dimension_id": "tool_artifact_spillover",
+        "evidence_paths": [
+          "smoke_harness.artifact_manifest",
+          "validation_outputs.outputs"
+        ],
+        "recommendation": "Keep large tool output in evidence artifacts and avoid embedding bulky payloads into prompts.",
+        "signal": "tool_artifact_spillover",
+        "status": "pressured"
+      },
+      {
+        "dimension_id": "compaction_admission",
+        "evidence_paths": [
+          "doctor_swarm.context_intelligence.bundle.estimated_tokens",
+          "doctor_swarm.context_intelligence.cache.pressure",
+          "doctor_swarm.context_intelligence.bundle.missing_test_link_count"
+        ],
+        "recommendation": "Gate compaction or prompt expansion on current context-intelligence evidence before adding more source material.",
+        "signal": "compaction_admission_pressure",
+        "status": "pressured"
+      },
+      {
+        "dimension_id": "provider_routing",
+        "evidence_paths": [
+          "flight_recorder.provider_routing",
+          "flight_recorder.component_counts.provider"
+        ],
+        "recommendation": "Record provider reroutes as pressure evidence before treating latency or success-rate samples as stable.",
+        "signal": "provider_reroute_or_fallback",
+        "status": "pressured"
+      }
+    ],
+    "purpose": "operator_diagnostic_not_release_performance_claim",
+    "schema": "pi.swarm.turn_pressure_ledger.v1",
+    "status": "blocked",
+    "summary": {
+      "dimension_count": 6,
+      "dimension_status_counts": {
+        "blocked": 1,
+        "pressured": 5
+      },
+      "highest_status": "blocked",
+      "pressure_event_count": 6
+    },
+    "turn_window": {
+      "max_items": 4,
+      "mode": "operator_runpack_snapshot",
+      "source_status_count": 15
+    }
   },
   "validation_outputs": {
     "outputs": [

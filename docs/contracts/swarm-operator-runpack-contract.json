@@ -20,6 +20,7 @@
     "git_state",
     "activity_digest",
     "smoke_harness",
+    "turn_pressure_ledger",
     "bottleneck_attribution",
     "swarm_scale_safety_scorecard",
     "redaction_summary",
@@ -61,6 +62,12 @@
     "activity_digest.evidence_pointers",
     "smoke_harness.artifact_manifest",
     "smoke_harness.scenario_statuses",
+    "turn_pressure_ledger.schema",
+    "turn_pressure_ledger.status",
+    "turn_pressure_ledger.dimensions",
+    "turn_pressure_ledger.pressure_events",
+    "turn_pressure_ledger.summary.pressure_event_count",
+    "turn_pressure_ledger.guards.stable_for_action_planner_consumption",
     "bottleneck_attribution.schema",
     "bottleneck_attribution.status",
     "bottleneck_attribution.surface_coverage",
@@ -129,6 +136,7 @@
     "Inspect remote validation proof ledger",
     "Back off heavy cargo validation",
     "Use activity-digest saturation evidence",
+    "Review turn pressure ledger",
     "Account for dirty files",
     "Review degraded swarm-scale safety scorecard"
   ],
@@ -214,6 +222,15 @@
         "scorecard_schema",
         "required_scorecard_dimensions",
         "allowed_dimension_statuses"
+      ]
+    },
+    {
+      "id": "RUNPACK-MUST-007A",
+      "description": "Runpack output includes a per-turn pressure ledger that correlates prompt, tool artifact, provider, TUI, and session write pressure without embedding raw prompt or tool payload bodies.",
+      "validated_by": [
+        "turn_pressure_ledger.schema",
+        "turn_pressure_ledger.dimensions",
+        "turn_pressure_ledger.guards"
       ]
     },
     {

@@ -35,6 +35,8 @@ RUNPACK_CONTRACT_SCHEMA = "pi.swarm.operator_runpack_contract.v1"
 SAFETY_SCORECARD_SCHEMA = "pi.swarm.safety_scorecard.v1"
 TAIL_LATENCY_SCHEMA = "pi.operator_tail_latency.v1"
 BOTTLENECK_ATTRIBUTION_SCHEMA = "pi.swarm.bottleneck_attribution_dashboard.v1"
+TURN_PRESSURE_LEDGER_SCHEMA = "pi.swarm.turn_pressure_ledger.v1"
+TURN_PRESSURE_LEDGER_CONTRACT_SCHEMA = "pi.swarm.turn_pressure_ledger_contract.v1"
 FLIGHT_RECORDER_REPORT_SCHEMA = "pi.swarm.flight_recorder.report.v1"
 HOST_PREFLIGHT_SCHEMA = "pi.doctor.swarm_resource_preflight.v1"
 CONTEXT_INTELLIGENCE_SCHEMA = "pi.doctor.context_intelligence_posture.v1"
@@ -81,6 +83,9 @@ RUNTIME_INTELLIGENCE_CLOSEOUT_GATE_CONTRACT_SCHEMA = (
 )
 SWARM_REPLAY_PREVIEW_SCHEMA = "pi.swarm.replay_preview.v1"
 RUNPACK_CONTRACT_PATH = Path("docs/contracts/swarm-operator-runpack-contract.json")
+TURN_PRESSURE_LEDGER_CONTRACT_PATH = Path(
+    "docs/contracts/swarm-turn-pressure-ledger-contract.json"
+)
 AUTOPILOT_INPUT_PACK_CONTRACT_PATH = Path(
     "docs/contracts/swarm-autopilot-input-pack-contract.json"
 )
@@ -260,6 +265,15 @@ WORK_ADMISSION_GATE_ALLOWED_DECISIONS = (
     "pause_escalate",
 )
 WORK_ADMISSION_GATE_ALLOWED_STATUSES = ("admit", "limited", "wait", "blocked")
+TURN_PRESSURE_LEDGER_DIMENSION_IDS = (
+    "normal_turn_baseline",
+    "tool_artifact_spillover",
+    "compaction_admission",
+    "provider_routing",
+    "tui_frame_budget",
+    "session_write_amplification",
+)
+TURN_PRESSURE_LEDGER_ALLOWED_STATUSES = ("ok", "watch", "pressured", "blocked")
 ACTION_PLAN_TO_WORK_ADMISSION_DECISION = {
     "implement_ready_work": "proceed_with_implementation",
     "create_or_refine_beads": "create_or_refine_bead",
@@ -2972,6 +2986,424 @@ def build_bottleneck_attribution(
             "Do not turn diagnostic evidence into release-facing performance or drop-in claims without claim-integrity gates.",
         ],
     }
+
+
+def number_value(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def pressure_status_rank(status: str) -> int:
+    return {
+        "ok": 0,
+        "watch": 1,
+        "pressured": 2,
+        "blocked": 3,
+    }.get(status, 3)
+
+
+def highest_pressure_status(statuses: list[str]) -> str:
+    if not statuses:
+        return "ok"
+    return max(statuses, key=pressure_status_rank)
+
+
+def pressure_dimension(
+    *,
+    dimension_id: str,
+    status: str,
+    signal: str,
+    evidence_paths: list[str],
+    metrics: dict[str, Any],
+    recommendation: str,
+) -> dict[str, Any]:
+    assert dimension_id in TURN_PRESSURE_LEDGER_DIMENSION_IDS
+    assert status in TURN_PRESSURE_LEDGER_ALLOWED_STATUSES
+    return {
+        "id": dimension_id,
+        "status": status,
+        "signal": signal,
+        "evidence_paths": evidence_paths,
+        "metrics": metrics,
+        "recommendation": recommendation,
+    }
+
+
+def pressure_event_from_dimension(dimension: dict[str, Any]) -> dict[str, Any] | None:
+    if dimension.get("status") == "ok":
+        return None
+    return {
+        "dimension_id": dimension.get("id"),
+        "status": dimension.get("status"),
+        "signal": dimension.get("signal"),
+        "evidence_paths": dimension.get("evidence_paths") or [],
+        "recommendation": dimension.get("recommendation"),
+    }
+
+
+def build_normal_turn_pressure_dimension(runpack: dict[str, Any]) -> dict[str, Any]:
+    validation_status = runpack.get("validation_outputs", {}).get("status")
+    smoke_status = runpack.get("smoke_harness", {}).get("harness_status")
+    dirty = runpack.get("git_state", {}).get("dirty") is True
+    active_beads = int_value(runpack.get("beads", {}).get("active_count")) or 0
+    status = "ok"
+    signal = "normal_turn_observed"
+    if validation_status == "failed":
+        status = "blocked"
+        signal = "validation_failed_during_turn"
+    elif smoke_status not in {None, "pass", "ok"} or dirty:
+        status = "watch"
+        signal = "baseline_turn_has_handoff_caveats"
+    return pressure_dimension(
+        dimension_id="normal_turn_baseline",
+        status=status,
+        signal=signal,
+        evidence_paths=[
+            "smoke_harness.harness_status",
+            "validation_outputs.status",
+            "git_state.dirty",
+            "beads.active_count",
+        ],
+        metrics={
+            "smoke_status": smoke_status,
+            "validation_status": validation_status,
+            "git_dirty": dirty,
+            "active_beads": active_beads,
+        },
+        recommendation=(
+            "Treat the turn as normal only when smoke, validation, git, and active-Beads "
+            "signals are clean."
+        ),
+    )
+
+
+def build_tool_artifact_pressure_dimension(runpack: dict[str, Any]) -> dict[str, Any]:
+    smoke = runpack.get("smoke_harness") if isinstance(runpack.get("smoke_harness"), dict) else {}
+    manifest = (
+        smoke.get("artifact_manifest")
+        if isinstance(smoke.get("artifact_manifest"), list)
+        else []
+    )
+    validation = (
+        runpack.get("validation_outputs")
+        if isinstance(runpack.get("validation_outputs"), dict)
+        else {}
+    )
+    outputs = (
+        validation.get("outputs") if isinstance(validation.get("outputs"), list) else []
+    )
+    artifact_sizes = [
+        int_value(item.get("size_bytes")) or 0
+        for item in manifest
+        if isinstance(item, dict)
+    ]
+    output_sizes = [
+        int_value(item.get("size_bytes")) or 0
+        for item in outputs
+        if isinstance(item, dict)
+    ]
+    total_bytes = sum(artifact_sizes) + sum(output_sizes)
+    largest_bytes = max(artifact_sizes + output_sizes + [0])
+    artifact_count = len(manifest) + len(outputs)
+    status = "ok"
+    signal = "tool_outputs_within_inline_budget"
+    if total_bytes >= 2_000_000 or largest_bytes >= 1_000_000 or artifact_count > 8:
+        status = "pressured"
+        signal = "tool_artifact_spillover"
+    elif total_bytes or artifact_count:
+        status = "watch"
+        signal = "tool_artifacts_recorded"
+    return pressure_dimension(
+        dimension_id="tool_artifact_spillover",
+        status=status,
+        signal=signal,
+        evidence_paths=[
+            "smoke_harness.artifact_manifest",
+            "validation_outputs.outputs",
+        ],
+        metrics={
+            "artifact_count": artifact_count,
+            "total_bytes": total_bytes,
+            "largest_bytes": largest_bytes,
+        },
+        recommendation=(
+            "Keep large tool output in evidence artifacts and avoid embedding bulky "
+            "payloads into prompts."
+        ),
+    )
+
+
+def build_compaction_pressure_dimension(runpack: dict[str, Any]) -> dict[str, Any]:
+    context = runpack.get("doctor_swarm", {}).get("context_intelligence")
+    context = context if isinstance(context, dict) else {}
+    bundle = context.get("bundle") if isinstance(context.get("bundle"), dict) else {}
+    cache = context.get("cache") if isinstance(context.get("cache"), dict) else {}
+    estimated_tokens = int_value(bundle.get("estimated_tokens")) or 0
+    missing_test_links = int_value(bundle.get("missing_test_link_count")) or 0
+    cache_pressure = cache.get("pressure") is True
+    cache_pressure_count = int_value(cache.get("pressure_count")) or 0
+    status = "ok"
+    signal = "compaction_budget_available"
+    if cache_pressure or estimated_tokens >= 8_000:
+        status = "pressured"
+        signal = "compaction_admission_pressure"
+    elif estimated_tokens >= 2_000 or missing_test_links:
+        status = "watch"
+        signal = "compaction_watch"
+    return pressure_dimension(
+        dimension_id="compaction_admission",
+        status=status,
+        signal=signal,
+        evidence_paths=[
+            "doctor_swarm.context_intelligence.bundle.estimated_tokens",
+            "doctor_swarm.context_intelligence.cache.pressure",
+            "doctor_swarm.context_intelligence.bundle.missing_test_link_count",
+        ],
+        metrics={
+            "estimated_tokens": estimated_tokens,
+            "missing_test_link_count": missing_test_links,
+            "cache_pressure": cache_pressure,
+            "cache_pressure_count": cache_pressure_count,
+        },
+        recommendation=(
+            "Gate compaction or prompt expansion on current context-intelligence "
+            "evidence before adding more source material."
+        ),
+    )
+
+
+def build_provider_routing_pressure_dimension(by_id: dict[str, SourcePayload]) -> dict[str, Any]:
+    flight = by_id.get("flight_recorder")
+    payload = flight.payload if flight is not None and isinstance(flight.payload, dict) else {}
+    routes = payload.get("provider_routing")
+    routes = routes if isinstance(routes, list) else []
+    fallback_routes = [
+        route
+        for route in routes
+        if isinstance(route, dict)
+        and (
+            route.get("fallback") is True
+            or route.get("rerouted") is True
+            or route.get("status") in {"fallback", "rerouted", "degraded"}
+        )
+    ]
+    component_counts = (
+        payload.get("component_counts")
+        if isinstance(payload.get("component_counts"), dict)
+        else {}
+    )
+    provider_events = int_value(component_counts.get("provider")) or len(routes)
+    status = "ok"
+    signal = "provider_route_stable"
+    if fallback_routes:
+        status = "pressured"
+        signal = "provider_reroute_or_fallback"
+    elif provider_events:
+        status = "watch"
+        signal = "provider_routing_observed"
+    return pressure_dimension(
+        dimension_id="provider_routing",
+        status=status,
+        signal=signal,
+        evidence_paths=[
+            "flight_recorder.provider_routing",
+            "flight_recorder.component_counts.provider",
+        ],
+        metrics={
+            "provider_event_count": provider_events,
+            "route_count": len(routes),
+            "fallback_count": len(fallback_routes),
+            "fallback_routes": bounded(
+                [
+                    {
+                        "from": route.get("from") or route.get("provider"),
+                        "to": route.get("to") or route.get("fallback_provider"),
+                        "reason": route.get("reason"),
+                    }
+                    for route in fallback_routes
+                    if isinstance(route, dict)
+                ],
+                4,
+            ),
+        },
+        recommendation=(
+            "Record provider reroutes as pressure evidence before treating latency or "
+            "success-rate samples as stable."
+        ),
+    )
+
+
+def build_tui_frame_pressure_dimension(by_id: dict[str, SourcePayload]) -> dict[str, Any]:
+    tail = by_id.get("tail_latency")
+    payload = tail.payload if tail is not None and isinstance(tail.payload, dict) else {}
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), list) else []
+    frame_metrics: list[dict[str, Any]] = []
+    for metric in metrics:
+        if not isinstance(metric, dict):
+            continue
+        name = f"{metric.get('id') or ''} {metric.get('label') or ''}".lower()
+        if "tui" not in name and "frame" not in name:
+            continue
+        snapshot = metric.get("snapshot") if isinstance(metric.get("snapshot"), dict) else {}
+        tail_payload = snapshot.get("tail") if isinstance(snapshot.get("tail"), dict) else {}
+        p99_us = number_value(tail_payload.get("p99_us"))
+        max_us = number_value(snapshot.get("max_us"))
+        frame_metrics.append(
+            {
+                "id": metric.get("id"),
+                "label": metric.get("label"),
+                "p99_us": p99_us,
+                "max_us": max_us,
+            }
+        )
+    worst_p99 = max(
+        [metric["p99_us"] or 0 for metric in frame_metrics] + [0],
+    )
+    status = "ok"
+    signal = "tui_frame_budget_clear"
+    if worst_p99 >= 16_667:
+        status = "pressured"
+        signal = "tui_frame_budget_pressure"
+    elif worst_p99 >= 8_333:
+        status = "watch"
+        signal = "tui_frame_budget_watch"
+    return pressure_dimension(
+        dimension_id="tui_frame_budget",
+        status=status,
+        signal=signal,
+        evidence_paths=["tail_latency.metrics"],
+        metrics={
+            "frame_budget_us": 16_667,
+            "worst_p99_us": worst_p99,
+            "frame_metric_count": len(frame_metrics),
+            "frame_metrics": bounded(frame_metrics, 4),
+        },
+        recommendation=(
+            "Keep TUI pressure separate from provider/tool pressure so frame-budget "
+            "regressions do not hide in aggregate latency."
+        ),
+    )
+
+
+def build_session_write_pressure_dimension(by_id: dict[str, SourcePayload]) -> dict[str, Any]:
+    source = by_id.get("session_recovery_swarm_profile")
+    payload = source.payload if source is not None and isinstance(source.payload, dict) else {}
+    counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
+    timings = payload.get("timings_us") if isinstance(payload.get("timings_us"), dict) else {}
+    write_amplification = (
+        payload.get("write_amplification")
+        if isinstance(payload.get("write_amplification"), dict)
+        else {}
+    )
+    tail_entries = int_value(counts.get("tail_entries_appended")) or 0
+    base_entries = int_value(counts.get("base_entries")) or 0
+    entries_written = int_value(write_amplification.get("entries_written")) or tail_entries
+    logical_turns = int_value(write_amplification.get("logical_turns")) or 1
+    entries_per_turn = entries_written / max(logical_turns, 1)
+    bytes_written = int_value(write_amplification.get("bytes_written")) or 0
+    slowest_us = max(
+        [
+            number_value(value) or 0
+            for value in timings.values()
+            if isinstance(value, (int, float, str))
+        ]
+        + [0],
+    )
+    status = "ok"
+    signal = "session_writes_within_budget"
+    if (
+        write_amplification.get("status") in {"pressured", "blocked"}
+        or entries_per_turn >= 64
+        or bytes_written >= 1_000_000
+        or slowest_us >= 10_000
+    ):
+        status = "pressured"
+        signal = "session_write_backpressure"
+    elif entries_written or slowest_us:
+        status = "watch"
+        signal = "session_write_activity_observed"
+    return pressure_dimension(
+        dimension_id="session_write_amplification",
+        status=status,
+        signal=signal,
+        evidence_paths=[
+            "session_recovery_swarm_profile.counts",
+            "session_recovery_swarm_profile.timings_us",
+            "session_recovery_swarm_profile.write_amplification",
+        ],
+        metrics={
+            "base_entries": base_entries,
+            "tail_entries_appended": tail_entries,
+            "entries_written": entries_written,
+            "logical_turns": logical_turns,
+            "entries_per_turn": round(entries_per_turn, 2),
+            "bytes_written": bytes_written,
+            "slowest_us": slowest_us,
+        },
+        recommendation=(
+            "Track session write amplification per turn before widening replay, "
+            "branching, or compaction workflows."
+        ),
+    )
+
+
+def build_turn_pressure_ledger(
+    runpack: dict[str, Any],
+    by_id: dict[str, SourcePayload],
+    *,
+    generated_at: datetime,
+    max_items: int,
+) -> dict[str, Any]:
+    dimensions = [
+        build_normal_turn_pressure_dimension(runpack),
+        build_tool_artifact_pressure_dimension(runpack),
+        build_compaction_pressure_dimension(runpack),
+        build_provider_routing_pressure_dimension(by_id),
+        build_tui_frame_pressure_dimension(by_id),
+        build_session_write_pressure_dimension(by_id),
+    ]
+    events = [
+        event
+        for event in (pressure_event_from_dimension(dimension) for dimension in dimensions)
+        if event is not None
+    ]
+    statuses = [str(dimension.get("status") or "blocked") for dimension in dimensions]
+    status = highest_pressure_status(statuses)
+    dimension_counts = dict(sorted(Counter(statuses).items()))
+    ledger = {
+        "schema": TURN_PRESSURE_LEDGER_SCHEMA,
+        "generated_at": generated_at.isoformat(),
+        "status": status,
+        "purpose": "operator_diagnostic_not_release_performance_claim",
+        "turn_window": {
+            "mode": "operator_runpack_snapshot",
+            "source_status_count": len(runpack.get("source_statuses") or []),
+            "max_items": max_items,
+        },
+        "dimensions": dimensions,
+        "pressure_events": bounded(events, max_items),
+        "summary": {
+            "dimension_count": len(dimensions),
+            "pressure_event_count": len(events),
+            "dimension_status_counts": dimension_counts,
+            "highest_status": status,
+        },
+        "guards": {
+            "advisory_only": True,
+            "not_release_claim_evidence": True,
+            "no_embedded_bodies": True,
+            "does_not_replace_source_runtime_metrics": True,
+            "stable_for_action_planner_consumption": True,
+        },
+    }
+    assert_turn_pressure_ledger_contract(ledger)
+    return ledger
 
 
 def parse_issue_list(payload: Any) -> list[dict[str, Any]]:
@@ -6715,6 +7147,12 @@ def build_runpack(args: argparse.Namespace) -> dict[str, Any]:
             by_id["progress_slo"],
             args.max_items,
         )
+    runpack["turn_pressure_ledger"] = build_turn_pressure_ledger(
+        runpack,
+        by_id,
+        generated_at=generated_at,
+        max_items=args.max_items,
+    )
     runpack["bottleneck_attribution"] = build_bottleneck_attribution(
         runpack,
         by_id,
@@ -6790,6 +7228,15 @@ def operator_next_actions(runpack: dict[str, Any]) -> list[str]:
         actions.extend(proof_string(step) for step in mail_state.get("no_mail_closeout_steps", []))
     if runpack.get("validation_outputs", {}).get("status") == "failed":
         actions.append("Inspect failed validation output before resuming or closing the active bead")
+    turn_pressure = runpack.get("turn_pressure_ledger")
+    if isinstance(turn_pressure, dict) and turn_pressure.get("status") in {
+        "watch",
+        "pressured",
+        "blocked",
+    }:
+        actions.append(
+            "Review turn pressure ledger before adding prompt/tool/session load to the next turn"
+        )
     bottleneck = runpack.get("bottleneck_attribution")
     if isinstance(bottleneck, dict) and bottleneck.get("status") != "ready":
         actions.append(
@@ -6932,6 +7379,17 @@ def render_markdown(runpack: dict[str, Any]) -> str:
             f"- Replay preview: `{preview.get('recommended_policy_id')}` "
             f"({preview.get('comparison_count')} policy comparisons)"
         )
+    turn_pressure = runpack.get("turn_pressure_ledger")
+    if isinstance(turn_pressure, dict):
+        summary = (
+            turn_pressure.get("summary")
+            if isinstance(turn_pressure.get("summary"), dict)
+            else {}
+        )
+        lines.append(
+            f"- Turn pressure ledger: `{turn_pressure.get('status')}` "
+            f"({summary.get('pressure_event_count')} pressure events)"
+        )
     lines.append(f"- Bottleneck attribution: `{runpack['bottleneck_attribution'].get('status')}`")
     if isinstance(runpack.get("autopilot_handoff"), dict):
         handoff = runpack["autopilot_handoff"]
@@ -7008,6 +7466,14 @@ def render_markdown(runpack: dict[str, Any]) -> str:
             f"- `{item.get('surface')}` from `{item.get('source')}`: "
             f"{item.get('signal')}"
         )
+    if isinstance(runpack.get("turn_pressure_ledger"), dict):
+        ledger = runpack["turn_pressure_ledger"]
+        lines.extend(["", "## Turn Pressure Ledger"])
+        for dimension in ledger.get("dimensions", []):
+            lines.append(
+                f"- `{dimension.get('id')}`: `{dimension.get('status')}` "
+                f"({dimension.get('signal')})"
+            )
     handoff = runpack.get("autopilot_handoff")
     if isinstance(handoff, dict):
         lines.extend(["", "## Autopilot Handoff"])
@@ -7381,6 +7847,9 @@ def assert_runpack_contract(runpack: dict[str, Any]) -> None:
             assert green_requires.get("all_required_sources_ok") is True
             assert green_requires.get("all_required_evidence_present") is True
             assert green_requires.get("no_blockers") is True
+    turn_pressure = runpack.get("turn_pressure_ledger")
+    assert isinstance(turn_pressure, dict)
+    assert_turn_pressure_ledger_contract(turn_pressure)
     for field in contract.get("required_source_status_fields", []):
         for source in runpack.get("source_statuses", []):
             if isinstance(source, dict) and source.get("status") == "ok":
@@ -7637,6 +8106,51 @@ def assert_work_admission_gate_contract(gate: dict[str, Any]) -> None:
     assert set(gate.get("forbidden_actions", [])).issuperset(
         set(contract.get("required_forbidden_actions", []))
     )
+
+
+def assert_turn_pressure_ledger_contract(ledger: dict[str, Any]) -> None:
+    repo_root = Path(__file__).resolve().parent.parent
+    contract_path = repo_root / TURN_PRESSURE_LEDGER_CONTRACT_PATH
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise AssertionError(f"missing turn pressure ledger contract: {contract_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            f"turn pressure ledger contract is malformed JSON: {contract_path}: {exc}"
+        ) from exc
+    assert contract.get("schema") == TURN_PRESSURE_LEDGER_CONTRACT_SCHEMA
+    assert contract.get("ledger_schema") == TURN_PRESSURE_LEDGER_SCHEMA
+    assert ledger.get("schema") == contract["ledger_schema"]
+    assert ledger.get("purpose") == contract.get("purpose")
+    assert ledger.get("status") in set(contract.get("allowed_statuses", []))
+    for key in contract.get("required_top_level_keys", []):
+        assert key in ledger, f"missing top-level turn pressure ledger key: {key}"
+    dimensions = ledger.get("dimensions")
+    assert isinstance(dimensions, list)
+    dimension_ids = {
+        dimension.get("id") for dimension in dimensions if isinstance(dimension, dict)
+    }
+    assert dimension_ids == set(contract.get("required_dimension_ids", []))
+    for dimension in dimensions:
+        assert isinstance(dimension, dict)
+        for key in contract.get("required_dimension_fields", []):
+            assert key in dimension, f"turn pressure dimension missing key: {key}"
+        assert dimension.get("status") in set(contract.get("allowed_statuses", []))
+        assert isinstance(dimension.get("evidence_paths"), list)
+        assert isinstance(dimension.get("metrics"), dict)
+    events = ledger.get("pressure_events")
+    assert isinstance(events, list)
+    for event in events:
+        assert isinstance(event, dict)
+        for key in contract.get("required_event_fields", []):
+            assert key in event, f"turn pressure event missing key: {key}"
+        assert event.get("dimension_id") in dimension_ids
+        assert event.get("status") in set(contract.get("allowed_statuses", []))
+    guards = ledger.get("guards")
+    assert isinstance(guards, dict)
+    for guard in contract.get("required_true_guards", []):
+        assert guards.get(guard) is True, f"turn pressure guard must be true: {guard}"
 
 
 def canonicalize_for_golden(value: Any, workspace: Path) -> Any:
@@ -11336,7 +11850,7 @@ def run_self_test() -> int:
                 {
                     "id": "events_jsonl",
                     "path": str(workspace / "events.jsonl"),
-                    "size_bytes": 128,
+                    "size_bytes": 2_500_000,
                     "sha256": "a" * 64,
                 }
             ],
@@ -11599,6 +12113,23 @@ def run_self_test() -> int:
                             "p999_us": 300,
                         },
                     },
+                },
+                {
+                    "id": "tui_frame_render",
+                    "label": "TUI frame render",
+                    "snapshot": {
+                        "count": 6,
+                        "total_us": 120_000,
+                        "max_us": 24_000,
+                        "avg_us": 20_000,
+                        "tail": {
+                            "sample_window": 512,
+                            "sample_count": 6,
+                            "p95_us": 21_000,
+                            "p99_us": 22_000,
+                            "p999_us": 24_000,
+                        },
+                    },
                 }
             ],
         },
@@ -11613,6 +12144,15 @@ def run_self_test() -> int:
                 {"component": "tool_execution", "count": 2, "total_us": 250},
             ],
             "component_counts": {"provider": 3, "tool": 2, "session": 2},
+            "provider_routing": [
+                {
+                    "from": "openai_responses",
+                    "to": "openai_chat",
+                    "status": "fallback",
+                    "fallback": True,
+                    "reason": "stream_resume_degraded",
+                }
+            ],
             "coordination_failures": [],
         },
     )
@@ -11649,6 +12189,12 @@ def run_self_test() -> int:
                 "recovered_entries_after_truncation": 200,
             },
             "timings_us": {"recover": 800, "index": 1500, "save": 700},
+            "write_amplification": {
+                "status": "pressured",
+                "entries_written": 320,
+                "logical_turns": 4,
+                "bytes_written": 1_200_000,
+            },
         },
     )
     rpc_swarm_path = write_json(
@@ -12439,6 +12985,27 @@ def run_self_test() -> int:
         )
         assert runpack["tail_latency"]["metrics"][0]["p999_us"] == 300
         assert runpack["smoke_harness"]["artifact_manifest"][0]["sha256"] == "a" * 64
+        turn_pressure = runpack["turn_pressure_ledger"]
+        assert turn_pressure["schema"] == TURN_PRESSURE_LEDGER_SCHEMA
+        assert turn_pressure["status"] == "blocked"
+        pressure_dimensions = {
+            dimension["id"]: dimension for dimension in turn_pressure["dimensions"]
+        }
+        assert pressure_dimensions["normal_turn_baseline"]["status"] == "blocked"
+        assert pressure_dimensions["tool_artifact_spillover"]["status"] == "pressured"
+        assert pressure_dimensions["compaction_admission"]["status"] == "pressured"
+        assert pressure_dimensions["provider_routing"]["status"] == "pressured"
+        assert pressure_dimensions["tui_frame_budget"]["status"] == "pressured"
+        assert pressure_dimensions["session_write_amplification"]["status"] == "pressured"
+        assert pressure_dimensions["tool_artifact_spillover"]["metrics"][
+            "largest_bytes"
+        ] == 2_500_000
+        assert pressure_dimensions["provider_routing"]["metrics"]["fallback_count"] == 1
+        assert pressure_dimensions["tui_frame_budget"]["metrics"]["worst_p99_us"] == 22_000
+        assert pressure_dimensions["session_write_amplification"]["metrics"][
+            "entries_per_turn"
+        ] == 80.0
+        assert turn_pressure["summary"]["pressure_event_count"] == 6
         for source in runpack["source_statuses"]:
             assert source["size_bytes"] is not None
             assert len(source["sha256"]) == 64
@@ -12447,6 +13014,7 @@ def run_self_test() -> int:
         markdown = args.out_md.read_text(encoding="utf-8")
         assert "Tail latency telemetry" in markdown
         assert "Bottleneck Attribution" in markdown
+        assert "Turn Pressure Ledger" in markdown
         assert "Context intelligence" in markdown
         assert "Progress SLO" in markdown
         assert "Resume Commands" in markdown
@@ -13990,6 +14558,11 @@ def run_self_test() -> int:
         assert clean_runpack["beads"]["active_count"] == 0
         assert clean_runpack["agent_mail_read_state"]["status"] == "degraded"
         assert clean_runpack["validation_outputs"]["status"] == "not_provided"
+        clean_pressure_dimensions = {
+            dimension["id"]: dimension
+            for dimension in clean_runpack["turn_pressure_ledger"]["dimensions"]
+        }
+        assert clean_pressure_dimensions["normal_turn_baseline"]["status"] == "ok"
         deferred_runpack = build_runpack(
             argparse.Namespace(
                 **{
