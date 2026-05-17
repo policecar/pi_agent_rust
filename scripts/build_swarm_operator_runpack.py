@@ -99,6 +99,12 @@ ADAPTIVE_EXECUTION_CLOSEOUT_GATE_SCHEMA = (
 ADAPTIVE_EXECUTION_CLOSEOUT_GATE_CONTRACT_SCHEMA = (
     "pi.swarm.adaptive_execution.closeout_gate_contract.v1"
 )
+BACKPRESSURE_BUDGET_CONTRACT_SCHEMA = (
+    "pi.swarm.provider_rpc_tui_backpressure_budget_contract.v1"
+)
+BACKPRESSURE_BUDGET_CONTRACT_SPEC_SCHEMA = (
+    "pi.swarm.provider_rpc_tui_backpressure_budget_contract_spec.v1"
+)
 SWARM_REPLAY_PREVIEW_SCHEMA = "pi.swarm.replay_preview.v1"
 RUNPACK_CONTRACT_PATH = Path("docs/contracts/swarm-operator-runpack-contract.json")
 TURN_PRESSURE_LEDGER_CONTRACT_PATH = Path(
@@ -126,6 +132,9 @@ FOURTH_WAVE_CLOSEOUT_GATE_CONTRACT_PATH = Path(
 )
 ADAPTIVE_EXECUTION_CLOSEOUT_GATE_CONTRACT_PATH = Path(
     "docs/contracts/adaptive-execution-closeout-gate-contract.json"
+)
+BACKPRESSURE_BUDGET_CONTRACT_PATH = Path(
+    "docs/contracts/provider-rpc-tui-backpressure-budget-contract.json"
 )
 GOLDEN_REPORT_DIRECTORY = Path("tests/golden_corpus/swarm_operator_runpack")
 COMPLETE_RUNPACK_GOLDEN = "complete_runpack_projection.json"
@@ -562,6 +571,19 @@ ADAPTIVE_EXECUTION_CLOSEOUT_REQUIRED_QUALITY_GATES = (
     "git_diff_check",
     "staged_ubs",
     "beads_ledger_reconcile",
+)
+BACKPRESSURE_BUDGET_REQUIRED_SURFACE_IDS = (
+    "provider_streaming",
+    "rpc_output",
+    "tui_degradation",
+)
+BACKPRESSURE_BUDGET_REQUIRED_CANONICAL_METRICS = (
+    "event_count",
+    "semantic_preservation",
+    "coalesced_low_value_count",
+    "pressure_depth",
+    "latency_or_step",
+    "verdict",
 )
 WORK_PARTITION_INSPECT_SENTINEL = "<inspect-bead-before-reserving>"
 WORK_SURFACE_RULES: tuple[dict[str, Any], ...] = (
@@ -14188,6 +14210,367 @@ def write_fourth_wave_closeout_gate_output(
     output_path.write_text(json_dumps(summary, pretty=True), encoding="utf-8")
 
 
+def load_jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError as exc:
+        raise RunpackError(f"missing JSONL evidence: {path}") from exc
+    rows: list[dict[str, Any]] = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RunpackError(
+                f"malformed JSONL evidence at {path}:{line_number}: {exc}"
+            ) from exc
+        if not isinstance(value, dict):
+            raise RunpackError(f"JSONL evidence row is not an object: {path}:{line_number}")
+        rows.append(value)
+    return rows
+
+
+def source_terms_present(path: Path, terms: tuple[str, ...]) -> dict[str, bool]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {term: False for term in terms}
+    return {term: term in text for term in terms}
+
+
+def canonical_metric_status(mapping: dict[str, str | list[str] | None]) -> dict[str, Any]:
+    missing = [
+        metric
+        for metric in BACKPRESSURE_BUDGET_REQUIRED_CANONICAL_METRICS
+        if not mapping.get(metric)
+    ]
+    return {
+        "canonical_metric_map": mapping,
+        "missing_canonical_metrics": missing,
+        "status": "pass" if not missing else "fail",
+    }
+
+
+def build_provider_backpressure_surface(root: Path) -> dict[str, Any]:
+    path = root / "tests/provider_streaming.rs"
+    terms = source_terms_present(
+        path,
+        (
+            "BACKPRESSURE_SCHEMA",
+            "pi.test.provider_stream_backpressure.v1",
+            "event_count",
+            "semantic_count",
+            "coalesced_or_buffered_count",
+            "max_queue_depth",
+            "latency_steps",
+            "\"verdict\"",
+            "replayed text changed under pressure",
+            "tool-call boundary ordering was lost",
+            "malformed stream must not synthesize Done",
+        ),
+    )
+    mapping = canonical_metric_status(
+        {
+            "event_count": "event_count" if terms["event_count"] else None,
+            "semantic_preservation": (
+                ["semantic_count", "replayed text changed under pressure", "tool-call boundary ordering was lost"]
+                if terms["semantic_count"]
+                and terms["replayed text changed under pressure"]
+                and terms["tool-call boundary ordering was lost"]
+                else None
+            ),
+            "coalesced_low_value_count": (
+                "coalesced_or_buffered_count"
+                if terms["coalesced_or_buffered_count"]
+                else None
+            ),
+            "pressure_depth": "max_queue_depth" if terms["max_queue_depth"] else None,
+            "latency_or_step": "latency_steps" if terms["latency_steps"] else None,
+            "verdict": "verdict" if terms['"verdict"'] else None,
+        }
+    )
+    semantic_assertions = {
+        "text_preserved": terms["replayed text changed under pressure"],
+        "tool_call_boundary_preserved": terms["tool-call boundary ordering was lost"],
+        "malformed_stream_fail_closed": terms["malformed stream must not synthesize Done"],
+    }
+    status = (
+        "pass"
+        if path.exists()
+        and terms["pi.test.provider_stream_backpressure.v1"]
+        and mapping["status"] == "pass"
+        and all(semantic_assertions.values())
+        else "fail"
+    )
+    return {
+        "id": "provider_streaming",
+        "status": status,
+        "schema": "pi.test.provider_stream_backpressure.v1",
+        "evidence_path": "tests/provider_streaming.rs",
+        "evidence_kind": "checked_in_test_evidence_source",
+        "metric_compatibility": mapping,
+        "semantic_loss_assertions": semantic_assertions,
+        "low_value_delta_policy": (
+            "TextDelta and ThinkingDelta may be coalesced under queue pressure; "
+            "semantic boundaries, usage, stop reason, and malformed-stream fail-closed behavior must survive."
+        ),
+        "operator_summary": (
+            "Provider streaming pressure preserves semantic stream boundaries while "
+            "coalescing low-value deltas into bounded queue pressure."
+        ),
+    }
+
+
+def build_rpc_output_backpressure_surface(root: Path) -> dict[str, Any]:
+    path = root / "docs/evidence/rpc-output-pressure.jsonl"
+    rows = load_jsonl_objects(path)
+    matching_rows = [
+        row for row in rows if row.get("schema") == "pi.rpc_output_pressure.v1"
+    ]
+    coalesced_total = 0
+    for row in matching_rows:
+        for key in ("coalesced_message_delta_count", "coalesced_tool_update_count"):
+            value = row.get(key)
+            if isinstance(value, int):
+                coalesced_total += value
+    has_event_count = any(
+        isinstance(row.get("event_count"), int) or isinstance(row.get("input_events"), int)
+        for row in matching_rows
+    )
+    has_semantic_assertion = any(
+        isinstance(row.get("semantic_events_preserved_by"), str)
+        or isinstance(row.get("preserved_semantic_count"), int)
+        for row in matching_rows
+    )
+    has_pressure_depth = any(
+        isinstance(row.get("pending_events"), int)
+        or isinstance(row.get("pending_class_count_before_semantic"), int)
+        for row in matching_rows
+    )
+    has_latency = any(
+        isinstance(row.get("p99_us"), int) or isinstance(row.get("latency_budget_us"), int)
+        for row in matching_rows
+    )
+    has_verdict = any(row.get("verdict") == "pass" for row in matching_rows)
+    mapping = canonical_metric_status(
+        {
+            "event_count": "input_events|event_count" if has_event_count else None,
+            "semantic_preservation": (
+                "semantic_events_preserved_by|preserved_semantic_count"
+                if has_semantic_assertion
+                else None
+            ),
+            "coalesced_low_value_count": (
+                "coalesced_message_delta_count+coalesced_tool_update_count"
+                if coalesced_total > 0
+                else None
+            ),
+            "pressure_depth": (
+                "pending_events|pending_class_count_before_semantic"
+                if has_pressure_depth
+                else None
+            ),
+            "latency_or_step": "p99_us|latency_budget_us" if has_latency else None,
+            "verdict": "verdict" if has_verdict else None,
+        }
+    )
+    status = (
+        "pass"
+        if matching_rows
+        and mapping["status"] == "pass"
+        and all(row.get("verdict") == "pass" for row in matching_rows)
+        else "fail"
+    )
+    return {
+        "id": "rpc_output",
+        "status": status,
+        "schema": "pi.rpc_output_pressure.v1",
+        "evidence_path": "docs/evidence/rpc-output-pressure.jsonl",
+        "evidence_kind": "checked_in_jsonl_evidence",
+        "row_count": len(matching_rows),
+        "metric_compatibility": mapping,
+        "semantic_loss_assertions": {
+            "semantic_events_preserved": has_semantic_assertion,
+            "all_checked_in_rows_pass": all(row.get("verdict") == "pass" for row in matching_rows),
+        },
+        "low_value_delta_policy": (
+            "MessageDelta and ToolUpdate are coalescible; pending updates must flush before semantic events."
+        ),
+        "operator_summary": (
+            "RPC output pressure evidence bounds low-value updates without blocking, "
+            "then flushes the latest pending update before semantic output."
+        ),
+    }
+
+
+def build_tui_degradation_backpressure_surface(root: Path) -> dict[str, Any]:
+    path = root / "src/interactive/tests.rs"
+    terms = source_terms_present(
+        path,
+        (
+            "pi.tui.degradation_drill.v1",
+            "event_count",
+            "semantic_visible_count",
+            "coalesced_count",
+            "max_frame_budget_pressure",
+            "redraw_count",
+            "preserved_input_count",
+            "\"verdict\"",
+            "tui_degradation_drill_preserves_input_and_semantics_under_pressure",
+            "semantic_visible_count == 4",
+        ),
+    )
+    mapping = canonical_metric_status(
+        {
+            "event_count": "event_count" if terms["event_count"] else None,
+            "semantic_preservation": (
+                ["semantic_visible_count", "preserved_input_count"]
+                if terms["semantic_visible_count"] and terms["preserved_input_count"]
+                else None
+            ),
+            "coalesced_low_value_count": "coalesced_count" if terms["coalesced_count"] else None,
+            "pressure_depth": (
+                "max_frame_budget_pressure"
+                if terms["max_frame_budget_pressure"]
+                else None
+            ),
+            "latency_or_step": "redraw_count" if terms["redraw_count"] else None,
+            "verdict": "verdict" if terms['"verdict"'] else None,
+        }
+    )
+    semantic_assertions = {
+        "semantic_output_visible": terms["semantic_visible_count == 4"],
+        "input_preserved": terms["preserved_input_count"],
+        "dedicated_drill_present": terms[
+            "tui_degradation_drill_preserves_input_and_semantics_under_pressure"
+        ],
+    }
+    status = (
+        "pass"
+        if path.exists()
+        and terms["pi.tui.degradation_drill.v1"]
+        and mapping["status"] == "pass"
+        and all(semantic_assertions.values())
+        else "fail"
+    )
+    return {
+        "id": "tui_degradation",
+        "status": status,
+        "schema": "pi.tui.degradation_drill.v1",
+        "evidence_path": "src/interactive/tests.rs",
+        "evidence_kind": "checked_in_test_evidence_source",
+        "metric_compatibility": mapping,
+        "semantic_loss_assertions": semantic_assertions,
+        "low_value_delta_policy": (
+            "Tool-update noise can collapse under frame pressure; final provider text, "
+            "final tool output, session notes, and user input must remain visible."
+        ),
+        "operator_summary": (
+            "TUI degradation evidence preserves semantic output and user input while "
+            "collapsing low-value tool-update pressure."
+        ),
+    }
+
+
+def build_backpressure_budget_contract_summary(*, generated_at: str) -> dict[str, Any]:
+    root = repo_root()
+    surfaces = [
+        build_provider_backpressure_surface(root),
+        build_rpc_output_backpressure_surface(root),
+        build_tui_degradation_backpressure_surface(root),
+    ]
+    present_surface_ids = {surface["id"] for surface in surfaces}
+    missing_surfaces = [
+        surface_id
+        for surface_id in BACKPRESSURE_BUDGET_REQUIRED_SURFACE_IDS
+        if surface_id not in present_surface_ids
+    ]
+    failing_surfaces = [
+        surface["id"] for surface in surfaces if surface.get("status") != "pass"
+    ]
+    incompatible_surfaces = [
+        surface["id"]
+        for surface in surfaces
+        if surface.get("metric_compatibility", {}).get("status") != "pass"
+    ]
+    status = (
+        "pass"
+        if not missing_surfaces and not failing_surfaces and not incompatible_surfaces
+        else "fail"
+    )
+    operator_summary = [
+        "Provider, RPC, and TUI pressure surfaces expose compatible event, semantic-preservation, coalescing, pressure-depth, latency/step, and verdict evidence.",
+        "Semantic preservation means lifecycle boundaries, final content, tool boundaries, session notes, and user input remain visible or flushed before semantic events.",
+        "Low-value pressure means provider text/thinking deltas, RPC message/tool updates, and TUI tool-update noise may be coalesced or collapsed under pressure.",
+    ]
+    return {
+        "schema": BACKPRESSURE_BUDGET_CONTRACT_SCHEMA,
+        "generated_at": generated_at,
+        "status": status,
+        "purpose": "operator_backpressure_budget_contract_not_release_performance_claim",
+        "source_bead": "bd-63x3v.9.8",
+        "required_surface_ids": list(BACKPRESSURE_BUDGET_REQUIRED_SURFACE_IDS),
+        "required_canonical_metrics": list(BACKPRESSURE_BUDGET_REQUIRED_CANONICAL_METRICS),
+        "surfaces": surfaces,
+        "missing_surfaces": missing_surfaces,
+        "failing_surfaces": failing_surfaces,
+        "incompatible_surfaces": incompatible_surfaces,
+        "operator_summary": operator_summary,
+        "claim_boundaries": {
+            "read_only_aggregator": True,
+            "does_not_duplicate_pressure_tests": True,
+            "does_not_authorize_release_performance_claims": True,
+            "does_not_replace_provider_rpc_tui_source_evidence": True,
+            "does_not_run_cargo_or_regenerate_child_evidence": True,
+        },
+        "decision": "contract_passed" if status == "pass" else "file_follow_up_before_relying_on_contract",
+    }
+
+
+def assert_backpressure_budget_contract(summary: dict[str, Any]) -> None:
+    root = repo_root()
+    contract = json.loads((root / BACKPRESSURE_BUDGET_CONTRACT_PATH).read_text(encoding="utf-8"))
+    assert contract.get("schema") == BACKPRESSURE_BUDGET_CONTRACT_SPEC_SCHEMA
+    assert summary.get("schema") == contract.get("evidence_schema")
+    for key in contract.get("required_top_level_keys", []):
+        assert key in summary, f"backpressure contract missing top-level key: {key}"
+    surface_ids = {surface.get("id") for surface in summary.get("surfaces", [])}
+    required_surfaces = set(contract.get("required_surface_ids", []))
+    assert surface_ids.issuperset(required_surfaces)
+    required_metrics = set(contract.get("required_canonical_metrics", []))
+    for surface in summary.get("surfaces", []):
+        metric_map = surface.get("metric_compatibility", {}).get("canonical_metric_map", {})
+        assert required_metrics.issubset(metric_map.keys())
+        missing = surface.get("metric_compatibility", {}).get("missing_canonical_metrics")
+        if summary.get("status") == "pass":
+            assert missing == [], f"surface has missing metrics: {surface.get('id')}"
+            assert surface.get("status") == "pass"
+    if summary.get("status") == "pass":
+        assert summary.get("missing_surfaces") == []
+        assert summary.get("failing_surfaces") == []
+        assert summary.get("incompatible_surfaces") == []
+        boundaries = summary.get("claim_boundaries", {})
+        assert boundaries.get("read_only_aggregator") is True
+        assert boundaries.get("does_not_duplicate_pressure_tests") is True
+        assert boundaries.get("does_not_authorize_release_performance_claims") is True
+
+
+def write_backpressure_budget_contract_output(
+    args: argparse.Namespace,
+    summary: dict[str, Any],
+) -> None:
+    output_path = getattr(args, "out_backpressure_budget_contract_json", None)
+    if output_path is None:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        raise RunpackError(
+            f"refusing to overwrite backpressure budget contract evidence: {output_path}"
+        )
+    output_path.write_text(json_dumps(summary, pretty=True), encoding="utf-8")
+
+
 def adaptive_execution_child_artifact_map(
     issues: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -18139,6 +18522,19 @@ def run_self_test() -> int:
         assert adaptive_execution_final_gate["follow_up_required"] is False
         assert not adaptive_execution_final_gate["follow_up_beads"]
         assert adaptive_execution_final_gate["child_artifact_map"]
+        backpressure_budget_contract = build_backpressure_budget_contract_summary(
+            generated_at=generated_at,
+        )
+        assert (
+            backpressure_budget_contract["schema"]
+            == BACKPRESSURE_BUDGET_CONTRACT_SCHEMA
+        )
+        assert backpressure_budget_contract["status"] == "pass"
+        assert backpressure_budget_contract["decision"] == "contract_passed"
+        assert {
+            surface["id"] for surface in backpressure_budget_contract["surfaces"]
+        } == set(BACKPRESSURE_BUDGET_REQUIRED_SURFACE_IDS)
+        assert_backpressure_budget_contract(backpressure_budget_contract)
         no_tail_args = argparse.Namespace(**{**vars(args), "tail_latency_json": None})
         no_tail_runpack = build_runpack(no_tail_args)
         assert "tail_latency" not in no_tail_runpack
@@ -18563,6 +18959,21 @@ def parse_args() -> argparse.Namespace:
         help="print the final fifth-wave adaptive execution closeout gate JSON",
     )
     parser.add_argument(
+        "--run-backpressure-budget-contract",
+        action="store_true",
+        help="build the read-only provider/RPC/TUI backpressure budget contract",
+    )
+    parser.add_argument(
+        "--out-backpressure-budget-contract-json",
+        type=Path,
+        help="write pi.swarm.provider_rpc_tui_backpressure_budget_contract.v1 JSON; refuses to overwrite",
+    )
+    parser.add_argument(
+        "--print-backpressure-budget-contract",
+        action="store_true",
+        help="print the provider/RPC/TUI backpressure budget contract JSON",
+    )
+    parser.add_argument(
         "--quality-gate-result",
         dest="quality_gate_results",
         action="append",
@@ -18635,6 +19046,10 @@ def main() -> int:
         args.out_adaptive_execution_final_gate_json
         or args.print_adaptive_execution_final_gate
     )
+    backpressure_budget_contract_options_used = (
+        args.out_backpressure_budget_contract_json
+        or args.print_backpressure_budget_contract
+    )
     final_gate_modes = [
         args.run_autopilot_final_gate,
         args.run_context_intelligence_final_gate,
@@ -18644,6 +19059,12 @@ def main() -> int:
     ]
     if sum(1 for used in final_gate_modes if used) > 1:
         print("ERROR: run only one final-gate mode at a time", file=sys.stderr)
+        return 2
+    if args.run_backpressure_budget_contract and any(final_gate_modes):
+        print(
+            "ERROR: backpressure budget contract cannot be combined with a final-gate mode",
+            file=sys.stderr,
+        )
         return 2
     if autopilot_final_gate_options_used and not args.run_autopilot_final_gate:
         print(
@@ -18678,6 +19099,15 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    if (
+        backpressure_budget_contract_options_used
+        and not args.run_backpressure_budget_contract
+    ):
+        print(
+            "ERROR: backpressure budget contract options require --run-backpressure-budget-contract",
+            file=sys.stderr,
+        )
+        return 2
     if args.quality_gate_results and not (
         args.run_autopilot_final_gate
         or args.run_context_intelligence_final_gate
@@ -18695,6 +19125,18 @@ def main() -> int:
         )
         return 2
     try:
+        if args.run_backpressure_budget_contract:
+            summary = build_backpressure_budget_contract_summary(
+                generated_at=args.generated_at or utc_now_iso(),
+            )
+            assert_backpressure_budget_contract(summary)
+            write_backpressure_budget_contract_output(args, summary)
+            if (
+                args.print_backpressure_budget_contract
+                or args.out_backpressure_budget_contract_json is None
+            ):
+                print(json_dumps(summary, pretty=True))
+            return 0
         if args.run_adaptive_execution_final_gate:
             summary = build_adaptive_execution_closeout_gate_summary(
                 generated_at=args.generated_at or utc_now_iso(),
@@ -18857,6 +19299,7 @@ def main() -> int:
         and not args.out_runtime_intelligence_final_gate_json
         and not args.out_fourth_wave_final_gate_json
         and not args.out_adaptive_execution_final_gate_json
+        and not args.out_backpressure_budget_contract_json
         and not args.print_autopilot_input_pack
         and not args.print_autopilot_plan
         and not args.print_action_plan
@@ -18865,6 +19308,7 @@ def main() -> int:
         and not args.print_runtime_intelligence_final_gate
         and not args.print_fourth_wave_final_gate
         and not args.print_adaptive_execution_final_gate
+        and not args.print_backpressure_budget_contract
     ):
         print(json_dumps(runpack, pretty=True))
     return 0

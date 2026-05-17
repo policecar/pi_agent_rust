@@ -1,0 +1,123 @@
+{
+  "claim_boundaries": {
+    "does_not_authorize_release_performance_claims": true,
+    "does_not_duplicate_pressure_tests": true,
+    "does_not_replace_provider_rpc_tui_source_evidence": true,
+    "does_not_run_cargo_or_regenerate_child_evidence": true,
+    "read_only_aggregator": true
+  },
+  "decision": "contract_passed",
+  "failing_surfaces": [],
+  "generated_at": "2026-05-17T04:34:19.266890+00:00",
+  "incompatible_surfaces": [],
+  "missing_surfaces": [],
+  "operator_summary": [
+    "Provider, RPC, and TUI pressure surfaces expose compatible event, semantic-preservation, coalescing, pressure-depth, latency/step, and verdict evidence.",
+    "Semantic preservation means lifecycle boundaries, final content, tool boundaries, session notes, and user input remain visible or flushed before semantic events.",
+    "Low-value pressure means provider text/thinking deltas, RPC message/tool updates, and TUI tool-update noise may be coalesced or collapsed under pressure."
+  ],
+  "purpose": "operator_backpressure_budget_contract_not_release_performance_claim",
+  "required_canonical_metrics": [
+    "event_count",
+    "semantic_preservation",
+    "coalesced_low_value_count",
+    "pressure_depth",
+    "latency_or_step",
+    "verdict"
+  ],
+  "required_surface_ids": [
+    "provider_streaming",
+    "rpc_output",
+    "tui_degradation"
+  ],
+  "schema": "pi.swarm.provider_rpc_tui_backpressure_budget_contract.v1",
+  "source_bead": "bd-63x3v.9.8",
+  "status": "pass",
+  "surfaces": [
+    {
+      "evidence_kind": "checked_in_test_evidence_source",
+      "evidence_path": "tests/provider_streaming.rs",
+      "id": "provider_streaming",
+      "low_value_delta_policy": "TextDelta and ThinkingDelta may be coalesced under queue pressure; semantic boundaries, usage, stop reason, and malformed-stream fail-closed behavior must survive.",
+      "metric_compatibility": {
+        "canonical_metric_map": {
+          "coalesced_low_value_count": "coalesced_or_buffered_count",
+          "event_count": "event_count",
+          "latency_or_step": "latency_steps",
+          "pressure_depth": "max_queue_depth",
+          "semantic_preservation": [
+            "semantic_count",
+            "replayed text changed under pressure",
+            "tool-call boundary ordering was lost"
+          ],
+          "verdict": "verdict"
+        },
+        "missing_canonical_metrics": [],
+        "status": "pass"
+      },
+      "operator_summary": "Provider streaming pressure preserves semantic stream boundaries while coalescing low-value deltas into bounded queue pressure.",
+      "schema": "pi.test.provider_stream_backpressure.v1",
+      "semantic_loss_assertions": {
+        "malformed_stream_fail_closed": true,
+        "text_preserved": true,
+        "tool_call_boundary_preserved": true
+      },
+      "status": "pass"
+    },
+    {
+      "evidence_kind": "checked_in_jsonl_evidence",
+      "evidence_path": "docs/evidence/rpc-output-pressure.jsonl",
+      "id": "rpc_output",
+      "low_value_delta_policy": "MessageDelta and ToolUpdate are coalescible; pending updates must flush before semantic events.",
+      "metric_compatibility": {
+        "canonical_metric_map": {
+          "coalesced_low_value_count": "coalesced_message_delta_count+coalesced_tool_update_count",
+          "event_count": "input_events|event_count",
+          "latency_or_step": "p99_us|latency_budget_us",
+          "pressure_depth": "pending_events|pending_class_count_before_semantic",
+          "semantic_preservation": "semantic_events_preserved_by|preserved_semantic_count",
+          "verdict": "verdict"
+        },
+        "missing_canonical_metrics": [],
+        "status": "pass"
+      },
+      "operator_summary": "RPC output pressure evidence bounds low-value updates without blocking, then flushes the latest pending update before semantic output.",
+      "row_count": 1,
+      "schema": "pi.rpc_output_pressure.v1",
+      "semantic_loss_assertions": {
+        "all_checked_in_rows_pass": true,
+        "semantic_events_preserved": true
+      },
+      "status": "pass"
+    },
+    {
+      "evidence_kind": "checked_in_test_evidence_source",
+      "evidence_path": "src/interactive/tests.rs",
+      "id": "tui_degradation",
+      "low_value_delta_policy": "Tool-update noise can collapse under frame pressure; final provider text, final tool output, session notes, and user input must remain visible.",
+      "metric_compatibility": {
+        "canonical_metric_map": {
+          "coalesced_low_value_count": "coalesced_count",
+          "event_count": "event_count",
+          "latency_or_step": "redraw_count",
+          "pressure_depth": "max_frame_budget_pressure",
+          "semantic_preservation": [
+            "semantic_visible_count",
+            "preserved_input_count"
+          ],
+          "verdict": "verdict"
+        },
+        "missing_canonical_metrics": [],
+        "status": "pass"
+      },
+      "operator_summary": "TUI degradation evidence preserves semantic output and user input while collapsing low-value tool-update pressure.",
+      "schema": "pi.tui.degradation_drill.v1",
+      "semantic_loss_assertions": {
+        "dedicated_drill_present": true,
+        "input_preserved": true,
+        "semantic_output_visible": true
+      },
+      "status": "pass"
+    }
+  ]
+}
