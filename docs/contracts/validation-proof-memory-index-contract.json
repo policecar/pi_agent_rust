@@ -4,7 +4,7 @@
   "contract_version": "1.0.0",
   "bead_id": "bd-9yq7i.3",
   "purpose": "read_only_validation_proof_memory_not_validation_skipper",
-  "summary": "Defines the read-only validation proof-memory index that records reusable and non-reusable proof entries by command fingerprint, git ref, touched paths, RCH provenance, artifact hash, freshness, and reuse eligibility. The index is advisory operator evidence only and never skips validation by itself.",
+  "summary": "Defines the read-only validation proof-memory index that records reusable and non-reusable proof entries by command fingerprint, git ref, touched paths, RCH provenance, artifact hash, closeout/runpack freshness inputs, source freshness, and reuse eligibility. The index is advisory operator evidence only and never skips validation by itself.",
   "allowed_statuses": [
     "pass",
     "blocked"
@@ -23,6 +23,7 @@
     "loaded_source_paths",
     "source_ledger_count",
     "source_artifacts",
+    "freshness_inputs",
     "required_fixture_ids",
     "missing_fixture_ids",
     "required_classifications",
@@ -44,6 +45,7 @@
     "env_fingerprint",
     "output_artifact_hash",
     "freshness",
+    "freshness_inputs",
     "reuse_eligibility",
     "classification",
     "recommended_action",
@@ -52,6 +54,8 @@
   "required_fixture_ids": [
     "reusable_remote_proof",
     "stale_git_head_proof",
+    "stale_source_time_proof",
+    "failing_freshness_inputs_proof",
     "missing_artifact_proof",
     "local_fallback_proof",
     "dirty_worktree_mismatch_proof",
@@ -78,14 +82,16 @@
     "does_not_authorize_release_performance_claims",
     "does_not_authorize_dropin_claims",
     "does_not_authorize_strict_dropin_claims",
-    "requires_fresh_authoritative_remote_proof_for_reuse"
+    "requires_fresh_authoritative_remote_proof_for_reuse",
+    "requires_passing_closeout_and_runpack_freshness_for_reuse"
   ],
   "required_claim_boundary_false_keys": [
     "raw_logs_or_provider_content_embedded"
   ],
   "reuse_policy": {
     "minimum_reusable_record": "A reusable record must represent a passing clean remote proof with matching command fingerprint, git head, changed paths, CARGO_TARGET_DIR, TMPDIR, RCH provenance, and authoritative path coverage.",
-    "freshness_policy": "Stale source time or stale git head makes a record non-reusable.",
+    "freshness_policy": "Stale source time, stale git head, or failing closeout/runpack freshness inputs make a record non-reusable.",
+    "freshness_inputs_policy": "A reusable record requires passing read-only closeout-gate freshness and swarm runpack freshness checks; missing, malformed, or failing freshness inputs must add invalidation reasons and force rerun_validation.",
     "coverage_policy": "Every current touched path must be covered by the source proof. Path gaps fail closed as path_coverage_mismatch.",
     "artifact_policy": "Missing or warning artifact retrieval prevents reuse even if the remote command exited 0.",
     "claim_boundary": "This index is operator evidence only. It does not mutate RCH, Agent Mail, git, Beads, source files, temp artifacts, or validation admission."

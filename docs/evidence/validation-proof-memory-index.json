@@ -9,7 +9,8 @@
     "operator_evidence_only": true,
     "raw_logs_or_provider_content_embedded": false,
     "read_only": true,
-    "requires_fresh_authoritative_remote_proof_for_reuse": true
+    "requires_fresh_authoritative_remote_proof_for_reuse": true,
+    "requires_passing_closeout_and_runpack_freshness_for_reuse": true
   },
   "decision": "proof_memory_index_ready",
   "entries": [
@@ -30,6 +31,40 @@
         "source_generated_at": "2026-05-14T22:30:00Z",
         "stale_after_hours": 24,
         "status": "fresh"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -93,10 +128,44 @@
       },
       "fixture_id": "stale_git_head_proof",
       "freshness": {
-        "age_hours": 79.5,
+        "age_hours": 82.143,
         "source_generated_at": "2026-05-14T22:30:00Z",
         "stale_after_hours": 24,
         "status": "stale"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "different-git-head",
@@ -151,6 +220,213 @@
       "touched_paths": []
     },
     {
+      "classification": "stale",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "stale_source_time_proof",
+      "freshness": {
+        "age_hours": 48.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "stale"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+      "record_id": "vpmi-93099a1ee8063458",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "stale",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "stale_proof"
+        ],
+        "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "stale",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "failing_freshness_inputs_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "fail",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "fail"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+      "record_id": "vpmi-2f71bd33c09b1e24",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "stale",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "closeout_gate_freshness_not_passing",
+          "freshness_inputs_not_passing"
+        ],
+        "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
       "classification": "dirty_worktree_mismatch",
       "command": {
         "command_class": "cargo_check",
@@ -167,6 +443,40 @@
         "source_generated_at": "2026-05-14T22:30:00Z",
         "stale_after_hours": 24,
         "status": "fresh"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -240,6 +550,40 @@
         "stale_after_hours": 24,
         "status": "fresh"
       },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
+      },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
         "source_dirty_paths": [],
@@ -308,6 +652,40 @@
         "source_generated_at": "2026-05-14T22:30:00Z",
         "stale_after_hours": 24,
         "status": "fresh"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -382,6 +760,40 @@
         "stale_after_hours": 24,
         "status": "fresh"
       },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
+      },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
         "source_dirty_paths": [],
@@ -446,10 +858,44 @@
       },
       "fixture_id": "local_fallback_proof",
       "freshness": {
-        "age_hours": 79.483,
+        "age_hours": 82.126,
         "source_generated_at": "2026-05-14T22:31:00Z",
         "stale_after_hours": 24,
         "status": "stale"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -520,10 +966,44 @@
       },
       "fixture_id": "missing_artifact_proof",
       "freshness": {
-        "age_hours": 79.45,
+        "age_hours": 82.093,
         "source_generated_at": "2026-05-14T22:33:00Z",
         "stale_after_hours": 24,
         "status": "stale"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -581,7 +1061,41 @@
       "touched_paths": []
     }
   ],
-  "generated_at": "2026-05-18T06:00:00+00:00",
+  "freshness_inputs": {
+    "advisory_only": true,
+    "checks": [
+      {
+        "command": [
+          "python3",
+          "scripts/check_closeout_gate_freshness.py",
+          "--compact"
+        ],
+        "id": "closeout_gate_freshness",
+        "payload_status": "pass",
+        "read_only": true,
+        "returncode": 0,
+        "status": "pass",
+        "stderr": null
+      },
+      {
+        "command": [
+          "python3",
+          "scripts/check_swarm_runpack_freshness.py",
+          "--self-test"
+        ],
+        "id": "swarm_runpack_freshness_self_test",
+        "payload_status": null,
+        "read_only": true,
+        "returncode": 0,
+        "status": "pass",
+        "stderr": null
+      }
+    ],
+    "does_not_mutate_rch_agent_mail_beads_or_git": true,
+    "read_only": true,
+    "status": "pass"
+  },
+  "generated_at": "2026-05-18T08:38:35.239655+00:00",
   "loaded_source_paths": [
     "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
   ],
@@ -608,6 +1122,31 @@
       "invalidation_reasons": [
         "stale_git_head",
         "stale_proof"
+      ],
+      "passes_fail_closed": true
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "stale",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "stale_source_time_proof",
+      "id": "stale_source_time_proof_fails_closed",
+      "invalidation_reasons": [
+        "stale_proof"
+      ],
+      "passes_fail_closed": true
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "stale",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "failing_freshness_inputs_proof",
+      "id": "failing_freshness_inputs_proof_fails_closed",
+      "invalidation_reasons": [
+        "closeout_gate_freshness_not_passing",
+        "freshness_inputs_not_passing"
       ],
       "passes_fail_closed": true
     },
@@ -714,6 +1253,40 @@
         "stale_after_hours": 24,
         "status": "fresh"
       },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
+      },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
         "source_dirty_paths": [],
@@ -776,10 +1349,44 @@
       },
       "fixture_id": "stale_git_head_proof",
       "freshness": {
-        "age_hours": 79.5,
+        "age_hours": 82.143,
         "source_generated_at": "2026-05-14T22:30:00Z",
         "stale_after_hours": 24,
         "status": "stale"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "different-git-head",
@@ -834,6 +1441,213 @@
       "touched_paths": []
     },
     {
+      "classification": "stale",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "stale_source_time_proof",
+      "freshness": {
+        "age_hours": 48.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "stale"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+      "record_id": "vpmi-93099a1ee8063458",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "stale",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "stale_proof"
+        ],
+        "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "stale",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "failing_freshness_inputs_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "fail",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "fail"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+      "record_id": "vpmi-2f71bd33c09b1e24",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "stale",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "closeout_gate_freshness_not_passing",
+          "freshness_inputs_not_passing"
+        ],
+        "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
       "classification": "dirty_worktree_mismatch",
       "command": {
         "command_class": "cargo_check",
@@ -850,6 +1664,40 @@
         "source_generated_at": "2026-05-14T22:30:00Z",
         "stale_after_hours": 24,
         "status": "fresh"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -923,6 +1771,40 @@
         "stale_after_hours": 24,
         "status": "fresh"
       },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
+      },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
         "source_dirty_paths": [],
@@ -991,6 +1873,40 @@
         "source_generated_at": "2026-05-14T22:30:00Z",
         "stale_after_hours": 24,
         "status": "fresh"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -1065,6 +1981,40 @@
         "stale_after_hours": 24,
         "status": "fresh"
       },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
+      },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
         "source_dirty_paths": [],
@@ -1129,10 +2079,44 @@
       },
       "fixture_id": "local_fallback_proof",
       "freshness": {
-        "age_hours": 79.483,
+        "age_hours": 82.126,
         "source_generated_at": "2026-05-14T22:31:00Z",
         "stale_after_hours": 24,
         "status": "stale"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -1203,10 +2187,44 @@
       },
       "fixture_id": "missing_artifact_proof",
       "freshness": {
-        "age_hours": 79.45,
+        "age_hours": 82.093,
         "source_generated_at": "2026-05-14T22:33:00Z",
         "stale_after_hours": 24,
         "status": "stale"
+      },
+      "freshness_inputs": {
+        "advisory_only": true,
+        "checks": [
+          {
+            "command": [
+              "python3",
+              "scripts/check_closeout_gate_freshness.py",
+              "--compact"
+            ],
+            "id": "closeout_gate_freshness",
+            "payload_status": "pass",
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          },
+          {
+            "command": [
+              "python3",
+              "scripts/check_swarm_runpack_freshness.py",
+              "--self-test"
+            ],
+            "id": "swarm_runpack_freshness_self_test",
+            "payload_status": null,
+            "read_only": true,
+            "returncode": 0,
+            "status": "pass",
+            "stderr": null
+          }
+        ],
+        "does_not_mutate_rch_agent_mail_beads_or_git": true,
+        "read_only": true,
+        "status": "pass"
       },
       "git": {
         "current_head": "0123456789abcdef0123456789abcdef01234567",
@@ -1279,16 +2297,20 @@
     "observed_fixture_ids": [
       "command_fingerprint_mismatch_proof",
       "dirty_worktree_mismatch_proof",
+      "failing_freshness_inputs_proof",
       "local_fallback_proof",
       "missing_artifact_proof",
       "not_authoritative_proof",
       "path_coverage_mismatch_proof",
       "reusable_remote_proof",
-      "stale_git_head_proof"
+      "stale_git_head_proof",
+      "stale_source_time_proof"
     ],
     "required_fixture_ids": [
       "reusable_remote_proof",
       "stale_git_head_proof",
+      "stale_source_time_proof",
+      "failing_freshness_inputs_proof",
       "missing_artifact_proof",
       "local_fallback_proof",
       "dirty_worktree_mismatch_proof",
@@ -1300,6 +2322,8 @@
   "required_fixture_ids": [
     "reusable_remote_proof",
     "stale_git_head_proof",
+    "stale_source_time_proof",
+    "failing_freshness_inputs_proof",
     "missing_artifact_proof",
     "local_fallback_proof",
     "dirty_worktree_mismatch_proof",
@@ -1329,6 +2353,24 @@
     },
     {
       "exists": true,
+      "path": "scripts/check_closeout_gate_freshness.py",
+      "sha256": "e523b3a2d3214ab158fc5f0b6de12761b560c0ad14c6e3c9b6258a99457ebef5",
+      "size_bytes": 63863
+    },
+    {
+      "exists": true,
+      "path": "scripts/check_swarm_runpack_freshness.py",
+      "sha256": "f63707140b2ba73d2118ed55ac3ea2d083a893bc8def3e44ee431ae022b0d2e8",
+      "size_bytes": 34307
+    },
+    {
+      "exists": true,
+      "path": "docs/contracts/closeout-evidence-registry.json",
+      "sha256": "040583f35f77db67b2bdf2f24e73520f3dba9d78db9c9aba3bc33da01520800f",
+      "size_bytes": 8391
+    },
+    {
+      "exists": true,
       "path": "docs/evidence/swarm-incident-corpus.json",
       "sha256": "32a7203ff32bed58b01a5d4075bacebbb1b39cbc980c7d35ef89796b8395ee09",
       "size_bytes": 26701
@@ -1352,6 +2394,9 @@
     "tests/golden_corpus/remote_validation_proof_ledger/examples.json",
     "docs/contracts/remote-validation-proof-ledger-contract.json",
     "docs/contracts/remote-validation-proof-reuse-gate-contract.json",
+    "scripts/check_closeout_gate_freshness.py",
+    "scripts/check_swarm_runpack_freshness.py",
+    "docs/contracts/closeout-evidence-registry.json",
     "docs/evidence/swarm-incident-corpus.json",
     "docs/evidence/swarm-incident-replay.json",
     "docs/evidence/validation-scheduler-plan.json"
@@ -1366,14 +2411,15 @@
       "not_authoritative": 1,
       "path_coverage_mismatch": 1,
       "reusable": 1,
-      "stale": 1
+      "stale": 3
     },
-    "entry_count": 8,
-    "fail_closed_count": 7,
+    "entry_count": 10,
+    "fail_closed_count": 9,
+    "freshness_input_status": "pass",
     "missing_classifications": [],
     "missing_fixture_ids": [],
-    "record_count": 8,
-    "rerun_required_record_count": 7,
+    "record_count": 10,
+    "rerun_required_record_count": 9,
     "reusable_count": 1,
     "reusable_record_count": 1,
     "source_entry_count": 4

@@ -231,10 +231,11 @@ python3 scripts/build_swarm_operator_runpack.py \
 
 The current fixture artifact is
 `docs/evidence/validation-proof-memory-index.json`. It must contain one reusable
-remote proof and fail-closed fixtures for stale git head, missing artifact,
-local fallback, dirty-worktree mismatch, command-fingerprint mismatch,
-path-coverage mismatch, and non-authoritative coverage. Any non-reusable class
-means rerun or refresh validation through the appropriate gate before closeout.
+remote proof and fail-closed fixtures for stale git head, stale source time,
+missing artifact, local fallback, dirty-worktree mismatch, command-fingerprint
+mismatch, path-coverage mismatch, non-authoritative coverage, and failing
+closeout/runpack freshness inputs. Any non-reusable class means rerun or refresh
+validation through the appropriate gate before closeout.
 
 The index never mutates RCH, Agent Mail, Beads, git, source files, temp
 artifacts, or runtime scheduling policy. It does not authorize release

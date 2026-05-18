@@ -405,6 +405,8 @@ VALIDATION_PROOF_MEMORY_SOURCE_PATHS = (
 VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS = (
     "reusable_remote_proof",
     "stale_git_head_proof",
+    "stale_source_time_proof",
+    "failing_freshness_inputs_proof",
     "missing_artifact_proof",
     "local_fallback_proof",
     "dirty_worktree_mismatch_proof",
@@ -8664,6 +8666,51 @@ def validation_proof_memory_fixture_records(
                 generated_at=generated_at,
                 stale_after_hours=stale_after_hours,
                 freshness_inputs=freshness_inputs,
+            )
+        )
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="stale_source_time_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=entry,
+                context=base_context,
+                generated_at=parse_utc("2026-05-16T23:00:00Z"),
+                stale_after_hours=stale_after_hours,
+                freshness_inputs=freshness_inputs,
+            )
+        )
+        failing_freshness_inputs = json.loads(json_dumps(freshness_inputs))
+        failing_freshness_inputs["status"] = "fail"
+        freshness_checks = proof_list(failing_freshness_inputs.get("checks"))
+        if freshness_checks and isinstance(freshness_checks[0], dict):
+            freshness_checks[0]["status"] = "fail"
+        else:
+            freshness_checks = [
+                {
+                    "id": "closeout_gate_freshness",
+                    "status": "fail",
+                    "command": [
+                        "python3",
+                        "scripts/check_closeout_gate_freshness.py",
+                        "--compact",
+                    ],
+                    "read_only": True,
+                }
+            ]
+        failing_freshness_inputs["checks"] = freshness_checks
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="failing_freshness_inputs_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=entry,
+                context=base_context,
+                generated_at=parse_utc("2026-05-14T23:00:00Z"),
+                stale_after_hours=stale_after_hours,
+                freshness_inputs=failing_freshness_inputs,
             )
         )
         dirty_context = json.loads(json_dumps(base_context))
