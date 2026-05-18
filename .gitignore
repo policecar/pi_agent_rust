@@ -19,6 +19,9 @@ rustc-ice-*.txt
 # local Pi agent config (may contain API keys)
 .pi/
 
+# Local legacy pi-mono dependency provisioning symlink (machine-specific).
+/legacy_pi_mono_code/pi-mono/node_modules
+
 # generated test artifacts
 tests/ext_conformance/artifacts/entry-point-scan.json
 tests/ext_conformance/reports/*
