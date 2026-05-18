@@ -1,0 +1,1381 @@
+{
+  "claim_boundaries": {
+    "does_not_authorize_dropin_claims": true,
+    "does_not_authorize_release_performance_claims": true,
+    "does_not_authorize_strict_dropin_claims": true,
+    "does_not_mutate_rch_agent_mail_beads_or_git": true,
+    "does_not_mutate_rch_agent_mail_git_or_beads": true,
+    "does_not_skip_validation_by_itself": true,
+    "operator_evidence_only": true,
+    "raw_logs_or_provider_content_embedded": false,
+    "read_only": true,
+    "requires_fresh_authoritative_remote_proof_for_reuse": true
+  },
+  "decision": "proof_memory_index_ready",
+  "entries": [
+    {
+      "classification": "reusable",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "reusable_remote_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Reuse only for the exact command, git head, paths, and target/tmp context.",
+      "record_id": "vpmi-874c877a1b7cf83c",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "reusable",
+        "decision": "reuse_existing_remote_proof",
+        "invalidation_reasons": [],
+        "recommended_action": "Reuse only for the exact command, git head, paths, and target/tmp context.",
+        "reusable": true,
+        "reuse_allowed": true
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "stale",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "stale_git_head_proof",
+      "freshness": {
+        "age_hours": 79.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "stale"
+      },
+      "git": {
+        "current_head": "different-git-head",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+      "record_id": "vpmi-55634c4d507b8851",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "stale",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "stale_git_head",
+          "stale_proof"
+        ],
+        "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "dirty_worktree_mismatch",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "dirty_worktree_mismatch_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun validation for the current dirty/staged path set.",
+      "record_id": "vpmi-c46919d4bdc593a3",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "dirty_worktree_mismatch",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "dirty_worktree_mismatch",
+          "staged_paths_not_covered"
+        ],
+        "recommended_action": "Rerun validation for the current dirty/staged path set.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": [
+        "src/session.rs"
+      ]
+    },
+    {
+      "classification": "command_mismatch",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "command_fingerprint_mismatch_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun the exact requested command; fingerprints differ.",
+      "record_id": "vpmi-8738f932962513f8",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "command_mismatch",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "command_fingerprint_mismatch"
+        ],
+        "recommended_action": "Rerun the exact requested command; fingerprints differ.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "path_coverage_mismatch",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "path_coverage_mismatch_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [
+          "scripts/build_swarm_operator_runpack.py"
+        ],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun validation or narrow claims to the covered paths.",
+      "record_id": "vpmi-27b3c976195d4b7f",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "path_coverage_mismatch",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "staged_paths_not_covered"
+        ],
+        "recommended_action": "Rerun validation or narrow claims to the covered paths.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": [
+        "scripts/build_swarm_operator_runpack.py"
+      ]
+    },
+    {
+      "classification": "not_authoritative",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "not_authoritative_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": false,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Keep as advisory history only; do not green-light closeout.",
+      "record_id": "vpmi-ff6f648d6e12b747",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "not_authoritative",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "coverage_not_authoritative"
+        ],
+        "recommended_action": "Keep as advisory history only; do not green-light closeout.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "local_fallback",
+      "command": {
+        "command_class": "cargo_clippy",
+        "command_fingerprint": "sha256:local-fallback-refusal",
+        "rendered": "rch exec -- cargo clippy --all-targets -- -D warnings"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "local_fallback_proof",
+      "freshness": {
+        "age_hours": 79.483,
+        "source_generated_at": "2026-05-14T22:31:00Z",
+        "stale_after_hours": 24,
+        "status": "stale"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:7363be9ac3e9a7ae7c5010cc6c1cd22c31513553cac614d308bd785a84747cf3",
+      "path_coverage": {
+        "authoritative_for_bead": false,
+        "coverage_status": "blocked",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "refused",
+        "rch_job_id_present": false,
+        "remote_execution": false,
+        "requested_runner": "rch",
+        "resolved_runner": "not_run",
+        "runner_requirement": "rch_required",
+        "worker_id_present": false
+      },
+      "recommended_action": "Do not treat local fallback or refused remote execution as proof.",
+      "record_id": "vpmi-cab7c7a579a9d311",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "local_fallback",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "coverage_not_authoritative",
+          "local_fallback_observed",
+          "missing_clean_remote_proof",
+          "missing_rch_provenance",
+          "source_proof_not_passing",
+          "stale_proof"
+        ],
+        "recommended_action": "Do not treat local fallback or refused remote execution as proof.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "local_fallback_refusal",
+        "entry_id": "rvpe-local-fallback-refusal",
+        "ledger_id": "rvpl-local-fallback-refusal",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "missing_artifact",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:retrieval-warning",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "missing_artifact_proof",
+      "freshness": {
+        "age_hours": 79.45,
+        "source_generated_at": "2026-05-14T22:33:00Z",
+        "stale_after_hours": 24,
+        "status": "stale"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6b94afa837dc2b18c0afc344052902ef4b191bb15782d9c7153ebb899d1d7ed7",
+      "path_coverage": {
+        "authoritative_for_bead": false,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Refresh or rerun validation; artifact retrieval was incomplete.",
+      "record_id": "vpmi-20d22a28d8f78038",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "missing_artifact",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "coverage_not_authoritative",
+          "missing_artifact",
+          "missing_clean_remote_proof",
+          "source_proof_not_passing",
+          "stale_proof"
+        ],
+        "recommended_action": "Refresh or rerun validation; artifact retrieval was incomplete.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "retrieval_warning",
+        "entry_id": "rvpe-retrieval-warning",
+        "ledger_id": "rvpl-retrieval-warning",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    }
+  ],
+  "generated_at": "2026-05-18T06:00:00+00:00",
+  "loaded_source_paths": [
+    "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+  ],
+  "missing_classifications": [],
+  "missing_fixture_ids": [],
+  "negative_controls": [
+    {
+      "actual_reuse_allowed": true,
+      "classification": "reusable",
+      "expectation_met": true,
+      "expected_reuse_allowed": true,
+      "fixture_id": "reusable_remote_proof",
+      "id": "reusable_remote_proof_fails_closed",
+      "invalidation_reasons": [],
+      "passes_fail_closed": false
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "stale",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "stale_git_head_proof",
+      "id": "stale_git_head_proof_fails_closed",
+      "invalidation_reasons": [
+        "stale_git_head",
+        "stale_proof"
+      ],
+      "passes_fail_closed": true
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "missing_artifact",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "missing_artifact_proof",
+      "id": "missing_artifact_proof_fails_closed",
+      "invalidation_reasons": [
+        "coverage_not_authoritative",
+        "missing_artifact",
+        "missing_clean_remote_proof",
+        "source_proof_not_passing",
+        "stale_proof"
+      ],
+      "passes_fail_closed": true
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "local_fallback",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "local_fallback_proof",
+      "id": "local_fallback_proof_fails_closed",
+      "invalidation_reasons": [
+        "coverage_not_authoritative",
+        "local_fallback_observed",
+        "missing_clean_remote_proof",
+        "missing_rch_provenance",
+        "source_proof_not_passing",
+        "stale_proof"
+      ],
+      "passes_fail_closed": true
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "dirty_worktree_mismatch",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "dirty_worktree_mismatch_proof",
+      "id": "dirty_worktree_mismatch_proof_fails_closed",
+      "invalidation_reasons": [
+        "dirty_worktree_mismatch",
+        "staged_paths_not_covered"
+      ],
+      "passes_fail_closed": true
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "command_mismatch",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "command_fingerprint_mismatch_proof",
+      "id": "command_fingerprint_mismatch_proof_fails_closed",
+      "invalidation_reasons": [
+        "command_fingerprint_mismatch"
+      ],
+      "passes_fail_closed": true
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "path_coverage_mismatch",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "path_coverage_mismatch_proof",
+      "id": "path_coverage_mismatch_proof_fails_closed",
+      "invalidation_reasons": [
+        "staged_paths_not_covered"
+      ],
+      "passes_fail_closed": true
+    },
+    {
+      "actual_reuse_allowed": false,
+      "classification": "not_authoritative",
+      "expectation_met": true,
+      "expected_reuse_allowed": false,
+      "fixture_id": "not_authoritative_proof",
+      "id": "not_authoritative_proof_fails_closed",
+      "invalidation_reasons": [
+        "coverage_not_authoritative"
+      ],
+      "passes_fail_closed": true
+    }
+  ],
+  "purpose": "read_only_validation_proof_memory_not_validation_skipper",
+  "records": [
+    {
+      "classification": "reusable",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "reusable_remote_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Reuse only for the exact command, git head, paths, and target/tmp context.",
+      "record_id": "vpmi-874c877a1b7cf83c",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "reusable",
+        "decision": "reuse_existing_remote_proof",
+        "invalidation_reasons": [],
+        "recommended_action": "Reuse only for the exact command, git head, paths, and target/tmp context.",
+        "reusable": true,
+        "reuse_allowed": true
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "stale",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "stale_git_head_proof",
+      "freshness": {
+        "age_hours": 79.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "stale"
+      },
+      "git": {
+        "current_head": "different-git-head",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+      "record_id": "vpmi-55634c4d507b8851",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "stale",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "stale_git_head",
+          "stale_proof"
+        ],
+        "recommended_action": "Rerun focused validation before using this proof for operator decisions.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "dirty_worktree_mismatch",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "dirty_worktree_mismatch_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun validation for the current dirty/staged path set.",
+      "record_id": "vpmi-c46919d4bdc593a3",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "dirty_worktree_mismatch",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "dirty_worktree_mismatch",
+          "staged_paths_not_covered"
+        ],
+        "recommended_action": "Rerun validation for the current dirty/staged path set.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": [
+        "src/session.rs"
+      ]
+    },
+    {
+      "classification": "command_mismatch",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "command_fingerprint_mismatch_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun the exact requested command; fingerprints differ.",
+      "record_id": "vpmi-8738f932962513f8",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "command_mismatch",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "command_fingerprint_mismatch"
+        ],
+        "recommended_action": "Rerun the exact requested command; fingerprints differ.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "path_coverage_mismatch",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "path_coverage_mismatch_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [
+          "scripts/build_swarm_operator_runpack.py"
+        ],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": true,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Rerun validation or narrow claims to the covered paths.",
+      "record_id": "vpmi-27b3c976195d4b7f",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "path_coverage_mismatch",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "staged_paths_not_covered"
+        ],
+        "recommended_action": "Rerun validation or narrow claims to the covered paths.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": [
+        "scripts/build_swarm_operator_runpack.py"
+      ]
+    },
+    {
+      "classification": "not_authoritative",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:remote-clean",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "not_authoritative_proof",
+      "freshness": {
+        "age_hours": 0.5,
+        "source_generated_at": "2026-05-14T22:30:00Z",
+        "stale_after_hours": 24,
+        "status": "fresh"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6a72b2d36507fd55fdd92a4aa135f0e794a1cda4aee253e96772f7d7408dd55b",
+      "path_coverage": {
+        "authoritative_for_bead": false,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Keep as advisory history only; do not green-light closeout.",
+      "record_id": "vpmi-ff6f648d6e12b747",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "not_authoritative",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "coverage_not_authoritative"
+        ],
+        "recommended_action": "Keep as advisory history only; do not green-light closeout.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "pass_remote_clean",
+        "entry_id": "rvpe-pass-remote-clean",
+        "ledger_id": "rvpl-pass-remote-clean",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "local_fallback",
+      "command": {
+        "command_class": "cargo_clippy",
+        "command_fingerprint": "sha256:local-fallback-refusal",
+        "rendered": "rch exec -- cargo clippy --all-targets -- -D warnings"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "local_fallback_proof",
+      "freshness": {
+        "age_hours": 79.483,
+        "source_generated_at": "2026-05-14T22:31:00Z",
+        "stale_after_hours": 24,
+        "status": "stale"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:7363be9ac3e9a7ae7c5010cc6c1cd22c31513553cac614d308bd785a84747cf3",
+      "path_coverage": {
+        "authoritative_for_bead": false,
+        "coverage_status": "blocked",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "refused",
+        "rch_job_id_present": false,
+        "remote_execution": false,
+        "requested_runner": "rch",
+        "resolved_runner": "not_run",
+        "runner_requirement": "rch_required",
+        "worker_id_present": false
+      },
+      "recommended_action": "Do not treat local fallback or refused remote execution as proof.",
+      "record_id": "vpmi-cab7c7a579a9d311",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "local_fallback",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "coverage_not_authoritative",
+          "local_fallback_observed",
+          "missing_clean_remote_proof",
+          "missing_rch_provenance",
+          "source_proof_not_passing",
+          "stale_proof"
+        ],
+        "recommended_action": "Do not treat local fallback or refused remote execution as proof.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "local_fallback_refusal",
+        "entry_id": "rvpe-local-fallback-refusal",
+        "ledger_id": "rvpl-local-fallback-refusal",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    },
+    {
+      "classification": "missing_artifact",
+      "command": {
+        "command_class": "cargo_check",
+        "command_fingerprint": "sha256:retrieval-warning",
+        "rendered": "rch exec -- cargo check --all-targets"
+      },
+      "env_fingerprint": {
+        "cargo_target_dir": "/data/tmp/pi_agent_rust_cargo/fixture/target",
+        "tmpdir": "/data/tmp/pi_agent_rust_cargo/fixture/tmp"
+      },
+      "fixture_id": "missing_artifact_proof",
+      "freshness": {
+        "age_hours": 79.45,
+        "source_generated_at": "2026-05-14T22:33:00Z",
+        "stale_after_hours": 24,
+        "status": "stale"
+      },
+      "git": {
+        "current_head": "0123456789abcdef0123456789abcdef01234567",
+        "source_dirty_paths": [],
+        "source_head": "0123456789abcdef0123456789abcdef01234567"
+      },
+      "output_artifact_hash": "sha256:6b94afa837dc2b18c0afc344052902ef4b191bb15782d9c7153ebb899d1d7ed7",
+      "path_coverage": {
+        "authoritative_for_bead": false,
+        "coverage_status": "no_changed_paths",
+        "covered_paths": [],
+        "uncovered_paths": []
+      },
+      "rch_provenance": {
+        "local_fallback": "none",
+        "rch_job_id_present": true,
+        "remote_execution": true,
+        "requested_runner": "rch",
+        "resolved_runner": "rch_remote",
+        "runner_requirement": "rch_required",
+        "worker_id_present": true
+      },
+      "recommended_action": "Refresh or rerun validation; artifact retrieval was incomplete.",
+      "record_id": "vpmi-20d22a28d8f78038",
+      "redaction": {
+        "excerpts_redacted": true,
+        "max_excerpt_chars": 1200,
+        "provider_content_embedded": false,
+        "raw_logs_embedded": false,
+        "raw_provider_or_mail_body_embedded": false,
+        "raw_stderr_embedded": false,
+        "raw_stdout_embedded": false
+      },
+      "reuse_eligibility": {
+        "classification": "missing_artifact",
+        "decision": "rerun_validation",
+        "invalidation_reasons": [
+          "coverage_not_authoritative",
+          "missing_artifact",
+          "missing_clean_remote_proof",
+          "source_proof_not_passing",
+          "stale_proof"
+        ],
+        "recommended_action": "Refresh or rerun validation; artifact retrieval was incomplete.",
+        "reusable": false,
+        "reuse_allowed": false
+      },
+      "source": {
+        "bead_id": "bd-e5le6.1",
+        "case_id": "retrieval_warning",
+        "entry_id": "rvpe-retrieval-warning",
+        "ledger_id": "rvpl-retrieval-warning",
+        "source_path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+      },
+      "touched_paths": []
+    }
+  ],
+  "required_classifications": [
+    "reusable",
+    "stale",
+    "missing_artifact",
+    "local_fallback",
+    "dirty_worktree_mismatch",
+    "command_mismatch",
+    "path_coverage_mismatch",
+    "not_authoritative"
+  ],
+  "required_fixture_coverage": {
+    "missing_fixture_ids": [],
+    "observed_fixture_ids": [
+      "command_fingerprint_mismatch_proof",
+      "dirty_worktree_mismatch_proof",
+      "local_fallback_proof",
+      "missing_artifact_proof",
+      "not_authoritative_proof",
+      "path_coverage_mismatch_proof",
+      "reusable_remote_proof",
+      "stale_git_head_proof"
+    ],
+    "required_fixture_ids": [
+      "reusable_remote_proof",
+      "stale_git_head_proof",
+      "missing_artifact_proof",
+      "local_fallback_proof",
+      "dirty_worktree_mismatch_proof",
+      "command_fingerprint_mismatch_proof",
+      "path_coverage_mismatch_proof",
+      "not_authoritative_proof"
+    ]
+  },
+  "required_fixture_ids": [
+    "reusable_remote_proof",
+    "stale_git_head_proof",
+    "missing_artifact_proof",
+    "local_fallback_proof",
+    "dirty_worktree_mismatch_proof",
+    "command_fingerprint_mismatch_proof",
+    "path_coverage_mismatch_proof",
+    "not_authoritative_proof"
+  ],
+  "schema": "pi.validation.proof_memory_index.v1",
+  "source_artifacts": [
+    {
+      "exists": true,
+      "path": "tests/golden_corpus/remote_validation_proof_ledger/examples.json",
+      "sha256": "24c954ecbefd92c9a994a021e9644306fd3c6f4cc33097499c79eb8f4c81ec23",
+      "size_bytes": 21011
+    },
+    {
+      "exists": true,
+      "path": "docs/contracts/remote-validation-proof-ledger-contract.json",
+      "sha256": "d0a282293d6ac7c16a3bc22b18044ed52da613c898e4dd4658f16f05b221dea1",
+      "size_bytes": 8250
+    },
+    {
+      "exists": true,
+      "path": "docs/contracts/remote-validation-proof-reuse-gate-contract.json",
+      "sha256": "54799469addc3d68ae0e01ea5e59f380bab91b3429ebd41a561f7627e2dd94d1",
+      "size_bytes": 3018
+    },
+    {
+      "exists": true,
+      "path": "docs/evidence/swarm-incident-corpus.json",
+      "sha256": "32a7203ff32bed58b01a5d4075bacebbb1b39cbc980c7d35ef89796b8395ee09",
+      "size_bytes": 26701
+    },
+    {
+      "exists": true,
+      "path": "docs/evidence/swarm-incident-replay.json",
+      "sha256": "7e8396795694c4e9bfd35b6e5373bf9f1037b338fcc51fcd7d6853315d7b9b71",
+      "size_bytes": 62431
+    },
+    {
+      "exists": true,
+      "path": "docs/evidence/validation-scheduler-plan.json",
+      "sha256": "f407c70ba3b7d5aa264d2869db6f8c117729b55b7555af1d8a9f3d69550d649e",
+      "size_bytes": 14793
+    }
+  ],
+  "source_bead": "bd-9yq7i.3",
+  "source_ledger_count": 4,
+  "source_paths": [
+    "tests/golden_corpus/remote_validation_proof_ledger/examples.json",
+    "docs/contracts/remote-validation-proof-ledger-contract.json",
+    "docs/contracts/remote-validation-proof-reuse-gate-contract.json",
+    "docs/evidence/swarm-incident-corpus.json",
+    "docs/evidence/swarm-incident-replay.json",
+    "docs/evidence/validation-scheduler-plan.json"
+  ],
+  "status": "pass",
+  "summary": {
+    "classification_counts": {
+      "command_mismatch": 1,
+      "dirty_worktree_mismatch": 1,
+      "local_fallback": 1,
+      "missing_artifact": 1,
+      "not_authoritative": 1,
+      "path_coverage_mismatch": 1,
+      "reusable": 1,
+      "stale": 1
+    },
+    "entry_count": 8,
+    "fail_closed_count": 7,
+    "missing_classifications": [],
+    "missing_fixture_ids": [],
+    "record_count": 8,
+    "rerun_required_record_count": 7,
+    "reusable_count": 1,
+    "reusable_record_count": 1,
+    "source_entry_count": 4
+  }
+}

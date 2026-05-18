@@ -212,6 +212,34 @@ drift, or current `Cargo.lock` / `rust-toolchain.toml` change invalidates reuse.
 The gate never skips validation by itself and does not mutate Beads, git, Agent
 Mail, RCH workers, source files, or temp artifacts.
 
+### Validation Proof-Memory Index
+
+The validation proof-memory index is governed by
+`docs/contracts/validation-proof-memory-index-contract.json` and emits
+`pi.validation.proof_memory_index.v1`. It is a read-only index over checked
+remote-validation proof fixtures and proof-reuse decisions for the current
+command, git head, staged paths, RCH provenance, `CARGO_TARGET_DIR`, `TMPDIR`,
+and artifact retrieval context.
+
+Use it as an operator audit artifact, not a validation skipper:
+
+```bash
+python3 scripts/build_swarm_operator_runpack.py \
+  --run-validation-proof-memory-index \
+  --print-validation-proof-memory-index
+```
+
+The current fixture artifact is
+`docs/evidence/validation-proof-memory-index.json`. It must contain one reusable
+remote proof and fail-closed fixtures for stale git head, missing artifact,
+local fallback, dirty-worktree mismatch, command-fingerprint mismatch,
+path-coverage mismatch, and non-authoritative coverage. Any non-reusable class
+means rerun or refresh validation through the appropriate gate before closeout.
+
+The index never mutates RCH, Agent Mail, Beads, git, source files, temp
+artifacts, or runtime scheduling policy. It does not authorize release
+performance, benchmark, capacity, or strict drop-in claims.
+
 ## Temp Artifact Inventory
 
 Swarm runpacks include `temp_artifact_inventory` with schema
@@ -624,6 +652,7 @@ The predictive-operations closeout gate emits `pi.swarm.predictive_operations.cl
 The operator-perceived latency trace emits `pi.operator.perceived_latency_trace.v1`, governed by `docs/contracts/operator-perceived-latency-trace-contract.json`; the current fixture artifact is `docs/evidence/operator-perceived-latency-trace.json`. It joins provider-stream, RPC-output, TUI-frame, tool-update, and operator-visible semantic milestones while proving low-value coalescing does not hide semantic output. The trace is advisory fixture evidence only and does not replace provider/RPC/TUI backpressure evidence or authorize benchmark, capacity, release performance, or strict drop-in claims.
 The swarm incident corpus emits `pi.swarm.incident_corpus.v1`, governed by `docs/contracts/swarm-incident-corpus-contract.json`; the current fixture artifact is `docs/evidence/swarm-incident-corpus.json`. It captures deterministic operator incidents for Agent Mail schema corruption, RCH saturation/local-fallback denial, stale evidence, duplicate work risk, dirty worktree admission denial, malformed source artifacts, and deletion or live-mutation rejection, plus fail-closed negative controls for missing sources, unsafe unredacted bodies, contradictory status, and unsafe authorization attempts. The corpus is advisory fixture evidence only and does not replace release performance, drop-in certification, Agent Mail, RCH, Beads, git, source artifacts, or destructive-action authority.
 The swarm incident replay harness emits `pi.swarm.incident_replay.v1`, governed by `docs/contracts/swarm-incident-replay-contract.json`; the current fixture artifact is `docs/evidence/swarm-incident-replay.json`. It consumes the incident corpus and reconstructs source capture, Agent Mail degradation, RCH admission, Beads ownership, dirty worktree state, validation outcome, and final recommendation phases with per-step assertions and redacted excerpts. Negative controls fail closed for out-of-order events, missing sources, unredacted sensitive content, and replay output being treated as source-of-truth authority. Replay is advisory fixture evidence only and does not replace live Agent Mail, RCH, Beads, git, source artifacts, or destructive-action authority.
+The validation proof-memory index emits `pi.validation.proof_memory_index.v1`, governed by `docs/contracts/validation-proof-memory-index-contract.json`; the current fixture artifact is `docs/evidence/validation-proof-memory-index.json`. It classifies reusable, stale, missing-artifact, local-fallback, dirty-worktree mismatch, command-mismatch, path-coverage mismatch, and non-authoritative validation proof entries from checked remote-validation proof fixtures. Proof memory is advisory fixture evidence only and does not skip validation or replace RCH, Agent Mail, Beads, git, source artifacts, or claim-integrity gates.
 
 ### Validation Broker Operator Workflow
 

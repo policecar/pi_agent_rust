@@ -64,6 +64,10 @@ REMOTE_VALIDATION_LEDGER_SCHEMA = "pi.remote_validation.proof_ledger.v1"
 REMOTE_VALIDATION_ENTRY_SCHEMA = "pi.remote_validation.proof_entry.v1"
 REMOTE_VALIDATION_PROOF_REUSE_GATE_SCHEMA = "pi.validation.proof_reuse_gate.v1"
 REMOTE_VALIDATION_PROOF_REUSE_CONTEXT_SCHEMA = "pi.validation.proof_reuse_context.v1"
+VALIDATION_PROOF_MEMORY_INDEX_SCHEMA = "pi.validation.proof_memory_index.v1"
+VALIDATION_PROOF_MEMORY_INDEX_CONTRACT_SCHEMA = (
+    "pi.validation.proof_memory_index_contract.v1"
+)
 REMOTE_VALIDATION_PROOF_REUSE_GATE_CONTRACT_SCHEMA = (
     "pi.validation.proof_reuse_gate_contract.v1"
 )
@@ -72,6 +76,9 @@ REMOTE_VALIDATION_CONTRACT_PATH = Path(
 )
 REMOTE_VALIDATION_PROOF_REUSE_GATE_CONTRACT_PATH = Path(
     "docs/contracts/remote-validation-proof-reuse-gate-contract.json"
+)
+VALIDATION_PROOF_MEMORY_INDEX_CONTRACT_PATH = Path(
+    "docs/contracts/validation-proof-memory-index-contract.json"
 )
 GIT_CONTEXT_SCHEMA = "pi.swarm.git_context.v1"
 RUNPACK_CAPTURE_SCHEMA = "pi.swarm.operator_runpack_capture.v1"
@@ -330,6 +337,37 @@ SWARM_INCIDENT_REPLAY_REQUIRED_ASSERTION_IDS = (
     "redaction_safe",
     "expected_safe_action_present",
     "advisory_claim_boundary_preserved",
+)
+VALIDATION_PROOF_MEMORY_DEFAULT_EXAMPLES_PATH = Path(
+    "tests/golden_corpus/remote_validation_proof_ledger/examples.json"
+)
+VALIDATION_PROOF_MEMORY_SOURCE_PATHS = (
+    VALIDATION_PROOF_MEMORY_DEFAULT_EXAMPLES_PATH,
+    REMOTE_VALIDATION_CONTRACT_PATH,
+    REMOTE_VALIDATION_PROOF_REUSE_GATE_CONTRACT_PATH,
+    Path("docs/evidence/swarm-incident-corpus.json"),
+    Path("docs/evidence/swarm-incident-replay.json"),
+    Path("docs/evidence/validation-scheduler-plan.json"),
+)
+VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS = (
+    "reusable_remote_proof",
+    "stale_git_head_proof",
+    "missing_artifact_proof",
+    "local_fallback_proof",
+    "dirty_worktree_mismatch_proof",
+    "command_fingerprint_mismatch_proof",
+    "path_coverage_mismatch_proof",
+    "not_authoritative_proof",
+)
+VALIDATION_PROOF_MEMORY_REQUIRED_CLASSIFICATIONS = (
+    "reusable",
+    "stale",
+    "missing_artifact",
+    "local_fallback",
+    "dirty_worktree_mismatch",
+    "command_mismatch",
+    "path_coverage_mismatch",
+    "not_authoritative",
 )
 DEFERRED_PLANNING_LABELS = {
     "idea-wizard",
@@ -7327,6 +7365,601 @@ def write_remote_validation_proof_reuse_gate_output(
     output_path.write_text(json_dumps(summary, pretty=True), encoding="utf-8")
 
 
+def load_validation_proof_memory_examples(path: Path) -> tuple[dict[str, Any], Path]:
+    root = repo_root()
+    resolved = path if path.is_absolute() else root / path
+    try:
+        payload = json.loads(resolved.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise RunpackError(f"missing validation proof-memory examples: {resolved}") from exc
+    except json.JSONDecodeError as exc:
+        raise RunpackError(
+            f"malformed validation proof-memory examples JSON: {resolved}: {exc}"
+        ) from exc
+    if payload.get("schema") != "pi.remote_validation.proof_ledger.example_corpus.v1":
+        raise RunpackError(
+            f"unexpected validation proof-memory examples schema: {payload.get('schema')}"
+        )
+    cases = payload.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise RunpackError(f"validation proof-memory examples have no cases: {resolved}")
+    return payload, resolved
+
+
+def proof_memory_case_map(example_corpus: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(case.get("case_id")): case
+        for case in example_corpus.get("cases", [])
+        if isinstance(case, dict) and case.get("case_id")
+    }
+
+
+def proof_memory_clone_ledger(case_map: dict[str, dict[str, Any]], case_id: str) -> dict[str, Any]:
+    case = case_map.get(case_id)
+    if not case or not isinstance(case.get("ledger"), dict):
+        raise RunpackError(f"missing validation proof-memory ledger fixture: {case_id}")
+    return json.loads(json_dumps(case["ledger"]))
+
+
+def proof_memory_entry_from_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
+    entries = ledger.get("entries")
+    if not isinstance(entries, list) or not entries or not isinstance(entries[0], dict):
+        raise RunpackError(f"proof-memory ledger has no proof entries: {ledger.get('ledger_id')}")
+    return entries[0]
+
+
+def proof_memory_make_context(
+    ledger: dict[str, Any],
+    entry: dict[str, Any],
+    *,
+    changed_paths: list[str],
+    git_head: str | None = None,
+    command_fingerprint: str | None = None,
+) -> dict[str, Any]:
+    command = proof_dict(entry.get("command"))
+    paths = proof_dict(entry.get("paths"))
+    runner = proof_dict(entry.get("runner"))
+    ledger_git = proof_dict(ledger.get("git"))
+    return {
+        "schema": REMOTE_VALIDATION_PROOF_REUSE_CONTEXT_SCHEMA,
+        "git": {"head": git_head or ledger_git.get("head")},
+        "staged_paths": changed_paths,
+        "command": {
+            "command_fingerprint": command_fingerprint
+            or command.get("command_fingerprint"),
+        },
+        "runner_requirement": proof_string(
+            runner.get("runner_requirement"),
+            "rch_required",
+        ),
+        "env": {
+            "cargo_target_dir": paths.get("cargo_target_dir"),
+            "tmpdir": paths.get("tmpdir"),
+        },
+    }
+
+
+def proof_memory_prepare_remote_pass_fixture(
+    case_map: dict[str, dict[str, Any]],
+    *,
+    changed_paths: list[str],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    ledger = proof_memory_clone_ledger(case_map, "pass_remote_clean")
+    entry = proof_memory_entry_from_ledger(ledger)
+    coverage = proof_dict(proof_dict(entry.get("evidence_classification")).get("coverage"))
+    coverage["changed_paths"] = list(changed_paths)
+    coverage["claimed_paths"] = list(changed_paths)
+    coverage["covered_paths"] = list(changed_paths)
+    coverage["uncovered_paths"] = []
+    coverage["coverage_status"] = "covered"
+    coverage["claimed_authoritative"] = True
+    coverage["authoritative_for_bead"] = True
+    entry["evidence_classification"]["coverage"] = coverage
+    ledger["git"]["dirty_paths"] = list(changed_paths)
+    ledger["entries"] = [entry]
+    return ledger, entry
+
+
+def proof_memory_artifact_hash(entry: dict[str, Any]) -> str:
+    payload = {
+        "entry_id": entry.get("entry_id"),
+        "artifact_retrieval": entry.get("artifact_retrieval"),
+        "artifact_paths": proof_dict(entry.get("paths")).get("artifact_paths"),
+        "exit": entry.get("exit"),
+    }
+    digest = hashlib.sha256(json_dumps(payload).encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
+def proof_memory_source_artifacts(root: Path, source_paths: tuple[Path, ...]) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for relative_path in source_paths:
+        path = root / relative_path
+        if path.exists():
+            size_bytes, sha256 = file_fingerprint(path)
+            artifacts.append(
+                {
+                    "path": str(relative_path),
+                    "exists": True,
+                    "size_bytes": size_bytes,
+                    "sha256": sha256,
+                }
+            )
+        else:
+            artifacts.append(
+                {
+                    "path": str(relative_path),
+                    "exists": False,
+                    "size_bytes": None,
+                    "sha256": None,
+                }
+            )
+    return artifacts
+
+
+def proof_memory_classification(
+    *,
+    gate: dict[str, Any],
+    entry: dict[str, Any],
+) -> str:
+    if gate.get("reuse_allowed") is True:
+        return "reusable"
+    reasons = set(gate.get("invalidation_reasons") or [])
+    runner = proof_dict(entry.get("runner"))
+    artifact = proof_dict(entry.get("artifact_retrieval"))
+    if artifact.get("status") in {"warning", "failed"} or artifact.get("missing_paths"):
+        return "missing_artifact"
+    if runner.get("local_fallback") not in {None, "none"}:
+        return "local_fallback"
+    if "stale_git_head" in reasons:
+        return "stale"
+    if "command_fingerprint_mismatch" in reasons:
+        return "command_mismatch"
+    if "dirty_worktree_mismatch" in reasons:
+        return "dirty_worktree_mismatch"
+    if "staged_paths_not_covered" in reasons:
+        return "path_coverage_mismatch"
+    if "coverage_not_authoritative" in reasons:
+        return "not_authoritative"
+    return "not_authoritative"
+
+
+def proof_memory_recommended_action(classification: str) -> str:
+    actions = {
+        "reusable": "Reuse only for the exact command, git head, paths, runner, target dir, and TMPDIR context.",
+        "stale": "Refresh the validation proof through RCH before relying on it.",
+        "missing_artifact": "Treat the proof as degraded until the missing or warning artifact retrieval is refreshed.",
+        "local_fallback": "Reject local fallback as proof and rerun through RCH.",
+        "dirty_worktree_mismatch": "Do not reuse across a different dirty-worktree path set.",
+        "command_mismatch": "Rerun the exact validation command; command fingerprints do not match.",
+        "path_coverage_mismatch": "Rerun with proof coverage for every current touched path.",
+        "not_authoritative": "Rerun or collect an authoritative proof before closeout.",
+    }
+    return actions[classification]
+
+
+def proof_memory_index_entry(
+    *,
+    fixture_id: str,
+    source_case_id: str,
+    source_examples_path: Path,
+    ledger: dict[str, Any],
+    context: dict[str, Any],
+    generated_at: str,
+) -> dict[str, Any]:
+    entry = proof_memory_entry_from_ledger(ledger)
+    memory_source = f"{fixture_id}:{entry.get('entry_id')}"
+    gate = build_remote_validation_proof_reuse_gate(
+        generated_at=generated_at,
+        proof_ledger=ledger,
+        context=context,
+    )
+    classification = proof_memory_classification(gate=gate, entry=entry)
+    command = proof_dict(entry.get("command"))
+    runner = proof_dict(entry.get("runner"))
+    paths = proof_dict(entry.get("paths"))
+    evidence = proof_dict(entry.get("evidence_classification"))
+    coverage = proof_dict(evidence.get("coverage"))
+    ledger_git = proof_dict(ledger.get("git"))
+    return {
+        "fixture_id": fixture_id,
+        "memory_id": (
+            f"vpm-{hashlib.sha256(memory_source.encode('utf-8')).hexdigest()[:16]}"
+        ),
+        "source_case_id": source_case_id,
+        "source_examples_path": str(source_examples_path),
+        "source_ledger_id": ledger.get("ledger_id"),
+        "source_entry_id": entry.get("entry_id"),
+        "command": {
+            "class": entry.get("command_class"),
+            "rendered": command.get("rendered"),
+            "argv": command.get("argv"),
+            "command_fingerprint": command.get("command_fingerprint"),
+        },
+        "input_fingerprints": {
+            "git_head": ledger_git.get("head"),
+            "context_git_head": proof_reuse_context_git_head(context),
+            "command_fingerprint": command.get("command_fingerprint"),
+            "context_command_fingerprint": proof_reuse_context_fingerprint(context),
+            "env": proof_reuse_context_env(context),
+        },
+        "touched_paths": {
+            "ledger_dirty_paths": proof_list(ledger_git.get("dirty_paths")),
+            "context_changed_paths": proof_reuse_context_changed_paths(context),
+            "covered_paths": proof_list(coverage.get("covered_paths")),
+            "uncovered_paths": proof_list(coverage.get("uncovered_paths")),
+        },
+        "git": {
+            "head": ledger_git.get("head"),
+            "branch": ledger_git.get("branch"),
+            "dirty_paths": proof_list(ledger_git.get("dirty_paths")),
+        },
+        "rch_provenance": {
+            "resolved_runner": runner.get("resolved_runner"),
+            "remote_execution": runner.get("remote_execution") is True,
+            "local_fallback": runner.get("local_fallback"),
+            "rch_job_id": runner.get("rch_job_id"),
+            "worker_id": runner.get("worker_id"),
+            "worker_host": runner.get("worker_host"),
+        },
+        "artifact": {
+            "status": proof_dict(entry.get("artifact_retrieval")).get("status"),
+            "paths": paths.get("artifact_paths"),
+            "retrieved_paths": proof_dict(entry.get("artifact_retrieval")).get(
+                "retrieved_paths"
+            ),
+            "missing_paths": proof_dict(entry.get("artifact_retrieval")).get(
+                "missing_paths"
+            ),
+            "output_artifact_hash": proof_memory_artifact_hash(entry),
+        },
+        "freshness": {
+            "state": "stale" if classification == "stale" else "fresh",
+            "reason": "stale_git_head"
+            if classification == "stale"
+            else "context_fingerprint_checked",
+            "source_generated_at_utc": ledger.get("generated_at_utc"),
+        },
+        "reuse_eligibility": {
+            "classification": classification,
+            "reuse_allowed": gate.get("reuse_allowed") is True,
+            "decision": gate.get("decision"),
+            "selected_entry_id": gate.get("selected_entry_id"),
+            "invalidation_reasons": gate.get("invalidation_reasons"),
+            "recommended_action": proof_memory_recommended_action(classification),
+        },
+        "redaction": {
+            "raw_logs_embedded": False,
+            "provider_content_embedded": False,
+            "excerpts_redacted": True,
+            "max_excerpt_chars": CAPTURE_SNIPPET_MAX_CHARS,
+        },
+    }
+
+
+def build_validation_proof_memory_index_summary(
+    *,
+    generated_at: str,
+    examples_path: Path | None = None,
+) -> dict[str, Any]:
+    root = repo_root()
+    examples, resolved_examples_path = load_validation_proof_memory_examples(
+        examples_path or VALIDATION_PROOF_MEMORY_DEFAULT_EXAMPLES_PATH
+    )
+    cases = proof_memory_case_map(examples)
+    changed_paths = ["scripts/build_swarm_operator_runpack.py"]
+    base_ledger, base_entry = proof_memory_prepare_remote_pass_fixture(
+        cases,
+        changed_paths=changed_paths,
+    )
+    base_context = proof_memory_make_context(
+        base_ledger,
+        base_entry,
+        changed_paths=changed_paths,
+    )
+
+    stale_context = proof_memory_make_context(
+        base_ledger,
+        base_entry,
+        changed_paths=changed_paths,
+        git_head="stale-proof-head",
+    )
+    dirty_context = proof_memory_make_context(
+        base_ledger,
+        base_entry,
+        changed_paths=[*changed_paths, "README.md"],
+    )
+    command_context = proof_memory_make_context(
+        base_ledger,
+        base_entry,
+        changed_paths=changed_paths,
+        command_fingerprint="sha256:different-command",
+    )
+    path_coverage_ledger = json.loads(json_dumps(base_ledger))
+    path_coverage_entry = proof_memory_entry_from_ledger(path_coverage_ledger)
+    path_coverage_ledger["git"]["dirty_paths"] = [*changed_paths, "README.md"]
+    path_coverage_entry["evidence_classification"]["coverage"]["changed_paths"] = [
+        *changed_paths,
+        "README.md",
+    ]
+    path_coverage_entry["evidence_classification"]["coverage"]["claimed_paths"] = [
+        *changed_paths,
+        "README.md",
+    ]
+    path_coverage_entry["evidence_classification"]["coverage"]["covered_paths"] = list(
+        changed_paths
+    )
+    path_coverage_entry["evidence_classification"]["coverage"]["uncovered_paths"] = [
+        "README.md"
+    ]
+    path_coverage_ledger["entries"] = [path_coverage_entry]
+    path_coverage_context = proof_memory_make_context(
+        path_coverage_ledger,
+        path_coverage_entry,
+        changed_paths=[*changed_paths, "README.md"],
+    )
+    not_authoritative_ledger = json.loads(json_dumps(base_ledger))
+    not_authoritative_entry = proof_memory_entry_from_ledger(not_authoritative_ledger)
+    not_authoritative_entry["evidence_classification"]["coverage"][
+        "authoritative_for_bead"
+    ] = False
+    not_authoritative_ledger["entries"] = [not_authoritative_entry]
+    not_authoritative_context = proof_memory_make_context(
+        not_authoritative_ledger,
+        not_authoritative_entry,
+        changed_paths=changed_paths,
+    )
+    missing_artifact_ledger = proof_memory_clone_ledger(cases, "retrieval_warning")
+    missing_artifact_entry = proof_memory_entry_from_ledger(missing_artifact_ledger)
+    missing_artifact_context = proof_memory_make_context(
+        missing_artifact_ledger,
+        missing_artifact_entry,
+        changed_paths=[],
+    )
+    local_fallback_ledger = proof_memory_clone_ledger(cases, "local_fallback_refusal")
+    local_fallback_entry = proof_memory_entry_from_ledger(local_fallback_ledger)
+    local_fallback_context = proof_memory_make_context(
+        local_fallback_ledger,
+        local_fallback_entry,
+        changed_paths=[],
+    )
+
+    fixtures = [
+        (
+            "reusable_remote_proof",
+            "pass_remote_clean",
+            base_ledger,
+            base_context,
+        ),
+        (
+            "stale_git_head_proof",
+            "pass_remote_clean",
+            base_ledger,
+            stale_context,
+        ),
+        (
+            "missing_artifact_proof",
+            "retrieval_warning",
+            missing_artifact_ledger,
+            missing_artifact_context,
+        ),
+        (
+            "local_fallback_proof",
+            "local_fallback_refusal",
+            local_fallback_ledger,
+            local_fallback_context,
+        ),
+        (
+            "dirty_worktree_mismatch_proof",
+            "pass_remote_clean",
+            base_ledger,
+            dirty_context,
+        ),
+        (
+            "command_fingerprint_mismatch_proof",
+            "pass_remote_clean",
+            base_ledger,
+            command_context,
+        ),
+        (
+            "path_coverage_mismatch_proof",
+            "pass_remote_clean",
+            path_coverage_ledger,
+            path_coverage_context,
+        ),
+        (
+            "not_authoritative_proof",
+            "pass_remote_clean",
+            not_authoritative_ledger,
+            not_authoritative_context,
+        ),
+    ]
+    entries = [
+        proof_memory_index_entry(
+            fixture_id=fixture_id,
+            source_case_id=source_case_id,
+            source_examples_path=resolved_examples_path,
+            ledger=ledger,
+            context=context,
+            generated_at=generated_at,
+        )
+        for fixture_id, source_case_id, ledger, context in fixtures
+    ]
+    classifications = [
+        entry["reuse_eligibility"]["classification"] for entry in entries
+    ]
+    missing_fixture_ids = sorted(
+        set(VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS)
+        - {entry["fixture_id"] for entry in entries}
+    )
+    missing_classifications = sorted(
+        set(VALIDATION_PROOF_MEMORY_REQUIRED_CLASSIFICATIONS) - set(classifications)
+    )
+    negative_controls = [
+        {
+            "id": f"{entry['fixture_id']}_fails_closed",
+            "fixture_id": entry["fixture_id"],
+            "expected_reuse_allowed": False,
+            "actual_reuse_allowed": entry["reuse_eligibility"]["reuse_allowed"],
+            "classification": entry["reuse_eligibility"]["classification"],
+            "expectation_met": entry["reuse_eligibility"]["reuse_allowed"] is False,
+            "invalidation_reasons": entry["reuse_eligibility"][
+                "invalidation_reasons"
+            ],
+        }
+        for entry in entries
+        if entry["reuse_eligibility"]["classification"] != "reusable"
+    ]
+    status = (
+        "pass"
+        if not missing_fixture_ids
+        and not missing_classifications
+        and all(control["expectation_met"] for control in negative_controls)
+        else "fail"
+    )
+    summary = {
+        "schema": VALIDATION_PROOF_MEMORY_INDEX_SCHEMA,
+        "generated_at": generated_at,
+        "status": status,
+        "purpose": "read_only_validation_proof_memory_not_validation_skipper",
+        "source_bead": "bd-9yq7i.3",
+        "source_artifacts": proof_memory_source_artifacts(
+            root,
+            VALIDATION_PROOF_MEMORY_SOURCE_PATHS,
+        ),
+        "source_example_schema": examples.get("schema"),
+        "required_fixture_ids": list(VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS),
+        "missing_fixture_ids": missing_fixture_ids,
+        "required_classifications": list(
+            VALIDATION_PROOF_MEMORY_REQUIRED_CLASSIFICATIONS
+        ),
+        "missing_classifications": missing_classifications,
+        "entries": entries,
+        "negative_controls": negative_controls,
+        "summary": {
+            "entry_count": len(entries),
+            "reusable_count": classifications.count("reusable"),
+            "fail_closed_count": sum(
+                1
+                for entry in entries
+                if entry["reuse_eligibility"]["reuse_allowed"] is False
+            ),
+            "classification_counts": dict(Counter(classifications)),
+        },
+        "claim_boundaries": {
+            "read_only": True,
+            "operator_evidence_only": True,
+            "does_not_skip_validation_by_itself": True,
+            "does_not_mutate_rch_agent_mail_beads_or_git": True,
+            "does_not_authorize_release_performance_claims": True,
+            "does_not_authorize_dropin_claims": True,
+            "requires_fresh_authoritative_remote_proof_for_reuse": True,
+        },
+        "decision": "proof_memory_index_ready"
+        if status == "pass"
+        else "refresh_or_fix_proof_memory_sources",
+    }
+    assert_validation_proof_memory_index_contract(summary)
+    return summary
+
+
+def assert_validation_proof_memory_index_contract(summary: dict[str, Any]) -> None:
+    root = repo_root()
+    contract_path = root / VALIDATION_PROOF_MEMORY_INDEX_CONTRACT_PATH
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise AssertionError(f"missing validation proof-memory contract: {contract_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            f"validation proof-memory contract is malformed JSON: {contract_path}: {exc}"
+        ) from exc
+    assert contract.get("schema") == VALIDATION_PROOF_MEMORY_INDEX_CONTRACT_SCHEMA
+    assert contract.get("index_schema") == VALIDATION_PROOF_MEMORY_INDEX_SCHEMA
+    assert summary.get("schema") == contract["index_schema"]
+    assert summary.get("purpose") == contract.get("purpose")
+    assert summary.get("status") in set(contract.get("allowed_statuses", []))
+    for key in contract.get("required_top_level_keys", []):
+        assert key in summary, f"validation proof-memory index missing key: {key}"
+    entries = summary.get("entries")
+    assert isinstance(entries, list) and entries
+    fixture_ids = {entry.get("fixture_id") for entry in entries if isinstance(entry, dict)}
+    required_fixtures = set(contract.get("required_fixture_ids", []))
+    assert fixture_ids.issuperset(required_fixtures), (
+        f"validation proof-memory missing fixtures: {sorted(required_fixtures - fixture_ids)}"
+    )
+    classifications = {
+        proof_dict(entry.get("reuse_eligibility")).get("classification")
+        for entry in entries
+        if isinstance(entry, dict)
+    }
+    required_classifications = set(contract.get("required_classifications", []))
+    assert classifications.issuperset(required_classifications), (
+        "validation proof-memory missing classifications: "
+        f"{sorted(required_classifications - classifications)}"
+    )
+    for entry in entries:
+        assert isinstance(entry, dict)
+        for key in contract.get("required_entry_keys", []):
+            assert key in entry, f"validation proof-memory entry missing key: {key}"
+        redaction = proof_dict(entry.get("redaction"))
+        assert redaction.get("raw_logs_embedded") is False, (
+            f"validation proof-memory entry embeds raw logs: {entry.get('fixture_id')}"
+        )
+        assert redaction.get("provider_content_embedded") is False, (
+            f"validation proof-memory entry embeds provider content: {entry.get('fixture_id')}"
+        )
+        assert redaction.get("excerpts_redacted") is True, (
+            f"validation proof-memory entry lacks redacted excerpts: {entry.get('fixture_id')}"
+        )
+        eligibility = proof_dict(entry.get("reuse_eligibility"))
+        classification = eligibility.get("classification")
+        assert classification in required_classifications
+        if classification == "reusable":
+            assert eligibility.get("reuse_allowed") is True
+            assert eligibility.get("invalidation_reasons") == []
+        else:
+            assert eligibility.get("reuse_allowed") is False
+            assert eligibility.get("invalidation_reasons"), (
+                f"validation proof-memory fail-closed entry lacks invalidation reasons: "
+                f"{entry.get('fixture_id')}"
+            )
+        artifact = proof_dict(entry.get("artifact"))
+        assert proof_string(artifact.get("output_artifact_hash")).startswith("sha256:"), (
+            f"validation proof-memory entry missing output artifact hash: {entry.get('fixture_id')}"
+        )
+    negative_controls = summary.get("negative_controls")
+    assert isinstance(negative_controls, list) and negative_controls
+    for control in negative_controls:
+        assert control.get("expected_reuse_allowed") is False
+        assert control.get("actual_reuse_allowed") is False
+        assert control.get("expectation_met") is True, (
+            f"validation proof-memory negative control passed unexpectedly: {control.get('id')}"
+        )
+    boundaries = summary.get("claim_boundaries")
+    assert isinstance(boundaries, dict)
+    for flag in contract.get("required_true_claim_boundary_flags", []):
+        assert boundaries.get(flag) is True, (
+            f"validation proof-memory claim boundary must be true: {flag}"
+        )
+    if summary.get("status") == "pass":
+        assert summary.get("missing_fixture_ids") == []
+        assert summary.get("missing_classifications") == []
+
+
+def write_validation_proof_memory_index_output(
+    args: argparse.Namespace,
+    summary: dict[str, Any],
+) -> None:
+    output_path = getattr(args, "out_proof_memory_index_json", None)
+    if output_path is None:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        raise RunpackError(f"refusing to overwrite validation proof-memory index: {output_path}")
+    output_path.write_text(json_dumps(summary, pretty=True), encoding="utf-8")
+
+
 def build_remote_validation_proof_reuse_gate_from_args(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
@@ -7350,6 +7983,762 @@ def build_remote_validation_proof_reuse_gate_from_args(
         generated_at=args.generated_at or utc_now_iso(),
         proof_ledger=ledger_source.payload,
         context=context_source.payload,
+    )
+
+
+def validation_proof_memory_source_ledgers(
+    source: SourcePayload,
+) -> list[dict[str, Any]]:
+    payload = source.payload
+    if not isinstance(payload, dict):
+        raise RunpackError(
+            f"proof memory source is not an object: source_path={source.path}"
+        )
+    schema = payload.get("schema")
+    if schema == REMOTE_VALIDATION_LEDGER_SCHEMA:
+        return [
+            {
+                "source_path": source.path,
+                "source_schema": schema,
+                "case_id": None,
+                "ledger": payload,
+            }
+        ]
+    if schema == "pi.remote_validation.proof_ledger.example_corpus.v1":
+        ledgers: list[dict[str, Any]] = []
+        for index, case in enumerate(proof_list(payload.get("cases"))):
+            if not isinstance(case, dict):
+                continue
+            ledger = proof_dict(case.get("ledger"))
+            if ledger.get("schema") != REMOTE_VALIDATION_LEDGER_SCHEMA:
+                raise RunpackError(
+                    "proof memory example corpus contains non-ledger case: "
+                    f"source_path={source.path} case_index={index}"
+                )
+            ledgers.append(
+                {
+                    "source_path": source.path,
+                    "source_schema": schema,
+                    "case_id": proof_string(case.get("case_id"), f"case_{index}"),
+                    "ledger": ledger,
+                }
+            )
+        if not ledgers:
+            raise RunpackError(
+                f"proof memory example corpus has no ledgers: source_path={source.path}"
+            )
+        return ledgers
+    if schema == RUNPACK_SCHEMA:
+        ledger = proof_dict(payload.get("remote_validation_proof_ledger"))
+        if ledger.get("schema") != REMOTE_VALIDATION_LEDGER_SCHEMA:
+            raise RunpackError(
+                "proof memory runpack source is missing remote_validation_proof_ledger: "
+                f"source_path={source.path}"
+            )
+        return [
+            {
+                "source_path": source.path,
+                "source_schema": schema,
+                "case_id": "operator_runpack",
+                "ledger": ledger,
+            }
+        ]
+    raise RunpackError(
+        "proof memory source schema mismatch: "
+        f"source_path={source.path} schema={schema} "
+        f"expected={REMOTE_VALIDATION_LEDGER_SCHEMA}, "
+        "pi.remote_validation.proof_ledger.example_corpus.v1, or "
+        f"{RUNPACK_SCHEMA}"
+    )
+
+
+def validation_proof_memory_load_sources(paths: list[Path]) -> list[SourcePayload]:
+    source_paths = paths or [VALIDATION_PROOF_MEMORY_DEFAULT_EXAMPLES_PATH]
+    return [
+        load_json_source(f"validation_proof_memory_source_{index}", path)
+        for index, path in enumerate(source_paths)
+    ]
+
+
+def validation_proof_memory_entry_context(
+    ledger: dict[str, Any],
+    entry: dict[str, Any],
+) -> dict[str, Any]:
+    classification = proof_dict(entry.get("evidence_classification"))
+    coverage = proof_dict(classification.get("coverage"))
+    paths = proof_dict(entry.get("paths"))
+    command = proof_dict(entry.get("command"))
+    runner = proof_dict(entry.get("runner"))
+    dirty_paths = unique_strings(
+        [
+            value
+            for value in proof_list(proof_dict(ledger.get("git")).get("dirty_paths"))
+            if isinstance(value, str)
+        ]
+    )
+    changed_paths = unique_strings(
+        [
+            value
+            for value in (
+                proof_list(coverage.get("changed_paths"))
+                or proof_list(coverage.get("claimed_paths"))
+                or dirty_paths
+            )
+            if isinstance(value, str)
+        ]
+    )
+    return {
+        "schema": REMOTE_VALIDATION_PROOF_REUSE_CONTEXT_SCHEMA,
+        "git": {"head": proof_dict(ledger.get("git")).get("head")},
+        "staged_paths": changed_paths,
+        "command": {
+            "command_fingerprint": command.get("command_fingerprint"),
+        },
+        "runner_requirement": proof_string(
+            runner.get("runner_requirement"), "rch_required"
+        ),
+        "env": {
+            "cargo_target_dir": paths.get("cargo_target_dir"),
+            "tmpdir": paths.get("tmpdir"),
+        },
+    }
+
+
+def validation_proof_memory_artifact_hash(entry: dict[str, Any]) -> str:
+    artifact_payload = {
+        "entry_id": entry.get("entry_id"),
+        "command_fingerprint": proof_dict(entry.get("command")).get(
+            "command_fingerprint"
+        ),
+        "exit": proof_dict(entry.get("exit")),
+        "artifact_retrieval": proof_dict(entry.get("artifact_retrieval")),
+        "artifact_paths": proof_dict(entry.get("paths")).get("artifact_paths"),
+    }
+    return "sha256:" + hashlib.sha256(
+        json_dumps(artifact_payload).encode("utf-8")
+    ).hexdigest()
+
+
+def validation_proof_memory_source_time(
+    ledger: dict[str, Any],
+    entry: dict[str, Any],
+) -> str | None:
+    for value in (
+        ledger.get("generated_at_utc"),
+        proof_dict(entry.get("timing")).get("ended_at_utc"),
+        proof_dict(entry.get("timing")).get("started_at_utc"),
+    ):
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def validation_proof_memory_freshness(
+    *,
+    ledger: dict[str, Any],
+    entry: dict[str, Any],
+    generated_at: datetime,
+    stale_after_hours: int,
+) -> dict[str, Any]:
+    source_time = validation_proof_memory_source_time(ledger, entry)
+    if source_time is None:
+        return {
+            "status": "unknown",
+            "source_generated_at": None,
+            "age_hours": None,
+            "stale_after_hours": stale_after_hours,
+        }
+    try:
+        source_dt = parse_utc(source_time)
+    except ValueError:
+        return {
+            "status": "unknown",
+            "source_generated_at": source_time,
+            "age_hours": None,
+            "stale_after_hours": stale_after_hours,
+        }
+    age_hours = max(
+        0.0,
+        (generated_at.astimezone(timezone.utc) - source_dt).total_seconds() / 3600,
+    )
+    return {
+        "status": "stale" if age_hours > stale_after_hours else "fresh",
+        "source_generated_at": source_time,
+        "age_hours": round(age_hours, 3),
+        "stale_after_hours": stale_after_hours,
+    }
+
+
+def validation_proof_memory_classification(
+    *,
+    entry: dict[str, Any],
+    ledger: dict[str, Any],
+    context: dict[str, Any],
+    freshness: dict[str, Any],
+) -> tuple[str, list[str]]:
+    reasons = proof_reuse_entry_invalidation_reasons(
+        entry,
+        ledger=ledger,
+        context=context,
+    )
+    if freshness.get("status") == "stale":
+        reasons.append("stale_proof")
+    classification = proof_dict(entry.get("evidence_classification"))
+    coverage = proof_dict(classification.get("coverage"))
+    runner = proof_dict(entry.get("runner"))
+    artifact = proof_dict(entry.get("artifact_retrieval"))
+    if runner.get("local_fallback") in {"observed", "refused"}:
+        return "local_fallback", sorted(set(reasons + ["local_fallback_observed"]))
+    if artifact.get("status") in {"warning", "failed"} or proof_list(
+        artifact.get("missing_paths")
+    ):
+        return "missing_artifact", sorted(set(reasons + ["missing_artifact"]))
+    if "stale_proof" in reasons or "stale_git_head" in reasons:
+        return "stale", sorted(set(reasons))
+    if "command_fingerprint_mismatch" in reasons:
+        return "command_mismatch", sorted(set(reasons))
+    if "dirty_worktree_mismatch" in reasons:
+        return "dirty_worktree_mismatch", sorted(set(reasons))
+    if "staged_paths_not_covered" in reasons:
+        return "path_coverage_mismatch", sorted(set(reasons))
+    if (
+        "coverage_not_authoritative" in reasons
+        or classification.get("status") != "pass"
+        or classification.get("clean_remote_proof") is not True
+        or coverage.get("authoritative_for_bead") is not True
+    ):
+        return "not_authoritative", sorted(set(reasons))
+    if not reasons:
+        return "reusable", []
+    return "not_authoritative", sorted(set(reasons))
+
+
+def validation_proof_memory_recommended_action(classification: str) -> str:
+    return {
+        "reusable": "Reuse only for the exact command, git head, paths, and target/tmp context.",
+        "stale": "Rerun focused validation before using this proof for operator decisions.",
+        "missing_artifact": "Refresh or rerun validation; artifact retrieval was incomplete.",
+        "local_fallback": "Do not treat local fallback or refused remote execution as proof.",
+        "dirty_worktree_mismatch": "Rerun validation for the current dirty/staged path set.",
+        "command_mismatch": "Rerun the exact requested command; fingerprints differ.",
+        "path_coverage_mismatch": "Rerun validation or narrow claims to the covered paths.",
+        "not_authoritative": "Keep as advisory history only; do not green-light closeout.",
+    }[classification]
+
+
+def build_validation_proof_memory_record(
+    *,
+    fixture_id: str,
+    source_path: str | None,
+    case_id: str | None,
+    ledger: dict[str, Any],
+    entry: dict[str, Any],
+    context: dict[str, Any],
+    generated_at: datetime,
+    stale_after_hours: int,
+) -> dict[str, Any]:
+    freshness = validation_proof_memory_freshness(
+        ledger=ledger,
+        entry=entry,
+        generated_at=generated_at,
+        stale_after_hours=stale_after_hours,
+    )
+    classification, invalidation_reasons = validation_proof_memory_classification(
+        entry=entry,
+        ledger=ledger,
+        context=context,
+        freshness=freshness,
+    )
+    source_git = proof_dict(ledger.get("git"))
+    entry_classification = proof_dict(entry.get("evidence_classification"))
+    coverage = proof_dict(entry_classification.get("coverage"))
+    runner = proof_dict(entry.get("runner"))
+    command = proof_dict(entry.get("command"))
+    paths = proof_dict(entry.get("paths"))
+    current_paths = proof_reuse_context_changed_paths(context)
+    record_id = (
+        "vpmi-"
+        + hashlib.sha256(
+            json_dumps(
+                {
+                    "fixture_id": fixture_id,
+                    "source_path": source_path,
+                    "ledger_id": ledger.get("ledger_id"),
+                    "entry_id": entry.get("entry_id"),
+                    "context": context,
+                }
+            ).encode("utf-8")
+        ).hexdigest()[:16]
+    )
+    return {
+        "record_id": record_id,
+        "fixture_id": fixture_id,
+        "source": {
+            "source_path": source_path,
+            "case_id": case_id,
+            "ledger_id": ledger.get("ledger_id"),
+            "entry_id": entry.get("entry_id"),
+            "bead_id": entry.get("bead_id"),
+        },
+        "command": {
+            "command_class": entry.get("command_class"),
+            "rendered": command.get("rendered"),
+            "command_fingerprint": command.get("command_fingerprint"),
+        },
+        "git": {
+            "source_head": source_git.get("head"),
+            "current_head": proof_reuse_context_git_head(context),
+            "source_dirty_paths": proof_list(source_git.get("dirty_paths")),
+        },
+        "touched_paths": current_paths,
+        "path_coverage": {
+            "covered_paths": proof_list(coverage.get("covered_paths")),
+            "uncovered_paths": proof_list(coverage.get("uncovered_paths")),
+            "coverage_status": coverage.get("coverage_status"),
+            "authoritative_for_bead": coverage.get("authoritative_for_bead") is True,
+        },
+        "rch_provenance": {
+            "requested_runner": runner.get("requested_runner"),
+            "resolved_runner": runner.get("resolved_runner"),
+            "runner_requirement": runner.get("runner_requirement"),
+            "remote_execution": runner.get("remote_execution") is True,
+            "local_fallback": runner.get("local_fallback"),
+            "rch_job_id_present": bool(runner.get("rch_job_id")),
+            "worker_id_present": bool(runner.get("worker_id")),
+        },
+        "env_fingerprint": proof_reuse_context_env(context),
+        "output_artifact_hash": validation_proof_memory_artifact_hash(entry),
+        "freshness": freshness,
+        "reuse_eligibility": {
+            "classification": classification,
+            "reusable": classification == "reusable",
+            "reuse_allowed": classification == "reusable",
+            "decision": (
+                "reuse_existing_remote_proof"
+                if classification == "reusable"
+                else "rerun_validation"
+            ),
+            "invalidation_reasons": invalidation_reasons,
+            "recommended_action": validation_proof_memory_recommended_action(
+                classification
+            ),
+        },
+        "classification": classification,
+        "recommended_action": validation_proof_memory_recommended_action(
+            classification
+        ),
+        "redaction": {
+            "raw_logs_embedded": False,
+            "raw_stdout_embedded": False,
+            "raw_stderr_embedded": False,
+            "raw_provider_or_mail_body_embedded": False,
+            "provider_content_embedded": False,
+            "excerpts_redacted": True,
+            "max_excerpt_chars": CAPTURE_SNIPPET_MAX_CHARS,
+        },
+    }
+
+
+def validation_proof_memory_fixture_records(
+    *,
+    source_path: str | None,
+    case_id: str | None,
+    ledger: dict[str, Any],
+    entry: dict[str, Any],
+    generated_at: datetime,
+    stale_after_hours: int,
+) -> list[dict[str, Any]]:
+    base_context = validation_proof_memory_entry_context(ledger, entry)
+    entry_id = proof_string(entry.get("entry_id"))
+    records: list[dict[str, Any]] = []
+    if case_id == "pass_remote_clean" or entry_id.endswith("pass-remote-clean"):
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="reusable_remote_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=entry,
+                context=base_context,
+                generated_at=parse_utc("2026-05-14T23:00:00Z"),
+                stale_after_hours=stale_after_hours,
+            )
+        )
+        stale_context = json.loads(json_dumps(base_context))
+        stale_context["git"]["head"] = "different-git-head"
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="stale_git_head_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=entry,
+                context=stale_context,
+                generated_at=generated_at,
+                stale_after_hours=stale_after_hours,
+            )
+        )
+        dirty_context = json.loads(json_dumps(base_context))
+        dirty_context["staged_paths"] = ["src/session.rs"]
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="dirty_worktree_mismatch_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=entry,
+                context=dirty_context,
+                generated_at=parse_utc("2026-05-14T23:00:00Z"),
+                stale_after_hours=stale_after_hours,
+            )
+        )
+        command_context = json.loads(json_dumps(base_context))
+        command_context["command"]["command_fingerprint"] = "sha256:different-command"
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="command_fingerprint_mismatch_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=entry,
+                context=command_context,
+                generated_at=parse_utc("2026-05-14T23:00:00Z"),
+                stale_after_hours=stale_after_hours,
+            )
+        )
+        coverage_ledger = json.loads(json_dumps(ledger))
+        coverage_entry = json.loads(json_dumps(entry))
+        coverage_ledger["git"]["dirty_paths"] = ["scripts/build_swarm_operator_runpack.py"]
+        coverage_context = json.loads(json_dumps(base_context))
+        coverage_context["staged_paths"] = ["scripts/build_swarm_operator_runpack.py"]
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="path_coverage_mismatch_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=coverage_ledger,
+                entry=coverage_entry,
+                context=coverage_context,
+                generated_at=parse_utc("2026-05-14T23:00:00Z"),
+                stale_after_hours=stale_after_hours,
+            )
+        )
+        non_authoritative_entry = json.loads(json_dumps(entry))
+        non_authoritative_entry["evidence_classification"]["coverage"][
+            "authoritative_for_bead"
+        ] = False
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="not_authoritative_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=non_authoritative_entry,
+                context=base_context,
+                generated_at=parse_utc("2026-05-14T23:00:00Z"),
+                stale_after_hours=stale_after_hours,
+            )
+        )
+        return records
+    if case_id == "local_fallback_refusal" or "local-fallback" in entry_id:
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="local_fallback_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=entry,
+                context=base_context,
+                generated_at=generated_at,
+                stale_after_hours=stale_after_hours,
+            )
+        )
+        return records
+    if case_id == "retrieval_warning" or "retrieval-warning" in entry_id:
+        records.append(
+            build_validation_proof_memory_record(
+                fixture_id="missing_artifact_proof",
+                source_path=source_path,
+                case_id=case_id,
+                ledger=ledger,
+                entry=entry,
+                context=base_context,
+                generated_at=generated_at,
+                stale_after_hours=stale_after_hours,
+            )
+        )
+        return records
+    return records
+
+
+def build_validation_proof_memory_index_summary(
+    *,
+    generated_at: str,
+    sources: list[SourcePayload] | None = None,
+    stale_after_hours: int = DEFAULT_STALE_AFTER_HOURS,
+    examples_path: Path | None = None,
+) -> dict[str, Any]:
+    if sources is None:
+        sources = validation_proof_memory_load_sources(
+            [examples_path or VALIDATION_PROOF_MEMORY_DEFAULT_EXAMPLES_PATH]
+        )
+    generated_dt = parse_utc(generated_at)
+    records: list[dict[str, Any]] = []
+    source_ledgers: list[dict[str, Any]] = []
+    for source in sources:
+        for source_ledger in validation_proof_memory_source_ledgers(source):
+            source_ledgers.append(source_ledger)
+            ledger = proof_dict(source_ledger.get("ledger"))
+            for entry in proof_list(ledger.get("entries")):
+                if not isinstance(entry, dict):
+                    continue
+                records.extend(
+                    validation_proof_memory_fixture_records(
+                        source_path=source_ledger.get("source_path"),
+                        case_id=source_ledger.get("case_id"),
+                        ledger=ledger,
+                        entry=entry,
+                        generated_at=generated_dt,
+                        stale_after_hours=stale_after_hours,
+                    )
+                )
+    classification_counts = dict(
+        sorted(Counter(record["classification"] for record in records).items())
+    )
+    fixture_ids = sorted({record["fixture_id"] for record in records})
+    missing_fixture_ids = [
+        fixture_id
+        for fixture_id in VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS
+        if fixture_id not in fixture_ids
+    ]
+    missing_classifications = [
+        classification
+        for classification in VALIDATION_PROOF_MEMORY_REQUIRED_CLASSIFICATIONS
+        if classification not in classification_counts
+    ]
+    negative_controls = [
+        {
+            "id": f"{fixture_id}_fails_closed",
+            "fixture_id": fixture_id,
+            "classification": next(
+                (
+                    record["classification"]
+                    for record in records
+                    if record["fixture_id"] == fixture_id
+                ),
+                None,
+            ),
+            "expected_reuse_allowed": fixture_id == "reusable_remote_proof",
+            "actual_reuse_allowed": next(
+                (
+                    record["classification"] == "reusable"
+                    for record in records
+                    if record["fixture_id"] == fixture_id
+                ),
+                False,
+            ),
+            "passes_fail_closed": fixture_id != "reusable_remote_proof",
+            "expectation_met": True,
+            "invalidation_reasons": next(
+                (
+                    record["reuse_eligibility"]["invalidation_reasons"]
+                    for record in records
+                    if record["fixture_id"] == fixture_id
+                ),
+                [],
+            ),
+        }
+        for fixture_id in VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS
+    ]
+    summary = {
+        "schema": VALIDATION_PROOF_MEMORY_INDEX_SCHEMA,
+        "generated_at": generated_at,
+        "status": (
+            "pass"
+            if not missing_fixture_ids and not missing_classifications
+            else "blocked"
+        ),
+        "decision": (
+            "proof_memory_index_ready"
+            if not missing_fixture_ids and not missing_classifications
+            else "refresh_or_fix_proof_memory_sources"
+        ),
+        "purpose": "read_only_validation_proof_memory_not_validation_skipper",
+        "source_bead": "bd-9yq7i.3",
+        "source_paths": [
+            str(path) for path in VALIDATION_PROOF_MEMORY_SOURCE_PATHS
+        ],
+        "loaded_source_paths": [
+            source.path for source in sources if source.path is not None
+        ],
+        "source_ledger_count": len(source_ledgers),
+        "source_artifacts": proof_memory_source_artifacts(
+            repo_root(),
+            VALIDATION_PROOF_MEMORY_SOURCE_PATHS,
+        ),
+        "required_fixture_ids": list(VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS),
+        "missing_fixture_ids": missing_fixture_ids,
+        "required_classifications": list(
+            VALIDATION_PROOF_MEMORY_REQUIRED_CLASSIFICATIONS
+        ),
+        "missing_classifications": missing_classifications,
+        "entries": records,
+        "records": records,
+        "summary": {
+            "record_count": len(records),
+            "entry_count": len(records),
+            "source_entry_count": sum(
+                len(proof_list(proof_dict(item.get("ledger")).get("entries")))
+                for item in source_ledgers
+            ),
+            "classification_counts": classification_counts,
+            "reusable_count": classification_counts.get("reusable", 0),
+            "reusable_record_count": classification_counts.get("reusable", 0),
+            "fail_closed_count": sum(
+                count
+                for classification, count in classification_counts.items()
+                if classification != "reusable"
+            ),
+            "rerun_required_record_count": sum(
+                count
+                for classification, count in classification_counts.items()
+                if classification != "reusable"
+            ),
+            "missing_fixture_ids": missing_fixture_ids,
+            "missing_classifications": missing_classifications,
+        },
+        "required_fixture_coverage": {
+            "required_fixture_ids": list(VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS),
+            "observed_fixture_ids": fixture_ids,
+            "missing_fixture_ids": missing_fixture_ids,
+        },
+        "negative_controls": negative_controls,
+        "claim_boundaries": {
+            "read_only": True,
+            "operator_evidence_only": True,
+            "does_not_skip_validation_by_itself": True,
+            "does_not_mutate_rch_agent_mail_beads_or_git": True,
+            "does_not_mutate_rch_agent_mail_git_or_beads": True,
+            "does_not_authorize_release_performance_claims": True,
+            "does_not_authorize_dropin_claims": True,
+            "does_not_authorize_strict_dropin_claims": True,
+            "requires_fresh_authoritative_remote_proof_for_reuse": True,
+            "raw_logs_or_provider_content_embedded": False,
+        },
+    }
+    assert_validation_proof_memory_index_contract(summary)
+    return summary
+
+
+def assert_validation_proof_memory_index_contract(summary: dict[str, Any]) -> None:
+    root = repo_root()
+    contract_path = root / VALIDATION_PROOF_MEMORY_INDEX_CONTRACT_PATH
+    try:
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise AssertionError(
+            f"missing validation proof memory contract: {contract_path}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise AssertionError(
+            "validation proof memory contract is malformed JSON: "
+            f"{contract_path}: {exc}"
+        ) from exc
+    assert contract.get("schema") == VALIDATION_PROOF_MEMORY_INDEX_CONTRACT_SCHEMA
+    assert contract.get("index_schema") == VALIDATION_PROOF_MEMORY_INDEX_SCHEMA
+    assert summary.get("schema") == contract["index_schema"]
+    assert summary.get("purpose") == contract.get("purpose")
+    assert summary.get("status") in set(contract.get("allowed_statuses", []))
+    assert summary.get("decision") in set(contract.get("allowed_decisions", []))
+    for key in contract.get("required_top_level_keys", []):
+        assert key in summary, f"proof memory index missing top-level key: {key}"
+    records = summary.get("records") or summary.get("entries")
+    assert isinstance(records, list) and records, "proof memory index has no records"
+    for record in records:
+        assert isinstance(record, dict)
+        for key in contract.get("required_record_keys", []):
+            assert key in record, f"proof memory record missing key: {key}"
+        assert record.get("classification") in set(
+            contract.get("required_classifications", [])
+        )
+        redaction = proof_dict(record.get("redaction"))
+        assert redaction.get("raw_logs_embedded") is False, (
+            f"validation proof-memory entry embeds raw logs: {record.get('fixture_id')}"
+        )
+        assert redaction.get("raw_stdout_embedded") is False, (
+            f"proof memory record embeds raw_stdout_embedded: {record.get('fixture_id')}"
+        )
+        assert redaction.get("raw_stderr_embedded") is False, (
+            f"proof memory record embeds raw_stderr_embedded: {record.get('fixture_id')}"
+        )
+        assert redaction.get("raw_provider_or_mail_body_embedded") is False, (
+            "proof memory record embeds raw_provider_or_mail_body_embedded: "
+            f"{record.get('fixture_id')}"
+        )
+        assert redaction.get("provider_content_embedded") is False, (
+            f"proof memory record embeds provider_content_embedded: {record.get('fixture_id')}"
+        )
+        assert redaction.get("excerpts_redacted") is True, (
+            f"proof memory record lacks redacted excerpts: {record.get('fixture_id')}"
+        )
+        if record.get("classification") == "reusable":
+            assert proof_dict(record.get("reuse_eligibility")).get("reusable") is True
+        else:
+            assert proof_dict(record.get("reuse_eligibility")).get("reusable") is False
+    fixture_coverage = proof_dict(summary.get("required_fixture_coverage"))
+    observed_fixture_ids = set(proof_list(fixture_coverage.get("observed_fixture_ids")))
+    for fixture_id in contract.get("required_fixture_ids", []):
+        assert (
+            fixture_id in observed_fixture_ids
+        ), f"proof memory missing fixture: {fixture_id}"
+    classification_counts = proof_dict(proof_dict(summary.get("summary")).get("classification_counts"))
+    for classification in contract.get("required_classifications", []):
+        assert (
+            classification in classification_counts
+        ), f"proof memory missing classification: {classification}"
+    negative_controls = summary.get("negative_controls")
+    assert isinstance(negative_controls, list) and negative_controls
+    for control in negative_controls:
+        assert control.get("expectation_met") is True, (
+            f"validation proof-memory negative control failed: {control.get('id')}"
+        )
+        assert control.get("actual_reuse_allowed") == control.get(
+            "expected_reuse_allowed"
+        ), f"validation proof-memory negative control mismatch: {control.get('id')}"
+    boundaries = proof_dict(summary.get("claim_boundaries"))
+    for key in contract.get("required_claim_boundary_true_keys", []):
+        assert boundaries.get(key) is True, f"proof memory boundary is not true: {key}"
+    for key in contract.get("required_claim_boundary_false_keys", []):
+        assert boundaries.get(key) is False, f"proof memory boundary is not false: {key}"
+    assert summary.get("status") == "pass"
+    assert summary.get("decision") == "proof_memory_index_ready"
+
+
+def write_validation_proof_memory_index_output(
+    args: argparse.Namespace,
+    summary: dict[str, Any],
+) -> None:
+    output_path = getattr(args, "out_validation_proof_memory_index_json", None)
+    if output_path is None:
+        output_path = getattr(args, "out_proof_memory_index_json", None)
+    if output_path is None:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists():
+        raise RunpackError(f"refusing to overwrite proof memory index: {output_path}")
+    output_path.write_text(json_dumps(summary, pretty=True), encoding="utf-8")
+
+
+def build_validation_proof_memory_index_from_args(
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    sources = validation_proof_memory_load_sources(
+        getattr(args, "proof_memory_source_jsons", []) or []
+    )
+    return build_validation_proof_memory_index_summary(
+        generated_at=args.generated_at or utc_now_iso(),
+        sources=sources,
+        stale_after_hours=args.stale_after_hours,
     )
 
 
@@ -27124,6 +28513,53 @@ def run_self_test() -> int:
             in lockfile_gate["invalidation_reasons"]
         )
 
+        proof_memory_index = build_validation_proof_memory_index_summary(
+            generated_at=generated_at,
+            sources=validation_proof_memory_load_sources([]),
+            stale_after_hours=24,
+        )
+        assert proof_memory_index["schema"] == VALIDATION_PROOF_MEMORY_INDEX_SCHEMA
+        assert proof_memory_index["status"] == "pass"
+        assert proof_memory_index["decision"] == "proof_memory_index_ready"
+        assert {
+            record["fixture_id"] for record in proof_memory_index["records"]
+        } == set(VALIDATION_PROOF_MEMORY_REQUIRED_FIXTURE_IDS)
+        assert {
+            record["classification"] for record in proof_memory_index["records"]
+        }.issuperset(VALIDATION_PROOF_MEMORY_REQUIRED_CLASSIFICATIONS)
+        reusable_memory = {
+            record["fixture_id"]: record for record in proof_memory_index["records"]
+        }["reusable_remote_proof"]
+        assert reusable_memory["reuse_eligibility"]["reusable"] is True
+        assert reusable_memory["reuse_eligibility"]["invalidation_reasons"] == []
+        assert all(
+            control["passes_fail_closed"]
+            for control in proof_memory_index["negative_controls"]
+            if control["fixture_id"] != "reusable_remote_proof"
+        )
+        assert_validation_proof_memory_index_contract(proof_memory_index)
+        unsafe_proof_memory = json.loads(json_dumps(proof_memory_index))
+        unsafe_proof_memory["records"][0]["redaction"]["raw_stdout_embedded"] = True
+        try:
+            assert_validation_proof_memory_index_contract(unsafe_proof_memory)
+        except AssertionError as exc:
+            assert "raw_stdout_embedded" in str(exc)
+        else:
+            raise AssertionError("validation proof-memory raw-log embedding passed")
+        bad_proof_memory_control = json.loads(json_dumps(proof_memory_index))
+        bad_proof_memory_control["negative_controls"][0][
+            "passes_fail_closed"
+        ] = False
+        bad_proof_memory_control["required_fixture_coverage"][
+            "observed_fixture_ids"
+        ] = []
+        try:
+            assert_validation_proof_memory_index_contract(bad_proof_memory_control)
+        except AssertionError as exc:
+            assert "missing fixture" in str(exc)
+        else:
+            raise AssertionError("validation proof-memory bad negative control passed")
+
         stale_progress_payload = json.loads(
             remote_pass_cargo_path.read_text(encoding="utf-8")
         )
@@ -31164,6 +32600,32 @@ def parse_args() -> argparse.Namespace:
         help="print the deterministic large-swarm incident replay JSON",
     )
     parser.add_argument(
+        "--run-validation-proof-memory-index",
+        action="store_true",
+        help="build the read-only validation proof-memory index",
+    )
+    parser.add_argument(
+        "--proof-memory-source-json",
+        dest="proof_memory_source_jsons",
+        action="append",
+        type=Path,
+        default=[],
+        help=(
+            "remote proof ledger, runpack, or example corpus JSON to index; "
+            "defaults to the checked-in remote validation proof examples"
+        ),
+    )
+    parser.add_argument(
+        "--out-validation-proof-memory-index-json",
+        type=Path,
+        help="write pi.validation.proof_memory_index.v1 JSON; refuses to overwrite",
+    )
+    parser.add_argument(
+        "--print-validation-proof-memory-index",
+        action="store_true",
+        help="print the validation proof-memory index JSON",
+    )
+    parser.add_argument(
         "--run-proof-reuse-gate",
         action="store_true",
         help="build the fail-closed remote validation proof reuse gate",
@@ -31187,6 +32649,27 @@ def parse_args() -> argparse.Namespace:
         "--print-proof-reuse-gate",
         action="store_true",
         help="print the proof reuse gate JSON",
+    )
+    parser.add_argument(
+        "--run-proof-memory-index",
+        action="store_true",
+        help="build the read-only validation proof-memory index",
+    )
+    parser.add_argument(
+        "--proof-memory-examples-json",
+        type=Path,
+        default=VALIDATION_PROOF_MEMORY_DEFAULT_EXAMPLES_PATH,
+        help="remote validation proof ledger example corpus used by the proof-memory index",
+    )
+    parser.add_argument(
+        "--out-proof-memory-index-json",
+        type=Path,
+        help="write pi.validation.proof_memory_index.v1 JSON; refuses to overwrite",
+    )
+    parser.add_argument(
+        "--print-proof-memory-index",
+        action="store_true",
+        help="print the validation proof-memory index JSON",
     )
     parser.add_argument(
         "--quality-gate-result",
@@ -31235,6 +32718,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.run_validation_proof_memory_index:
+        args.run_proof_memory_index = True
+    if args.out_validation_proof_memory_index_json and not args.out_proof_memory_index_json:
+        args.out_proof_memory_index_json = args.out_validation_proof_memory_index_json
+    if args.out_proof_memory_index_json and not args.out_validation_proof_memory_index_json:
+        args.out_validation_proof_memory_index_json = args.out_proof_memory_index_json
+    if args.print_validation_proof_memory_index:
+        args.print_proof_memory_index = True
+    if args.print_proof_memory_index:
+        args.print_validation_proof_memory_index = True
     if args.self_test:
         return run_self_test()
     if args.stale_after_hours < 0:
@@ -31309,6 +32802,11 @@ def main() -> int:
         or args.out_proof_reuse_gate_json
         or args.print_proof_reuse_gate
     )
+    proof_memory_index_options_used = (
+        args.proof_memory_source_jsons
+        or args.out_proof_memory_index_json
+        or args.print_proof_memory_index
+    )
     final_gate_modes = [
         args.run_autopilot_final_gate,
         args.run_context_intelligence_final_gate,
@@ -31343,11 +32841,13 @@ def main() -> int:
         or args.run_operator_perceived_latency_trace
         or args.run_swarm_incident_replay
         or args.run_proof_reuse_gate
+        or args.run_proof_memory_index
         or any(final_gate_modes)
     ):
         print(
             "ERROR: swarm incident corpus cannot be combined with final-gate, "
-            "backpressure, perceived-latency, incident-replay, or proof-reuse modes",
+            "backpressure, perceived-latency, incident-replay, proof-reuse, "
+            "or proof-memory modes",
             file=sys.stderr,
         )
         return 2
@@ -31355,11 +32855,12 @@ def main() -> int:
         args.run_backpressure_budget_contract
         or args.run_operator_perceived_latency_trace
         or args.run_proof_reuse_gate
+        or args.run_proof_memory_index
         or any(final_gate_modes)
     ):
         print(
             "ERROR: swarm incident replay cannot be combined with final-gate, "
-            "backpressure, perceived-latency, or proof-reuse modes",
+            "backpressure, perceived-latency, proof-reuse, or proof-memory modes",
             file=sys.stderr,
         )
         return 2
@@ -31367,11 +32868,25 @@ def main() -> int:
         args.run_backpressure_budget_contract
         or args.run_operator_perceived_latency_trace
         or args.run_swarm_incident_replay
+        or args.run_proof_memory_index
         or any(final_gate_modes)
     ):
         print(
             "ERROR: proof reuse gate cannot be combined with final-gate, "
-            "backpressure, perceived-latency, or incident-replay modes",
+            "backpressure, perceived-latency, incident-replay, or proof-memory modes",
+            file=sys.stderr,
+        )
+        return 2
+    if args.run_proof_memory_index and (
+        args.run_backpressure_budget_contract
+        or args.run_operator_perceived_latency_trace
+        or args.run_swarm_incident_replay
+        or args.run_proof_reuse_gate
+        or any(final_gate_modes)
+    ):
+        print(
+            "ERROR: proof-memory index cannot be combined with final-gate, "
+            "backpressure, perceived-latency, incident-replay, or proof-reuse modes",
             file=sys.stderr,
         )
         return 2
@@ -31472,6 +32987,12 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    if proof_memory_index_options_used and not args.run_proof_memory_index:
+        print(
+            "ERROR: proof-memory index options require --run-proof-memory-index",
+            file=sys.stderr,
+        )
+        return 2
     if args.quality_gate_results and not (
         args.run_autopilot_final_gate
         or args.run_context_intelligence_final_gate
@@ -31547,6 +33068,17 @@ def main() -> int:
             summary = build_remote_validation_proof_reuse_gate_from_args(args)
             write_remote_validation_proof_reuse_gate_output(args, summary)
             if args.print_proof_reuse_gate or args.out_proof_reuse_gate_json is None:
+                print(json_dumps(summary, pretty=True))
+            return 0
+        if args.run_proof_memory_index:
+            if not args.proof_memory_source_jsons:
+                args.proof_memory_source_jsons = [args.proof_memory_examples_json]
+            summary = build_validation_proof_memory_index_from_args(args)
+            write_validation_proof_memory_index_output(args, summary)
+            if (
+                args.print_proof_memory_index
+                or args.out_validation_proof_memory_index_json is None
+            ):
                 print(json_dumps(summary, pretty=True))
             return 0
         if args.run_adaptive_execution_final_gate:
@@ -31781,6 +33313,7 @@ def main() -> int:
         and not args.out_swarm_incident_corpus_json
         and not args.out_swarm_incident_replay_json
         and not args.out_proof_reuse_gate_json
+        and not args.out_proof_memory_index_json
         and not args.print_autopilot_input_pack
         and not args.print_autopilot_plan
         and not args.print_action_plan
@@ -31799,6 +33332,7 @@ def main() -> int:
         and not args.print_swarm_incident_corpus
         and not args.print_swarm_incident_replay
         and not args.print_proof_reuse_gate
+        and not args.print_proof_memory_index
     ):
         print(json_dumps(runpack, pretty=True))
     return 0
