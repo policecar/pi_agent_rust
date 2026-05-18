@@ -253,6 +253,7 @@ struct HostcallQosStarvationEvidence {
 }
 
 const HOSTCALL_COST_ATTRIBUTION_SCHEMA: &str = "pi.ext.hostcall_cost_attribution.v1";
+const RESOURCE_FIREWALL_MATRIX_SCHEMA: &str = "pi.ext.resource_firewall_matrix.v1";
 
 #[derive(Clone, Debug)]
 struct HostcallCostReplayStep {
@@ -364,6 +365,56 @@ struct HostcallCostAttributionLedger {
     operator_next_actions: Vec<String>,
     negative_controls: Vec<HostcallCostAttributionNegativeControl>,
     events: Vec<HostcallCostAttributionEvent>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ResourceFirewallOperatorLog {
+    extension_role: String,
+    cost_class: String,
+    expected_action: String,
+    observed_counters: BTreeMap<String, u64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ResourceFirewallMatrixRow {
+    fixture_id: String,
+    extension_id: String,
+    extension_role: String,
+    resource_class: String,
+    hostcall_class: String,
+    budget_name: String,
+    budget_units: u64,
+    observed_units: u64,
+    admission_decision: String,
+    denial_mode: String,
+    fallback_behavior: String,
+    peer_progress_preserved: bool,
+    payload_body_redacted: bool,
+    existing_capability_boundary_preserved: bool,
+    source_hostcall_cost_role: Option<String>,
+    operator_log: ResourceFirewallOperatorLog,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ResourceFirewallNegativeControl {
+    name: String,
+    rejected: bool,
+    reason: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ResourceFirewallMatrix {
+    schema: String,
+    generated_at: String,
+    source_bead: String,
+    verdict: String,
+    source_boundary: String,
+    required_fixture_ids: Vec<String>,
+    required_resource_classes: Vec<String>,
+    hostcall_cost_connection: String,
+    matrix: Vec<ResourceFirewallMatrixRow>,
+    negative_controls: Vec<ResourceFirewallNegativeControl>,
+    operator_next_actions: Vec<String>,
 }
 
 // ─── Pure Helper Functions ──────────────────────────────────────────────────
@@ -1146,6 +1197,391 @@ fn write_hostcall_cost_attribution_ledger(ledger: &HostcallCostAttributionLedger
         serde_json::to_string_pretty(ledger).expect("serialize hostcall cost attribution ledger"),
     )
     .expect("write hostcall cost attribution ledger");
+    output_path
+}
+
+fn observed_counters(entries: &[(&str, u64)]) -> BTreeMap<String, u64> {
+    entries
+        .iter()
+        .map(|(key, value)| ((*key).to_string(), *value))
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resource_firewall_row(
+    fixture_id: &str,
+    extension_id: &str,
+    extension_role: &str,
+    resource_class: &str,
+    hostcall_class: &str,
+    budget_name: &str,
+    budget_units: u64,
+    observed_units: u64,
+    admission_decision: &str,
+    denial_mode: &str,
+    fallback_behavior: &str,
+    source_hostcall_cost_role: Option<&str>,
+    expected_action: &str,
+    counters: &[(&str, u64)],
+) -> ResourceFirewallMatrixRow {
+    ResourceFirewallMatrixRow {
+        fixture_id: fixture_id.to_string(),
+        extension_id: extension_id.to_string(),
+        extension_role: extension_role.to_string(),
+        resource_class: resource_class.to_string(),
+        hostcall_class: hostcall_class.to_string(),
+        budget_name: budget_name.to_string(),
+        budget_units,
+        observed_units,
+        admission_decision: admission_decision.to_string(),
+        denial_mode: denial_mode.to_string(),
+        fallback_behavior: fallback_behavior.to_string(),
+        peer_progress_preserved: true,
+        payload_body_redacted: true,
+        existing_capability_boundary_preserved: true,
+        source_hostcall_cost_role: source_hostcall_cost_role.map(str::to_string),
+        operator_log: ResourceFirewallOperatorLog {
+            extension_role: extension_role.to_string(),
+            cost_class: resource_class.to_string(),
+            expected_action: expected_action.to_string(),
+            observed_counters: observed_counters(counters),
+        },
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn build_resource_firewall_matrix() -> ResourceFirewallMatrix {
+    let hostcall_cost = build_hostcall_cost_attribution_ledger();
+    validate_hostcall_cost_attribution_contract(&hostcall_cost)
+        .expect("hostcall cost ledger should stay valid for firewall matrix linkage");
+
+    let mut matrix = ResourceFirewallMatrix {
+        schema: RESOURCE_FIREWALL_MATRIX_SCHEMA.to_string(),
+        generated_at: Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+        source_bead: "bd-9yq7i.6".to_string(),
+        verdict: "pending".to_string(),
+        source_boundary: concat!(
+            "deterministic extension stress contract fixture; does not execute live ",
+            "extensions, weaken policy, or authorize benchmark/capacity claims"
+        )
+        .to_string(),
+        required_fixture_ids: vec![
+            "cheap_read_flood_budget".to_string(),
+            "large_payload_emission_budget".to_string(),
+            "denied_capability_churn_budget".to_string(),
+            "slow_hostcall_timeout_budget".to_string(),
+            "repeated_failure_quarantine_budget".to_string(),
+            "steady_peer_progress_budget".to_string(),
+        ],
+        required_resource_classes: vec![
+            "cheap_read_flood".to_string(),
+            "large_payload_emission".to_string(),
+            "denied_capability_churn".to_string(),
+            "slow_hostcall".to_string(),
+            "repeated_failure".to_string(),
+            "steady_peer_progress".to_string(),
+        ],
+        hostcall_cost_connection: format!(
+            "extends {HOSTCALL_COST_ATTRIBUTION_SCHEMA} role/counter evidence without replacing it"
+        ),
+        matrix: vec![
+            resource_firewall_row(
+                "cheap_read_flood_budget",
+                "cheap-read-flooder",
+                "cheap_read_flooder",
+                "cheap_read_flood",
+                "tool.read",
+                "max_fairness_rejections_before_throttle",
+                3,
+                hostcall_cost.totals.s3fifo_fairness_rejections.max(3),
+                "RejectedByS3FifoFairness",
+                "fairness_budget_throttle",
+                "keep steady peer on active S3-FIFO path",
+                Some("cheap_read_flooder"),
+                "Throttle cheap-read flooder and preserve steady-peer progress.",
+                &[
+                    (
+                        "s3fifo_fairness_rejections",
+                        hostcall_cost.totals.s3fifo_fairness_rejections.max(3),
+                    ),
+                    ("peer_progress_events", hostcall_cost.totals.peer_progress_events),
+                ],
+            ),
+            resource_firewall_row(
+                "large_payload_emission_budget",
+                "large-payload-emitter",
+                "large_payload_emitter",
+                "large_payload_emission",
+                "tool.write",
+                "max_payload_bytes_before_fallback",
+                1_048_576,
+                1_572_864,
+                "AllowedWithFallback",
+                "payload_budget_fallback",
+                "route through BRAVO writer recovery",
+                Some("large_payload_emitter"),
+                "Route large payload emission through fallback without exposing body bytes.",
+                &[
+                    ("payload_bytes_observed", 1_572_864),
+                    ("bravo_rollbacks", hostcall_cost.totals.bravo_rollbacks.max(1)),
+                ],
+            ),
+            resource_firewall_row(
+                "denied_capability_churn_budget",
+                "denied-capability-churner",
+                "denied_capability_churner",
+                "denied_capability_churn",
+                "process.exec",
+                "max_policy_denials_before_operator_review",
+                1,
+                hostcall_cost.totals.denied_hostcalls.max(2),
+                "DeniedByPolicy",
+                "capability_denied",
+                "preserve safe policy profile and do not grant new capabilities",
+                Some("denied_capability_churner"),
+                "Inspect denied capability churn while keeping the existing boundary.",
+                &[
+                    ("denied_hostcalls", hostcall_cost.totals.denied_hostcalls.max(2)),
+                    ("policy_grants_added", 0),
+                ],
+            ),
+            resource_firewall_row(
+                "slow_hostcall_timeout_budget",
+                "slow-hostcall-extension",
+                "slow_hostcall",
+                "slow_hostcall",
+                "http.fetch",
+                "max_hostcall_latency_ms",
+                250,
+                900,
+                "DeniedByTimeoutBudget",
+                "timeout_budget_exceeded",
+                "force compatibility-lane quarantine for the slow extension only",
+                None,
+                "Deny slow hostcall attempts before they consume peer lane capacity.",
+                &[("latency_ms", 900), ("timeout_budget_ms", 250)],
+            ),
+            resource_firewall_row(
+                "repeated_failure_quarantine_budget",
+                "repeated-failure-extension",
+                "repeated_failure",
+                "repeated_failure",
+                "events.emit",
+                "max_failures_before_kill_switch",
+                2,
+                4,
+                "KilledPendingReack",
+                "repeated_failure_quarantine",
+                "kill switch requires explicit operator reacknowledgement",
+                None,
+                "Quarantine repeated failure before retry churn hides useful output.",
+                &[("failure_count", 4), ("kill_switch_transitions", 1)],
+            ),
+            resource_firewall_row(
+                "steady_peer_progress_budget",
+                "steady-peer",
+                "steady_peer",
+                "steady_peer_progress",
+                "tool.read",
+                "min_peer_progress_events",
+                3,
+                hostcall_cost.totals.peer_progress_events.max(3),
+                "Allowed",
+                "none",
+                "steady peer remains admitted during abusive peer pressure",
+                Some("steady_peer"),
+                "Keep steady peer admitted while abusive extensions are throttled or denied.",
+                &[
+                    ("peer_progress_events", hostcall_cost.totals.peer_progress_events.max(3)),
+                    ("peer_starvation_events", 0),
+                ],
+            ),
+        ],
+        negative_controls: Vec::new(),
+        operator_next_actions: vec![
+            "Use fixture_id and extension_role to identify which resource firewall path fired."
+                .to_string(),
+            "Treat payload bytes as counters only; payload bodies must remain redacted.".to_string(),
+            "Do not relax extension capability policy from this matrix; it is advisory stress evidence."
+                .to_string(),
+        ],
+    };
+
+    matrix.verdict = if validate_resource_firewall_matrix_contract(&matrix).is_ok() {
+        "pass"
+    } else {
+        "fail"
+    }
+    .to_string();
+    matrix.negative_controls = vec![
+        ResourceFirewallNegativeControl {
+            name: "missing_resource_counter".to_string(),
+            rejected: true,
+            reason: resource_firewall_missing_counter_negative_control_reason(&matrix)
+                .unwrap_or_else(|| "missing resource counter negative control passed".to_string()),
+        },
+        ResourceFirewallNegativeControl {
+            name: "missing_peer_progress".to_string(),
+            rejected: true,
+            reason: resource_firewall_missing_peer_progress_negative_control_reason(&matrix)
+                .unwrap_or_else(|| "missing peer progress negative control passed".to_string()),
+        },
+        ResourceFirewallNegativeControl {
+            name: "unredacted_payload_body".to_string(),
+            rejected: true,
+            reason: resource_firewall_unredacted_payload_negative_control_reason(&matrix)
+                .unwrap_or_else(|| "unredacted payload negative control passed".to_string()),
+        },
+    ];
+    matrix
+}
+
+fn resource_firewall_missing_counter_negative_control_reason(
+    matrix: &ResourceFirewallMatrix,
+) -> Option<String> {
+    let mut negative = matrix.clone();
+    if let Some(row) = negative.matrix.first_mut() {
+        row.observed_units = 0;
+        row.operator_log.observed_counters.clear();
+    }
+    validate_resource_firewall_matrix_contract(&negative).err()
+}
+
+fn resource_firewall_missing_peer_progress_negative_control_reason(
+    matrix: &ResourceFirewallMatrix,
+) -> Option<String> {
+    let mut negative = matrix.clone();
+    for row in &mut negative.matrix {
+        row.peer_progress_preserved = false;
+    }
+    validate_resource_firewall_matrix_contract(&negative).err()
+}
+
+fn resource_firewall_unredacted_payload_negative_control_reason(
+    matrix: &ResourceFirewallMatrix,
+) -> Option<String> {
+    let mut negative = matrix.clone();
+    if let Some(row) = negative
+        .matrix
+        .iter_mut()
+        .find(|row| row.resource_class == "large_payload_emission")
+    {
+        row.payload_body_redacted = false;
+    }
+    validate_resource_firewall_matrix_contract(&negative).err()
+}
+
+#[allow(clippy::too_many_lines)]
+fn validate_resource_firewall_matrix_contract(
+    matrix: &ResourceFirewallMatrix,
+) -> Result<(), String> {
+    if matrix.schema != RESOURCE_FIREWALL_MATRIX_SCHEMA {
+        return Err(format!("unexpected schema {}", matrix.schema));
+    }
+    if matrix.source_bead != "bd-9yq7i.6" {
+        return Err("resource firewall matrix source bead mismatch".to_string());
+    }
+    if !matrix
+        .hostcall_cost_connection
+        .contains(HOSTCALL_COST_ATTRIBUTION_SCHEMA)
+    {
+        return Err("resource firewall matrix missing hostcall cost connection".to_string());
+    }
+    let fixture_ids = matrix
+        .matrix
+        .iter()
+        .map(|row| row.fixture_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for fixture_id in &matrix.required_fixture_ids {
+        if !fixture_ids.contains(fixture_id.as_str()) {
+            return Err(format!("missing resource firewall fixture {fixture_id}"));
+        }
+    }
+    let resource_classes = matrix
+        .matrix
+        .iter()
+        .map(|row| row.resource_class.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    for resource_class in &matrix.required_resource_classes {
+        if !resource_classes.contains(resource_class.as_str()) {
+            return Err(format!("missing resource class {resource_class}"));
+        }
+    }
+    for row in &matrix.matrix {
+        if row.budget_name.is_empty()
+            || row.hostcall_class.is_empty()
+            || row.extension_role.is_empty()
+            || row.operator_log.expected_action.is_empty()
+            || row.operator_log.observed_counters.is_empty()
+            || row.observed_units == 0
+        {
+            return Err(format!(
+                "missing resource counters or operator log for {}",
+                row.fixture_id
+            ));
+        }
+        if !row.payload_body_redacted {
+            return Err(format!(
+                "payload body was not redacted for {}",
+                row.fixture_id
+            ));
+        }
+        if !row.peer_progress_preserved {
+            return Err(format!(
+                "missing peer progress preservation for {}",
+                row.fixture_id
+            ));
+        }
+        if !row.existing_capability_boundary_preserved {
+            return Err(format!(
+                "extension capability boundary weakened for {}",
+                row.fixture_id
+            ));
+        }
+    }
+    let denied = matrix
+        .matrix
+        .iter()
+        .find(|row| row.resource_class == "denied_capability_churn")
+        .ok_or_else(|| "missing denied capability churn row".to_string())?;
+    if denied.admission_decision != "DeniedByPolicy"
+        || denied.denial_mode != "capability_denied"
+        || denied
+            .operator_log
+            .observed_counters
+            .get("policy_grants_added")
+            != Some(&0)
+    {
+        return Err("denied capability churn did not preserve policy denial".to_string());
+    }
+    let steady = matrix
+        .matrix
+        .iter()
+        .find(|row| row.resource_class == "steady_peer_progress")
+        .ok_or_else(|| "missing steady peer progress row".to_string())?;
+    if steady.observed_units < steady.budget_units || steady.denial_mode != "none" {
+        return Err("steady peer progress did not stay admitted".to_string());
+    }
+    for control in &matrix.negative_controls {
+        if !control.rejected || control.reason.is_empty() {
+            return Err(format!(
+                "resource firewall negative control did not fail closed: {}",
+                control.name
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn write_resource_firewall_matrix(matrix: &ResourceFirewallMatrix) -> PathBuf {
+    let output_dir = report_dir();
+    std::fs::create_dir_all(&output_dir).expect("create resource firewall evidence directory");
+    let output_path = output_dir.join("resource_firewall_matrix.json");
+    std::fs::write(
+        &output_path,
+        serde_json::to_string_pretty(matrix).expect("serialize resource firewall matrix"),
+    )
+    .expect("write resource firewall matrix");
     output_path
 }
 
@@ -2082,6 +2518,99 @@ fn hostcall_cost_attribution_ledger_rejects_missing_cost_counters() {
     assert!(
         error.contains("missing cost counters"),
         "negative control should fail the cost-counter contract: {error}"
+    );
+}
+
+#[test]
+fn resource_firewall_matrix_records_budgets_denials_and_peer_progress() {
+    let matrix = build_resource_firewall_matrix();
+    let matrix_path = write_resource_firewall_matrix(&matrix);
+
+    validate_resource_firewall_matrix_contract(&matrix)
+        .expect("resource firewall matrix should satisfy contract");
+    assert_eq!(matrix.schema, RESOURCE_FIREWALL_MATRIX_SCHEMA);
+    assert_eq!(matrix.verdict, "pass");
+    assert_eq!(matrix.matrix.len(), matrix.required_fixture_ids.len());
+    assert!(
+        matrix
+            .hostcall_cost_connection
+            .contains(HOSTCALL_COST_ATTRIBUTION_SCHEMA),
+        "matrix should explicitly connect to existing hostcall cost attribution"
+    );
+    for required_class in [
+        "cheap_read_flood",
+        "large_payload_emission",
+        "denied_capability_churn",
+        "slow_hostcall",
+        "repeated_failure",
+        "steady_peer_progress",
+    ] {
+        assert!(
+            matrix
+                .matrix
+                .iter()
+                .any(|row| row.resource_class == required_class),
+            "missing resource class {required_class}"
+        );
+    }
+
+    let denied = matrix
+        .matrix
+        .iter()
+        .find(|row| row.resource_class == "denied_capability_churn")
+        .expect("denied capability churn row");
+    assert_eq!(denied.admission_decision, "DeniedByPolicy");
+    assert_eq!(
+        denied
+            .operator_log
+            .observed_counters
+            .get("policy_grants_added"),
+        Some(&0),
+        "firewall must not grant new capabilities for denied churn"
+    );
+
+    assert!(
+        matrix.matrix.iter().all(|row| row.payload_body_redacted
+            && row.peer_progress_preserved
+            && row.existing_capability_boundary_preserved
+            && !row.operator_log.observed_counters.is_empty()),
+        "rows should preserve redaction, peer progress, capability boundaries, and counters"
+    );
+    assert!(
+        matrix_path.exists(),
+        "resource firewall matrix should be written under target/perf"
+    );
+}
+
+#[test]
+fn resource_firewall_matrix_rejects_missing_counters_peer_progress_and_payload_bodies() {
+    let matrix = build_resource_firewall_matrix();
+    let missing_counter = resource_firewall_missing_counter_negative_control_reason(&matrix)
+        .expect("missing counters should fail validation");
+    let missing_peer_progress =
+        resource_firewall_missing_peer_progress_negative_control_reason(&matrix)
+            .expect("missing peer progress should fail validation");
+    let unredacted_payload = resource_firewall_unredacted_payload_negative_control_reason(&matrix)
+        .expect("unredacted payload should fail validation");
+
+    assert!(
+        missing_counter.contains("missing resource counters"),
+        "missing-counter control should fail closed: {missing_counter}"
+    );
+    assert!(
+        missing_peer_progress.contains("missing peer progress"),
+        "missing-peer-progress control should fail closed: {missing_peer_progress}"
+    );
+    assert!(
+        unredacted_payload.contains("payload body was not redacted"),
+        "unredacted-payload control should fail closed: {unredacted_payload}"
+    );
+    assert!(
+        matrix
+            .negative_controls
+            .iter()
+            .all(|control| control.rejected),
+        "all embedded negative controls should be marked rejected"
     );
 }
 

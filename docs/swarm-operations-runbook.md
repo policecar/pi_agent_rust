@@ -294,6 +294,33 @@ The counters are engineering fixture evidence only; they do not authorize
 benchmark, capacity, release performance, strict drop-in, or runtime mutation
 claims.
 
+### Extension Resource Firewall Matrix
+
+The extension resource firewall matrix is governed by
+`docs/contracts/extension-resource-firewall-matrix-contract.json` and emits
+`pi.ext.resource_firewall_matrix.v1` from the deterministic extension stress
+fixture. It covers cheap-read floods, large payload emission, denied capability
+churn, slow hostcalls, repeated failure, and steady-peer progress.
+
+Use the focused stress-test slice to produce the target/perf evidence:
+
+```bash
+export CARGO_TARGET_DIR="/data/tmp/pi_agent_rust_cargo/${USER:-agent}/target"
+export TMPDIR="/data/tmp/pi_agent_rust_cargo/${USER:-agent}/tmp"
+mkdir -p "$CARGO_TARGET_DIR" "$TMPDIR"
+rch exec -- env CARGO_TARGET_DIR="$CARGO_TARGET_DIR" TMPDIR="$TMPDIR" cargo test --test extensions_stress resource_firewall_matrix -- --nocapture
+```
+
+The test writes `resource_firewall_matrix.json` under the configured
+`CARGO_TARGET_DIR`'s `perf/` directory. Every row includes resource class,
+extension role, hostcall class, budget, observed units, admission decision,
+denial mode, fallback behavior, payload-redaction status, capability-boundary
+status, peer-progress preservation, and operator-visible counters. Negative
+controls fail closed for missing counters, missing peer progress, and unredacted
+payload bodies. The matrix extends hostcall cost attribution evidence; it does
+not replace runtime enforcement, capability policy, RCH validation, Agent Mail,
+Beads, UBS, CI, or benchmark/capacity/release claims.
+
 ## Temp Artifact Inventory
 
 Swarm runpacks include `temp_artifact_inventory` with schema
@@ -705,6 +732,7 @@ The proof-carrying swarm test-fabric closeout gate emits `pi.swarm.proof_carryin
 The predictive-operations closeout gate emits `pi.swarm.predictive_operations.closeout_gate.v1`, governed by `docs/contracts/predictive-operations-closeout-gate-contract.json`; the current artifact is `docs/evidence/predictive-operations-closeout-gate.json`. It maps each `bd-63x3v.11` implementation child bead to source paths, tests or fixtures, evidence artifacts, validation commands, close reasons, pushed commits, and claim-boundary text; then it checks predictive telemetry fusion, validation scheduling, semantic compaction quality, hostcall cost attribution, operator-perceived latency, redundant-agent-work detection, source boundaries, pushed refs, staged UBS, Beads ledger reconciliation, and untracked follow-ups. A passing predictive-operations gate is closeout evidence only and does not replace Beads, git, RCH, Agent Mail, UBS, CI, claim-integrity gates, child evidence, generated target/perf outputs, or source files.
 The operator-perceived latency trace emits `pi.operator.perceived_latency_trace.v1`, governed by `docs/contracts/operator-perceived-latency-trace-contract.json`; the current fixture artifact is `docs/evidence/operator-perceived-latency-trace.json`. It joins provider-stream, RPC-output, TUI-frame, tool-update, and operator-visible semantic milestones while proving low-value coalescing does not hide semantic output. The trace is advisory fixture evidence only and does not replace provider/RPC/TUI backpressure evidence or authorize benchmark, capacity, release performance, or strict drop-in claims.
 The operator smoothness SLO emits `pi.operator.smoothness_slo.v1`, governed by `docs/contracts/operator-smoothness-slo-contract.json`; the current fixture artifact is `docs/evidence/operator-smoothness-slo.json`. It covers provider stream deltas, RPC output pressure, TUI frame rendering, tool-update coalescing, and session-write pressure with deterministic p50/p95/p99 visibility counters, semantic milestone counts, backlog budgets, failure logs, and fail-closed controls for delayed visibility, non-monotonic timelines, runaway frame backlog, and missing surface coverage. The SLO is advisory engineering fixture evidence only and does not replace focused surface tests or authorize benchmark, capacity, release performance, strict drop-in, runtime mutation, RCH, cargo, git, or Beads claims.
+The extension resource firewall matrix emits `pi.ext.resource_firewall_matrix.v1`, governed by `docs/contracts/extension-resource-firewall-matrix-contract.json`; focused `extensions_stress` runs write `resource_firewall_matrix.json` under target/perf. It covers cheap-read flood, large payload emission, denied capability churn, slow hostcall, repeated failure, and steady-peer progress rows with budgets, observed counters, admission decisions, denial modes, fallback behavior, payload redaction, capability-boundary preservation, and fail-closed negative controls for missing counters, missing peer progress, and unredacted payload bodies. The matrix is advisory stress evidence only and does not replace runtime enforcement, hostcall cost attribution, RCH validation, Agent Mail, Beads, UBS, CI, or benchmark/capacity/release claims.
 The swarm incident corpus emits `pi.swarm.incident_corpus.v1`, governed by `docs/contracts/swarm-incident-corpus-contract.json`; the current fixture artifact is `docs/evidence/swarm-incident-corpus.json`. It captures deterministic operator incidents for Agent Mail schema corruption, RCH saturation/local-fallback denial, stale evidence, duplicate work risk, dirty worktree admission denial, malformed source artifacts, and deletion or live-mutation rejection, plus fail-closed negative controls for missing sources, unsafe unredacted bodies, contradictory status, and unsafe authorization attempts. The corpus is advisory fixture evidence only and does not replace release performance, drop-in certification, Agent Mail, RCH, Beads, git, source artifacts, or destructive-action authority.
 The swarm incident replay harness emits `pi.swarm.incident_replay.v1`, governed by `docs/contracts/swarm-incident-replay-contract.json`; the current fixture artifact is `docs/evidence/swarm-incident-replay.json`. It consumes the incident corpus and reconstructs source capture, Agent Mail degradation, RCH admission, Beads ownership, dirty worktree state, validation outcome, and final recommendation phases with per-step assertions and redacted excerpts. Negative controls fail closed for out-of-order events, missing sources, unredacted sensitive content, and replay output being treated as source-of-truth authority. Replay is advisory fixture evidence only and does not replace live Agent Mail, RCH, Beads, git, source artifacts, or destructive-action authority.
 The validation proof-memory index emits `pi.validation.proof_memory_index.v1`, governed by `docs/contracts/validation-proof-memory-index-contract.json`; the current fixture artifact is `docs/evidence/validation-proof-memory-index.json`. It classifies reusable, stale, missing-artifact, local-fallback, dirty-worktree mismatch, command-mismatch, path-coverage mismatch, and non-authoritative validation proof entries from checked remote-validation proof fixtures. Proof memory is advisory fixture evidence only and does not skip validation or replace RCH, Agent Mail, Beads, git, source artifacts, or claim-integrity gates.
