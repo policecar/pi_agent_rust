@@ -1947,7 +1947,11 @@ runpack JSON/Markdown includes an `autopilot_handoff` summary
 references, selected advisory action, artifact paths, and source provenance.
 The autopilot never mutates ownership or replaces Doctor, Beads, Agent Mail,
 RCH, git, or the source artifacts; it only turns those inputs into reproducible
-operator next-action guidance.
+operator next-action guidance. Its work-admission gate includes a read-only
+dry-run executor that classifies plan items as `would_execute`, `blocked`,
+`requires_operator`, or `never_execute` so deletion requests, Agent Mail/RCH
+mutation, local heavyweight Cargo, and Beads ownership bypasses are rejected
+without executing anything.
 
 For degraded-coordination handoff proof, the runpack script also has a no-mock
 E2E mode (`--run-degraded-coordination-e2e`) that feeds real temporary Beads

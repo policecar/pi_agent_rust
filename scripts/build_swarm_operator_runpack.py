@@ -75,6 +75,9 @@ ACTION_PLAN_SCHEMA = "pi.swarm.action_plan.v1"
 ACTION_PLAN_CONTRACT_SCHEMA = "pi.swarm.action_plan_contract.v1"
 WORK_ADMISSION_GATE_SCHEMA = "pi.swarm.work_admission_gate.v1"
 WORK_ADMISSION_GATE_CONTRACT_SCHEMA = "pi.swarm.work_admission_gate_contract.v1"
+WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA = (
+    "pi.swarm.work_admission_dry_run_executor.v1"
+)
 BUDGET_DRIFT_SCHEMA = "pi.swarm.budget_drift.v1"
 AUTOPILOT_HANDOFF_SCHEMA = "pi.swarm.autopilot_handoff.v1"
 AUTOPILOT_E2E_SCHEMA = "pi.swarm.autopilot_e2e.v1"
@@ -317,6 +320,12 @@ WORK_ADMISSION_GATE_ALLOWED_DECISIONS = (
     "pause_escalate",
 )
 WORK_ADMISSION_GATE_ALLOWED_STATUSES = ("admit", "limited", "wait", "blocked")
+WORK_ADMISSION_EXECUTOR_ALLOWED_CLASSIFICATIONS = (
+    "would_execute",
+    "blocked",
+    "requires_operator",
+    "never_execute",
+)
 TURN_PRESSURE_LEDGER_DIMENSION_IDS = (
     "normal_turn_baseline",
     "tool_artifact_spillover",
@@ -360,6 +369,7 @@ AUTOPILOT_E2E_REQUIRED_SCENARIOS = (
     "healthy_ready_claim",
     "empty_ready_queue",
     "deferred_roadmap_backlog",
+    "deletion_request_rejected",
     "degraded_agent_mail_soft_lock",
     "saturated_rch_queue",
     "capacity_cpu16_mem64_healthy_admit",
@@ -8205,6 +8215,282 @@ def derive_work_admission_decision(
     }
 
 
+def work_admission_executor_entry(
+    *,
+    entry_id: str,
+    classification: str,
+    title: str,
+    reason_codes: list[str],
+    evidence_paths: list[str],
+    source_action: dict[str, Any] | None = None,
+    command: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if classification not in WORK_ADMISSION_EXECUTOR_ALLOWED_CLASSIFICATIONS:
+        raise RunpackError(f"unknown work-admission executor classification: {classification}")
+    source_action = source_action if isinstance(source_action, dict) else {}
+    command = command if isinstance(command, dict) else {}
+    return {
+        "id": entry_id,
+        "classification": classification,
+        "title": title,
+        "source_action_id": source_action.get("id"),
+        "source_action": source_action.get("action"),
+        "source_action_rank": source_action.get("rank"),
+        "command_purpose": command.get("purpose"),
+        "command": command.get("command"),
+        "reason_codes": unique_strings(reason_codes),
+        "evidence_paths": unique_strings(evidence_paths),
+        "operator_required": classification == "requires_operator",
+        "dry_run_only": True,
+    }
+
+
+def is_local_heavy_cargo_command(command_text: str) -> bool:
+    lower = command_text.strip().lower()
+    if not lower:
+        return False
+    if "rch exec" in lower:
+        return False
+    if "cargo_headroom.sh" in lower and "--runner rch" in lower:
+        return False
+    heavy_prefixes = (
+        "cargo check",
+        "cargo clippy",
+        "cargo test",
+        "cargo build",
+        "cargo run",
+        "cargo bench",
+        "cargo doc",
+    )
+    if any(lower.startswith(prefix) for prefix in heavy_prefixes):
+        return True
+    return any(f" {prefix}" in lower for prefix in heavy_prefixes)
+
+
+def classify_work_admission_command(command: dict[str, Any]) -> tuple[str, list[str]]:
+    text = str(command.get("command") or "").strip()
+    lower = text.lower()
+    if not lower:
+        return "blocked", ["missing_command_text"]
+    if any(fragment in lower for fragment in AUTOPILOT_PLAN_DANGEROUS_COMMAND_FRAGMENTS):
+        return "never_execute", ["destructive_command_fragment"]
+    if lower.startswith("rm ") or " rm " in lower:
+        return "never_execute", ["filesystem_deletion_request"]
+    if any(
+        fragment in lower
+        for fragment in (
+            "file_reservation_paths",
+            "release_file_reservations",
+            "send_message",
+            "macro_start_session",
+            "am send",
+            "am reserve",
+            "am message",
+            "am contact",
+        )
+    ):
+        return "never_execute", ["agent_mail_mutation_forbidden"]
+    if any(
+        fragment in lower
+        for fragment in (
+            "rch exec",
+            "rch cancel",
+            "rch workers repair",
+            "rch workers reboot",
+        )
+    ):
+        return "never_execute", ["rch_mutation_or_heavy_exec_forbidden"]
+    if is_local_heavy_cargo_command(lower):
+        return "never_execute", ["local_heavy_cargo_forbidden"]
+    if any(
+        lower.startswith(prefix)
+        for prefix in (
+            "br update",
+            "br close",
+            "br reopen",
+            "br create",
+            "br dep add",
+            "br dep rm",
+            "br sync",
+            "br comments add",
+            "bd claim",
+            "bd close",
+            "bd create",
+            "git add",
+            "git checkout",
+            "git commit",
+            "git merge",
+            "git pull",
+            "git push",
+            "git rebase",
+            "git restore",
+            "git stash",
+            "git switch",
+        )
+    ):
+        return "requires_operator", ["source_of_truth_mutation_requires_operator"]
+    if " --out-" in lower or " > " in lower or lower.startswith("mkdir "):
+        return "requires_operator", ["artifact_write_requires_operator"]
+    return "would_execute", ["read_only_probe"]
+
+
+def work_admission_policy_rejections() -> list[dict[str, Any]]:
+    policies = (
+        (
+            "recursive_filesystem_deletion",
+            "Reject recursive filesystem deletion requests",
+            ["recursive_filesystem_deletion_forbidden"],
+            ["forbidden_actions"],
+        ),
+        (
+            "file_deletion",
+            "Reject file deletion requests without explicit written approval",
+            ["file_deletion_forbidden"],
+            ["forbidden_actions"],
+        ),
+        (
+            "agent_mail_mutation",
+            "Reject automatic Agent Mail mutation",
+            ["agent_mail_mutation_forbidden"],
+            ["forbidden_actions", "gate_guards.no_source_mutation"],
+        ),
+        (
+            "rch_mutation",
+            "Reject automatic RCH mutation or heavyweight execution",
+            ["rch_mutation_or_heavy_exec_forbidden"],
+            ["forbidden_actions", "source_signals.rch"],
+        ),
+        (
+            "local_heavy_cargo",
+            "Reject local heavyweight Cargo validation",
+            ["local_heavy_cargo_forbidden"],
+            ["source_signals.rch", "gate_guards.commands_require_operator_execution"],
+        ),
+        (
+            "bypass_beads_ownership",
+            "Reject implementation work that bypasses Beads ownership",
+            ["beads_ownership_bypass_forbidden"],
+            ["source_signals.beads", "decision.admit_new_implementation"],
+        ),
+    )
+    return [
+        work_admission_executor_entry(
+            entry_id=f"POLICY-{policy_id}",
+            classification="never_execute",
+            title=title,
+            reason_codes=list(reason_codes),
+            evidence_paths=list(evidence_paths),
+        )
+        for policy_id, title, reason_codes, evidence_paths in policies
+    ]
+
+
+def work_admission_blocked_entries(
+    decision: dict[str, Any],
+) -> list[dict[str, Any]]:
+    gate_decision = str(decision.get("decision") or "pause_escalate")
+    if gate_decision in {"proceed_with_implementation", "create_or_refine_bead"}:
+        return []
+    reason_codes = list(decision.get("blockers") or [])
+    if not reason_codes:
+        reason_codes = [f"work_admission_decision_{gate_decision}"]
+    return [
+        work_admission_executor_entry(
+            entry_id=f"BLOCK-{gate_decision}",
+            classification="blocked",
+            title="Block new implementation admission until the gate decision clears",
+            reason_codes=reason_codes,
+            evidence_paths=list(decision.get("evidence_paths") or []),
+            source_action={
+                "id": decision.get("source_action"),
+                "action": decision.get("source_action"),
+                "rank": decision.get("rank"),
+            },
+        )
+    ]
+
+
+def collect_work_admission_plan_commands(
+    autopilot_plan: dict[str, Any],
+) -> list[tuple[dict[str, Any], dict[str, Any], str]]:
+    groups: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    for action in autopilot_plan.get("actions", []):
+        if not isinstance(action, dict):
+            continue
+        for command in action.get("commands", []):
+            if isinstance(command, dict):
+                groups.append((action, command, "action_command"))
+    for action in autopilot_plan.get("failure_actions", []):
+        if not isinstance(action, dict):
+            continue
+        for command in action.get("safe_commands", []):
+            if isinstance(command, dict):
+                groups.append((action, command, "failure_action_command"))
+    return groups
+
+
+def build_work_admission_dry_run_executor(
+    input_pack: dict[str, Any],
+    autopilot_plan: dict[str, Any],
+    action_plan: dict[str, Any],
+    decision: dict[str, Any],
+    *,
+    max_items: int,
+) -> dict[str, Any]:
+    del input_pack
+    del action_plan
+    classified: dict[str, list[dict[str, Any]]] = {
+        key: [] for key in WORK_ADMISSION_EXECUTOR_ALLOWED_CLASSIFICATIONS
+    }
+    for entry in work_admission_blocked_entries(decision):
+        classified["blocked"].append(entry)
+    for entry in work_admission_policy_rejections():
+        classified["never_execute"].append(entry)
+    for action, command, source_kind in collect_work_admission_plan_commands(
+        autopilot_plan
+    ):
+        classification, reason_codes = classify_work_admission_command(command)
+        command_id = str(command.get("purpose") or len(classified[classification]) + 1)
+        action_id = str(action.get("id") or action.get("action") or "action")
+        classified[classification].append(
+            work_admission_executor_entry(
+                entry_id=f"{source_kind}:{action_id}:{command_id}",
+                classification=classification,
+                title=str(command.get("purpose") or action.get("title") or "plan command"),
+                reason_codes=reason_codes,
+                evidence_paths=list(action.get("evidence_paths") or []),
+                source_action=action,
+                command=command,
+            )
+        )
+    summary = {
+        key: len(items)
+        for key, items in classified.items()
+    }
+    return {
+        "schema": WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA,
+        "status": decision.get("status"),
+        "decision": decision.get("decision"),
+        "source_action_plan_decision": decision.get("source_action_plan_decision"),
+        "purpose": "read_only_dry_run_executor_not_source_mutation",
+        "would_execute": bounded(classified["would_execute"], max_items),
+        "blocked": bounded(classified["blocked"], max_items),
+        "requires_operator": bounded(classified["requires_operator"], max_items),
+        "never_execute": bounded(classified["never_execute"], max_items),
+        "summary": summary,
+        "guards": {
+            "read_only": True,
+            "dry_run_only": True,
+            "no_source_mutation": True,
+            "does_not_claim_beads": True,
+            "does_not_reserve_agent_mail_files": True,
+            "does_not_run_rch_or_cargo": True,
+            "does_not_delete_files": True,
+            "commands_require_operator_execution": True,
+        },
+    }
+
+
 def build_work_admission_gate(
     input_pack: dict[str, Any],
     autopilot_plan: dict[str, Any],
@@ -8228,6 +8514,13 @@ def build_work_admission_gate(
             f"{ACTION_PLAN_SCHEMA}, got {action_plan.get('schema')}"
         )
     decision = derive_work_admission_decision(input_pack, autopilot_plan, action_plan)
+    dry_run_executor = build_work_admission_dry_run_executor(
+        input_pack,
+        autopilot_plan,
+        action_plan,
+        decision,
+        max_items=max_items,
+    )
     gate = {
         "schema": WORK_ADMISSION_GATE_SCHEMA,
         "generated_at": input_pack.get("generated_at"),
@@ -8237,6 +8530,7 @@ def build_work_admission_gate(
         "source_plan_schema": autopilot_plan.get("schema"),
         "action_plan_schema": action_plan.get("schema"),
         "decision": decision,
+        "dry_run_executor": dry_run_executor,
         "source_signals": work_admission_source_signals(input_pack),
         "failure_actions": bounded(autopilot_plan.get("failure_actions") or [], max_items),
         "degraded_reasons": bounded(input_pack.get("degraded_reasons") or [], max_items),
@@ -9764,6 +10058,42 @@ def assert_work_admission_gate_contract(gate: dict[str, Any]) -> None:
         assert decision.get("decision") == "proceed_with_implementation"
         assert decision.get("blockers") == []
     assert decision.get("commands_require_operator_execution") is True
+    executor = gate.get("dry_run_executor")
+    assert isinstance(executor, dict)
+    assert contract.get("dry_run_executor_schema") == WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA
+    assert executor.get("schema") == WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA
+    assert executor.get("purpose") == "read_only_dry_run_executor_not_source_mutation"
+    executor_sections = set(contract.get("required_executor_sections", []))
+    if not executor_sections:
+        executor_sections = set(WORK_ADMISSION_EXECUTOR_ALLOWED_CLASSIFICATIONS)
+    entry_fields = set(contract.get("required_executor_entry_fields", []))
+    for key in executor_sections:
+        assert key in executor, f"missing work-admission executor section: {key}"
+        assert isinstance(executor.get(key), list)
+        for item in executor.get(key, []):
+            assert isinstance(item, dict)
+            missing = entry_fields - set(item)
+            assert not missing, (
+                f"work-admission executor item missing fields: {sorted(missing)}"
+            )
+            assert item.get("classification") == key
+            assert item.get("classification") in set(
+                contract.get(
+                    "allowed_executor_classifications",
+                    WORK_ADMISSION_EXECUTOR_ALLOWED_CLASSIFICATIONS,
+                )
+            )
+            assert item.get("dry_run_only") is True
+    executor_summary = executor.get("summary")
+    assert isinstance(executor_summary, dict)
+    for key in executor_sections:
+        assert isinstance(executor_summary.get(key), int)
+    executor_guards = executor.get("guards")
+    assert isinstance(executor_guards, dict)
+    for guard in contract.get("required_executor_true_guards", []):
+        assert executor_guards.get(guard) is True, (
+            f"work admission dry-run executor guard must be true: {guard}"
+        )
     source_signals = gate.get("source_signals")
     assert isinstance(source_signals, dict)
     for key in contract.get("required_source_signal_keys", []):
@@ -10762,7 +11092,41 @@ def build_autopilot_e2e_summary(
                 "admit_new_implementation"
             ],
             "blockers": work_admission_gate["decision"]["blockers"],
+            "dry_run_executor": {
+                "schema": work_admission_gate["dry_run_executor"]["schema"],
+                "summary": work_admission_gate["dry_run_executor"]["summary"],
+                "would_execute_ids": [
+                    item["id"]
+                    for item in work_admission_gate["dry_run_executor"][
+                        "would_execute"
+                    ]
+                ],
+                "blocked_ids": [
+                    item["id"]
+                    for item in work_admission_gate["dry_run_executor"]["blocked"]
+                ],
+                "requires_operator_ids": [
+                    item["id"]
+                    for item in work_admission_gate["dry_run_executor"][
+                        "requires_operator"
+                    ]
+                ],
+                "never_execute_ids": [
+                    item["id"]
+                    for item in work_admission_gate["dry_run_executor"][
+                        "never_execute"
+                    ]
+                ],
+            },
         }
+        assert work_admission_gate["dry_run_executor"]["schema"] == (
+            WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA
+        )
+        for classification in WORK_ADMISSION_EXECUTOR_ALLOWED_CLASSIFICATIONS:
+            assert isinstance(
+                work_admission_gate["dry_run_executor"].get(classification),
+                list,
+            )
         results.append(result)
         return input_pack, plan, result
 
@@ -10837,6 +11201,24 @@ def build_autopilot_e2e_summary(
         expected_action_plan_decision="create_or_refine_beads",
         expected_work_admission_decision="create_or_refine_bead",
     )
+
+    _, _, deletion_rejection_result = run_plan_scenario(
+        "deletion_request_rejected",
+        beads_payload=ready_beads,
+        beads_ready_payload=ready_queue,
+        commands=ready_commands,
+        expected_actions=["claim_ready_bead"],
+        expected_action_plan_decision="implement_ready_work",
+        expected_work_admission_decision="proceed_with_implementation",
+    )
+    deletion_executor = deletion_rejection_result["work_admission_gate"][
+        "dry_run_executor"
+    ]
+    assert deletion_executor["summary"]["never_execute"] >= 2
+    assert "POLICY-recursive_filesystem_deletion" in deletion_executor[
+        "never_execute_ids"
+    ]
+    assert "POLICY-file_deletion" in deletion_executor["never_execute_ids"]
 
     degraded_mail_commands = list(ready_commands) + [
         {
@@ -11305,6 +11687,21 @@ def build_autopilot_e2e_summary(
             details={"error": str(exc)},
         )
         append_autopilot_e2e_event(events_path, event)
+        malformed_blocked = [
+            work_admission_executor_entry(
+                entry_id="BLOCK-malformed_required_source",
+                classification="blocked",
+                title="Block admission because a required source is malformed",
+                reason_codes=["malformed_required_source"],
+                evidence_paths=event["evidence_paths"],
+                source_action={
+                    "id": "fail_closed",
+                    "action": "fail_closed",
+                    "rank": None,
+                },
+            )
+        ]
+        malformed_never = bounded(work_admission_policy_rejections(), max_items)
         results.append(
             {
                 "scenario_id": "malformed_source_fail_closed",
@@ -11331,6 +11728,21 @@ def build_autopilot_e2e_summary(
                     "decision": "pause_escalate",
                     "admit_new_implementation": False,
                     "blockers": ["malformed_required_source"],
+                    "dry_run_executor": {
+                        "schema": WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA,
+                        "summary": {
+                            "would_execute": 0,
+                            "blocked": len(malformed_blocked),
+                            "requires_operator": 0,
+                            "never_execute": len(work_admission_policy_rejections()),
+                        },
+                        "would_execute_ids": [],
+                        "blocked_ids": [item["id"] for item in malformed_blocked],
+                        "requires_operator_ids": [],
+                        "never_execute_ids": [
+                            item["id"] for item in malformed_never
+                        ],
+                    },
                 },
             }
         )
@@ -11390,6 +11802,13 @@ def assert_autopilot_e2e_summary(summary: dict[str, Any]) -> None:
         if work_admission_gate.get("admit_new_implementation") is True:
             assert work_admission_gate.get("decision") == "proceed_with_implementation"
             assert work_admission_gate.get("blockers") == []
+        executor = work_admission_gate.get("dry_run_executor")
+        assert isinstance(executor, dict)
+        assert executor.get("schema") == WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA
+        executor_summary = executor.get("summary")
+        assert isinstance(executor_summary, dict)
+        for classification in WORK_ADMISSION_EXECUTOR_ALLOWED_CLASSIFICATIONS:
+            assert classification in executor_summary
     events_path = Path(str(summary.get("events_jsonl")))
     assert events_path.exists(), f"missing autopilot E2E events JSONL: {events_path}"
     events = [
@@ -18224,6 +18643,21 @@ def run_self_test() -> int:
         assert plan["work_partitions"] == []
         assert_autopilot_plan_contract(plan)
         assert_autopilot_plan_golden(plan, workspace)
+        action_plan = build_swarm_action_plan(input_pack, plan, max_items=args.max_items)
+        work_gate = build_work_admission_gate(
+            input_pack,
+            plan,
+            action_plan,
+            max_items=args.max_items,
+        )
+        assert work_gate["dry_run_executor"]["schema"] == WORK_ADMISSION_DRY_RUN_EXECUTOR_SCHEMA
+        assert work_gate["dry_run_executor"]["summary"]["blocked"] >= 1
+        assert work_gate["dry_run_executor"]["summary"]["never_execute"] >= 6
+        assert any(
+            item["id"] == "POLICY-recursive_filesystem_deletion"
+            for item in work_gate["dry_run_executor"]["never_execute"]
+        )
+        assert_work_admission_gate_contract(work_gate)
         plan_output_args = argparse.Namespace(
             **{
                 **vars(autopilot_args),
@@ -18403,6 +18837,33 @@ def run_self_test() -> int:
         assert healthy_partition["confidence"] == "high"
         assert healthy_partition["degraded_caveats"] == []
         assert_autopilot_plan_contract(healthy_plan)
+        healthy_action_plan = build_swarm_action_plan(
+            healthy_input_pack,
+            healthy_plan,
+            max_items=args.max_items,
+        )
+        healthy_work_gate = build_work_admission_gate(
+            healthy_input_pack,
+            healthy_plan,
+            healthy_action_plan,
+            max_items=args.max_items,
+        )
+        healthy_executor = healthy_work_gate["dry_run_executor"]
+        assert healthy_work_gate["decision"]["decision"] == "proceed_with_implementation"
+        assert healthy_executor["summary"]["would_execute"] >= 2
+        assert healthy_executor["summary"]["requires_operator"] >= 1
+        assert healthy_executor["summary"]["never_execute"] >= 2
+        assert any(
+            (item.get("command") or "").startswith("br update")
+            for item in healthy_executor["requires_operator"]
+        )
+        assert "POLICY-agent_mail_mutation" in [
+            item["id"] for item in healthy_executor["never_execute"]
+        ]
+        assert "POLICY-recursive_filesystem_deletion" in [
+            item["id"] for item in healthy_executor["never_execute"]
+        ]
+        assert_work_admission_gate_contract(healthy_work_gate)
 
         def clone_json(value: Any) -> Any:
             return json.loads(json_dumps(value))
@@ -19134,6 +19595,13 @@ def run_self_test() -> int:
         assert autopilot_e2e["scenarios"]["deferred_roadmap_backlog"][
             "selected_action"
         ] == "create_or_refine_backlog"
+        deletion_rejected = autopilot_e2e["scenarios"]["deletion_request_rejected"]
+        assert "POLICY-recursive_filesystem_deletion" in deletion_rejected[
+            "work_admission_gate"
+        ]["dry_run_executor"]["never_execute_ids"]
+        assert deletion_rejected["work_admission_gate"]["dry_run_executor"][
+            "summary"
+        ]["never_execute"] >= 2
         assert autopilot_e2e["scenarios"]["degraded_agent_mail_soft_lock"][
             "selected_action"
         ] == "use_beads_soft_lock"
