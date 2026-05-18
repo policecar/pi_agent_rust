@@ -1075,6 +1075,12 @@ These tests in `tests/provider_native_contract.rs` validate documentation cannot
 | `config_examples_env_vars_match_runtime` | Config examples env vars vs runtime |
 | `migration_guide_references_correct_env_vars` | Migration guide env var references |
 
+Provider crosswalk freshness is also checked by
+`python3 scripts/check_provider_discrepancy_ledger.py --compact`. Run it after
+editing `src/provider_metadata.rs`, `docs/providers.md`, or
+`docs/provider-auth-troubleshooting.md`; it compares canonical IDs, aliases, and
+auth env keys against the checked crosswalk.
+
 ## Provider-specific documentation references
 
 | Provider family | Setup doc | Config examples | Migration notes |
@@ -1084,7 +1090,7 @@ These tests in `tests/provider_native_contract.rs` validate documentation cannot
 | OpenRouter | `docs/provider-openrouter-setup.json` | `docs/provider-config-examples.json` | `docs/provider-migration-guide.md` |
 | Kimi (moonshotai) | `docs/provider-kimi-setup.json` | `docs/provider-config-examples.json` | `docs/provider-migration-guide.md` |
 | Qwen (alibaba) | `docs/provider-qwen-setup.json` | `docs/provider-config-examples.json` | `docs/provider-migration-guide.md` |
-| Auth troubleshooting (all) | `docs/provider-auth-troubleshooting.md` | — | — |
+| Auth troubleshooting (all) | `docs/provider-auth-troubleshooting.md` checked by `python3 scripts/check_provider_discrepancy_ledger.py --compact` | — | — |
 | Longtail evidence | `docs/provider-longtail-evidence.md` | — | — |
 
 ## Current evidence-backed limits

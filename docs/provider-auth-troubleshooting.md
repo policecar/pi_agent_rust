@@ -40,11 +40,11 @@ This crosswalk maps every user-visible provider name (including upstream aliases
 | `google-antigravity` | `antigravity` | _(none; use `/login google-antigravity`)_ | _(project-scoped Antigravity endpoint)_ | google-gemini-cli |
 | `cohere` | — | `COHERE_API_KEY` | `https://api.cohere.com/v2` | cohere-chat |
 | `google-vertex` | `vertexai`, `google-vertex-anthropic` | `GOOGLE_CLOUD_API_KEY`, `VERTEX_API_KEY` | _(per-project URL)_ | google-vertex |
-| `amazon-bedrock` | `bedrock` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK` | _(per-region URL)_ | bedrock-converse-stream |
-| `azure-openai` | `azure`, `azure-cognitive-services` | `AZURE_OPENAI_API_KEY` | _(per-resource URL)_ | native-azure |
+| `amazon-bedrock` | `bedrock` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `AWS_PROFILE`, `AWS_REGION` | _(per-region URL)_ | bedrock-converse-stream |
+| `azure-openai` | `azure`, `azure_openai`, `azure-cognitive-services`, `azure-openai-responses` | `AZURE_OPENAI_API_KEY` | _(per-resource URL)_ | native-azure |
 | `github-copilot` | `copilot`, `github-copilot-enterprise` | `GITHUB_COPILOT_API_KEY`, `GITHUB_TOKEN` | _(token exchange)_ | native-copilot |
 | `gitlab` | `gitlab-duo` | `GITLAB_TOKEN`, `GITLAB_API_KEY` | _(configurable instance)_ | native-gitlab |
-| `sap-ai-core` | `sap` | `AICORE_SERVICE_KEY`, `SAP_AI_CORE_CLIENT_ID`, `SAP_AI_CORE_CLIENT_SECRET` | _(per-instance)_ | native-sap |
+| `sap-ai-core` | `sap` | `AICORE_SERVICE_KEY`, `SAP_AI_CORE_CLIENT_ID`, `SAP_AI_CORE_CLIENT_SECRET`, `SAP_AI_CORE_TOKEN_URL`, `SAP_AI_CORE_SERVICE_URL` | _(per-instance)_ | native-sap |
 | `v0` | — | `V0_API_KEY` | _(per-instance)_ | native-v0 |
 
 ### OpenAI-compatible presets (major)
@@ -138,7 +138,7 @@ This crosswalk maps every user-visible provider name (including upstream aliases
 | `requesty` | — | `REQUESTY_API_KEY` | `https://router.requesty.ai/v1` |
 | `submodel` | — | `SUBMODEL_INSTAGEN_ACCESS_KEY` | `https://llm.submodel.ai/v1` |
 | `synthetic` | — | `SYNTHETIC_API_KEY` | `https://api.synthetic.new/v1` |
-| `vercel` | — | `AI_GATEWAY_API_KEY` | `https://ai-gateway.vercel.sh/v1` |
+| `vercel` | `vercel-ai-gateway` | `AI_GATEWAY_API_KEY` | `https://ai-gateway.vercel.sh/v1` |
 | `vivgrid` | — | `VIVGRID_API_KEY` | `https://api.vivgrid.com/v1` |
 | `vultr` | — | `VULTR_API_KEY` | `https://api.vultrinference.com/v1` |
 | `wandb` | — | `WANDB_API_KEY` | `https://api.inference.wandb.ai/v1` |
@@ -169,7 +169,7 @@ If a user types any of these aliases (left), Pi resolves to the canonical ID (ri
 | `vertexai`, `google-vertex-anthropic` | `google-vertex` |
 | `bedrock` | `amazon-bedrock` |
 | `sap` | `sap-ai-core` |
-| `azure`, `azure-cognitive-services` | `azure-openai` |
+| `azure`, `azure_openai`, `azure-cognitive-services`, `azure-openai-responses` | `azure-openai` |
 | `copilot`, `github-copilot-enterprise` | `github-copilot` |
 | `gitlab-duo` | `gitlab` |
 | `silicon-flow` | `siliconflow` |
@@ -178,6 +178,7 @@ If a user types any of these aliases (left), Pi resolves to the canonical ID (ri
 | `novita` | `novita-ai` |
 | `lm-studio` | `lmstudio` |
 | `kimi-coding`, `kimi-code` | `kimi-for-coding` |
+| `vercel-ai-gateway` | `vercel` |
 
 ### Shared env-key families
 

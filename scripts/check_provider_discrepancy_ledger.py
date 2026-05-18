@@ -52,9 +52,26 @@ class Finding:
 
 
 @dataclass(frozen=True)
+class ProviderMetadataEntry:
+    canonical_id: str
+    aliases: tuple[str, ...]
+    auth_env_keys: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ProviderMetadataCounts:
     provider_count: int
     alias_count: int
+    entries: dict[str, ProviderMetadataEntry]
+    alias_to_canonical: dict[str, str]
+
+
+@dataclass(frozen=True)
+class ProviderDocEntry:
+    canonical_id: str
+    aliases: tuple[str, ...]
+    auth_env_keys: tuple[str, ...]
+    path: str
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,26 +140,50 @@ def load_issue_ids(repo_root: Path) -> set[str]:
     return issue_ids
 
 
+def rust_array_strings(body: str, field_name: str, path: Path) -> tuple[str, ...]:
+    match = re.search(rf"{field_name}:\s*&\[(?P<items>.*?)\]", body, re.DOTALL)
+    if match is None:
+        raise ValueError(f"{path}: provider metadata entry missing {field_name} field")
+    return tuple(re.findall(r'"([^"]+)"', match.group("items")))
+
+
 def parse_provider_metadata(repo_root: Path) -> ProviderMetadataCounts:
     path = repo_root / METADATA_PATH
     text = path.read_text(encoding="utf-8")
-    provider_count = 0
-    alias_count = 0
+    entries: dict[str, ProviderMetadataEntry] = {}
+    alias_to_canonical: dict[str, str] = {}
 
     for match in PROVIDER_BLOCK_RE.finditer(text):
         body = match.group("body")
-        if not re.search(r'canonical_id:\s*"[^"]+"', body):
+        canonical_match = re.search(r'canonical_id:\s*"([^"]+)"', body)
+        if canonical_match is None:
             continue
-        aliases_match = re.search(r"aliases:\s*&\[(?P<aliases>.*?)\]", body, re.DOTALL)
-        if aliases_match is None:
-            raise ValueError(f"{path}: provider metadata entry missing aliases field")
-        provider_count += 1
-        alias_count += len(re.findall(r'"([^"]+)"', aliases_match.group("aliases")))
+        canonical_id = canonical_match.group(1)
+        aliases = rust_array_strings(body, "aliases", path)
+        auth_env_keys = rust_array_strings(body, "auth_env_keys", path)
+        if canonical_id in entries:
+            raise ValueError(f"{path}: duplicate provider metadata entry {canonical_id!r}")
+        entries[canonical_id] = ProviderMetadataEntry(
+            canonical_id=canonical_id,
+            aliases=aliases,
+            auth_env_keys=auth_env_keys,
+        )
+        for alias in aliases:
+            previous = alias_to_canonical.setdefault(alias, canonical_id)
+            if previous != canonical_id:
+                raise ValueError(
+                    f"{path}: alias {alias!r} maps to both {previous!r} and {canonical_id!r}"
+                )
 
-    if provider_count == 0:
+    if not entries:
         raise ValueError(f"{path}: no provider metadata entries found")
 
-    return ProviderMetadataCounts(provider_count=provider_count, alias_count=alias_count)
+    return ProviderMetadataCounts(
+        provider_count=len(entries),
+        alias_count=len(alias_to_canonical),
+        entries=entries,
+        alias_to_canonical=alias_to_canonical,
+    )
 
 
 def evidence_path_candidates(raw: str) -> list[Path]:
@@ -384,6 +425,171 @@ def read_optional_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def extract_section(
+    text: str,
+    start_marker: str,
+    end_marker: str | None,
+    path: Path,
+) -> str:
+    start = text.find(start_marker)
+    if start == -1:
+        raise ValueError(f"{path}: missing section marker {start_marker!r}")
+    if end_marker is None:
+        return text[start:]
+    end = text.find(end_marker, start + len(start_marker))
+    if end == -1:
+        raise ValueError(f"{path}: missing section marker {end_marker!r}")
+    return text[start:end]
+
+
+def markdown_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return []
+    return [cell.strip() for cell in stripped.strip("|").split("|")]
+
+
+def code_tokens(cell: str) -> tuple[str, ...]:
+    return tuple(match.strip() for match in re.findall(r"`([^`]+)`", cell))
+
+
+def env_key_tokens(cell: str) -> tuple[str, ...]:
+    return tuple(
+        token
+        for token in code_tokens(cell)
+        if re.fullmatch(r"[A-Z0-9][A-Z0-9_]*", token)
+    )
+
+
+def parse_auth_crosswalk_entries(
+    text: str,
+    path: Path,
+) -> tuple[dict[str, ProviderDocEntry], list[Finding]]:
+    findings: list[Finding] = []
+    try:
+        section = extract_section(
+            text,
+            "## Provider name crosswalk",
+            "### Alias resolution summary",
+            path,
+        )
+    except ValueError as exc:
+        return {}, [
+            Finding(
+                check="auth_crosswalk_missing_section",
+                severity="error",
+                path=path.as_posix(),
+                message=str(exc),
+                remediation="Restore the auth provider crosswalk section.",
+            )
+        ]
+    entries: dict[str, ProviderDocEntry] = {}
+
+    for line_number, line in enumerate(section.splitlines(), 1):
+        cells = markdown_cells(line)
+        if len(cells) < 3:
+            continue
+        canonical_tokens = code_tokens(cells[0])
+        if len(canonical_tokens) != 1:
+            continue
+        canonical_id = canonical_tokens[0]
+        if canonical_id in entries:
+            findings.append(
+                Finding(
+                    check="auth_crosswalk_duplicate_provider",
+                    severity="error",
+                    path=f"{path.as_posix()}#provider-name-crosswalk:{line_number}",
+                    message=f"Auth crosswalk repeats provider {canonical_id!r}.",
+                    remediation="Keep exactly one row per canonical provider ID.",
+                )
+            )
+            continue
+        entries[canonical_id] = ProviderDocEntry(
+            canonical_id=canonical_id,
+            aliases=code_tokens(cells[1]),
+            auth_env_keys=env_key_tokens(cells[2]),
+            path=f"{path.as_posix()}#provider-name-crosswalk:{line_number}",
+        )
+
+    return entries, findings
+
+
+def parse_alias_mapping_rows(
+    text: str,
+    path: Path,
+    start_marker: str,
+    end_marker: str,
+) -> tuple[list[tuple[str, str, str, tuple[str, ...]]], list[Finding]]:
+    findings: list[Finding] = []
+    try:
+        section = extract_section(text, start_marker, end_marker, path)
+    except ValueError as exc:
+        check = (
+            "providers_alias_table_missing_section"
+            if path == PROVIDERS_DOC
+            else "auth_alias_summary_missing_section"
+        )
+        return [], [
+            Finding(
+                check=check,
+                severity="error",
+                path=path.as_posix(),
+                message=str(exc),
+                remediation="Restore the provider alias mapping section.",
+            )
+        ]
+    rows: list[tuple[str, str, str, tuple[str, ...]]] = []
+
+    for line_number, line in enumerate(section.splitlines(), 1):
+        cells = markdown_cells(line)
+        if len(cells) < 2:
+            continue
+        aliases = code_tokens(cells[0])
+        canonical_tokens = code_tokens(cells[1])
+        if not aliases or len(canonical_tokens) != 1:
+            continue
+        env_keys = env_key_tokens(cells[3]) if len(cells) > 3 else ()
+        canonical_id = canonical_tokens[0]
+        row_path = f"{path.as_posix()}#{start_marker}:{line_number}"
+        for alias in aliases:
+            rows.append((alias, canonical_id, row_path, env_keys))
+
+    return rows, findings
+
+
+def append_diff_findings(
+    findings: list[Finding],
+    *,
+    actual: set[str],
+    expected: set[str],
+    missing_check: str,
+    extra_check: str,
+    path: str,
+    label: str,
+    remediation: str,
+) -> None:
+    for item in sorted(expected - actual):
+        findings.append(
+            Finding(
+                check=missing_check,
+                severity="error",
+                path=path,
+                message=f"Documented crosswalk omits {label} {item!r}.",
+                remediation=remediation,
+            )
+        )
+    for item in sorted(actual - expected):
+        findings.append(
+            Finding(
+                check=extra_check,
+                severity="error",
+                path=path,
+                message=f"Documented crosswalk claims unknown {label} {item!r}.",
+                remediation=remediation,
+            )
+        )
+
+
 def check_crosswalk_docs(
     repo_root: Path,
     ledger_path: Path,
@@ -421,6 +627,153 @@ def check_crosswalk_docs(
                     remediation="Restore the provider crosswalk docs or reopen DISC-017.",
                 )
             )
+    return findings
+
+
+def check_auth_crosswalk_against_metadata(
+    repo_root: Path,
+    metadata: ProviderMetadataCounts,
+) -> tuple[list[Finding], dict[str, ProviderDocEntry]]:
+    path = repo_root / AUTH_DOC
+    auth_text = read_optional_text(path)
+    entries, findings = parse_auth_crosswalk_entries(auth_text, AUTH_DOC)
+
+    documented_ids = set(entries)
+    metadata_ids = set(metadata.entries)
+    append_diff_findings(
+        findings,
+        actual=documented_ids,
+        expected=metadata_ids,
+        missing_check="auth_crosswalk_missing_provider",
+        extra_check="auth_crosswalk_unknown_provider",
+        path=AUTH_DOC.as_posix(),
+        label="provider",
+        remediation=(
+            "Refresh docs/provider-auth-troubleshooting.md from "
+            "src/provider_metadata.rs, or add an explicit omission rationale."
+        ),
+    )
+
+    for canonical_id in sorted(documented_ids & metadata_ids):
+        doc_entry = entries[canonical_id]
+        metadata_entry = metadata.entries[canonical_id]
+        append_diff_findings(
+            findings,
+            actual=set(doc_entry.aliases),
+            expected=set(metadata_entry.aliases),
+            missing_check="auth_crosswalk_missing_alias",
+            extra_check="auth_crosswalk_unknown_alias",
+            path=doc_entry.path,
+            label=f"alias for {canonical_id}",
+            remediation="Refresh the alias cell from src/provider_metadata.rs.",
+        )
+        append_diff_findings(
+            findings,
+            actual=set(doc_entry.auth_env_keys),
+            expected=set(metadata_entry.auth_env_keys),
+            missing_check="auth_crosswalk_missing_env_key",
+            extra_check="auth_crosswalk_unknown_env_key",
+            path=doc_entry.path,
+            label=f"auth env key for {canonical_id}",
+            remediation="Refresh the auth env vars cell from src/provider_metadata.rs.",
+        )
+
+    return findings, entries
+
+
+def check_alias_rows(
+    rows: list[tuple[str, str, str, tuple[str, ...]]],
+    metadata: ProviderMetadataCounts,
+    prefix: str,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    for alias, canonical_id, path, env_keys in rows:
+        actual = metadata.alias_to_canonical.get(alias)
+        if actual is None:
+            findings.append(
+                Finding(
+                    check=f"{prefix}_unknown_alias",
+                    severity="error",
+                    path=path,
+                    message=f"Alias table claims alias {alias!r}, but metadata has no such alias.",
+                    remediation="Remove the stale alias or add it to src/provider_metadata.rs.",
+                )
+            )
+            continue
+        if actual != canonical_id:
+            findings.append(
+                Finding(
+                    check=f"{prefix}_wrong_canonical",
+                    severity="error",
+                    path=path,
+                    message=(
+                        f"Alias table maps {alias!r} to {canonical_id!r}, "
+                        f"but metadata maps it to {actual!r}."
+                    ),
+                    remediation="Refresh the alias mapping from src/provider_metadata.rs.",
+                )
+            )
+            continue
+        metadata_env_keys = set(metadata.entries[canonical_id].auth_env_keys)
+        for env_key in sorted(set(env_keys) - metadata_env_keys):
+            findings.append(
+                Finding(
+                    check=f"{prefix}_unknown_env_key",
+                    severity="error",
+                    path=path,
+                    message=(
+                        f"Alias table claims env key {env_key!r} for {canonical_id!r}, "
+                        "but metadata does not list it."
+                    ),
+                    remediation="Refresh the alias table auth env keys from src/provider_metadata.rs.",
+                )
+            )
+    return findings
+
+
+def check_alias_mapping_claims(
+    repo_root: Path,
+    metadata: ProviderMetadataCounts,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    auth_text = read_optional_text(repo_root / AUTH_DOC)
+    providers_text = read_optional_text(repo_root / PROVIDERS_DOC)
+
+    auth_rows, auth_parse_findings = parse_alias_mapping_rows(
+        auth_text,
+        AUTH_DOC,
+        "### Alias resolution summary",
+        "### Shared env-key families",
+    )
+    findings.extend(auth_parse_findings)
+    providers_rows, providers_parse_findings = parse_alias_mapping_rows(
+        providers_text,
+        PROVIDERS_DOC,
+        "### Alias-to-Canonical Mapping Table",
+        "### Config Migration Examples",
+    )
+    findings.extend(providers_parse_findings)
+
+    findings.extend(check_alias_rows(auth_rows, metadata, "auth_alias_summary"))
+    findings.extend(check_alias_rows(providers_rows, metadata, "providers_alias_table"))
+
+    documented_auth_aliases = {alias for alias, _, _, _ in auth_rows}
+    for alias, canonical_id in sorted(metadata.alias_to_canonical.items()):
+        if alias in documented_auth_aliases:
+            continue
+        findings.append(
+            Finding(
+                check="auth_alias_summary_missing_alias",
+                severity="error",
+                path=AUTH_DOC.as_posix(),
+                message=(
+                    f"Alias summary omits metadata alias {alias!r} "
+                    f"for {canonical_id!r}."
+                ),
+                remediation="Add the alias to the auth troubleshooting alias summary.",
+            )
+        )
+
     return findings
 
 
@@ -515,6 +868,12 @@ def validate(
     findings.extend(check_evidence_refs(repo_root, ledger_path, discrepancies, issue_ids))
     findings.extend(check_open_owner_refs(ledger_path, discrepancies, issue_ids))
     findings.extend(check_crosswalk_docs(repo_root, ledger_path, discrepancies))
+    crosswalk_findings, auth_crosswalk_entries = check_auth_crosswalk_against_metadata(
+        repo_root,
+        metadata,
+    )
+    findings.extend(crosswalk_findings)
+    findings.extend(check_alias_mapping_claims(repo_root, metadata))
     findings.extend(
         check_provider_count_claims(repo_root, ledger_path, discrepancies, metadata)
     )
@@ -533,6 +892,10 @@ def validate(
         "metadata": {
             "provider_count": metadata.provider_count,
             "alias_count": metadata.alias_count,
+            "auth_crosswalk_provider_count": len(auth_crosswalk_entries),
+            "auth_crosswalk_alias_count": sum(
+                len(entry.aliases) for entry in auth_crosswalk_entries.values()
+            ),
         },
         "findings": [finding.__dict__ for finding in findings],
     }
@@ -549,11 +912,44 @@ def write_fixture(repo_root: Path, ledger: dict[str, Any]) -> None:
         encoding="utf-8",
     )
     (repo_root / PROVIDERS_DOC).write_text(
-        "## Canonical Provider Matrix\n\n### Alias-to-Canonical Mapping Table\n",
+        "\n".join(
+            [
+                "## Canonical Provider Matrix",
+                "",
+                "### Alias-to-Canonical Mapping Table",
+                "",
+                "| Alias | Canonical ID | API Family | Shared Auth Env Key(s) | Notes |",
+                "|---|---|---|---|---|",
+                "| `gemini` | `google` | google-generative-ai | `GOOGLE_API_KEY`, `GEMINI_API_KEY` | Product alias. |",
+                "",
+                "### Config Migration Examples",
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
     (repo_root / AUTH_DOC).write_text(
-        "## Provider name crosswalk\n\n**Total**: 2 canonical providers, 1 alias.\n",
+        "\n".join(
+            [
+                "## Provider name crosswalk",
+                "",
+                "**Total**: 2 canonical providers, 1 alias.",
+                "",
+                "| Canonical ID | Aliases | Auth env vars | Default endpoint |",
+                "|---|---|---|---|",
+                "| `openai` | — | `OPENAI_API_KEY` | `https://api.openai.com/v1` |",
+                "| `google` | `gemini` | `GOOGLE_API_KEY`, `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta` |",
+                "",
+                "### Alias resolution summary",
+                "",
+                "| User input | Resolves to |",
+                "|---|---|",
+                "| `gemini` | `google` |",
+                "",
+                "### Shared env-key families",
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
     (repo_root / "src/provider_metadata.rs").write_text(
@@ -562,10 +958,12 @@ pub const PROVIDER_METADATA: &[ProviderMetadata] = &[
     ProviderMetadata {
         canonical_id: "openai",
         aliases: &[],
+        auth_env_keys: &["OPENAI_API_KEY"],
     },
     ProviderMetadata {
         canonical_id: "google",
         aliases: &["gemini"],
+        auth_env_keys: &["GOOGLE_API_KEY", "GEMINI_API_KEY"],
     },
 ];
 """.lstrip(),
@@ -692,6 +1090,76 @@ def run_self_tests() -> dict[str, Any]:
         except Exception as exc:
             raise AssertionError(f"self-test case failed: {name}: {exc}") from exc
         passed += 1
+
+    post_write_cases: list[tuple[str, Any, str]] = [
+        (
+            "auth crosswalk missing provider",
+            lambda repo_root: (repo_root / AUTH_DOC).write_text(
+                (repo_root / AUTH_DOC)
+                .read_text(encoding="utf-8")
+                .replace(
+                    "| `google` | `gemini` | `GOOGLE_API_KEY`, `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta` |\n",
+                    "",
+                ),
+                encoding="utf-8",
+            ),
+            "auth_crosswalk_missing_provider",
+        ),
+        (
+            "auth crosswalk unknown alias",
+            lambda repo_root: (repo_root / AUTH_DOC).write_text(
+                (repo_root / AUTH_DOC)
+                .read_text(encoding="utf-8")
+                .replace("`gemini` | `GOOGLE_API_KEY`", "`bogus` | `GOOGLE_API_KEY`"),
+                encoding="utf-8",
+            ),
+            "auth_crosswalk_unknown_alias",
+        ),
+        (
+            "auth crosswalk missing env key",
+            lambda repo_root: (repo_root / AUTH_DOC).write_text(
+                (repo_root / AUTH_DOC)
+                .read_text(encoding="utf-8")
+                .replace("`GOOGLE_API_KEY`, `GEMINI_API_KEY`", "`GOOGLE_API_KEY`"),
+                encoding="utf-8",
+            ),
+            "auth_crosswalk_missing_env_key",
+        ),
+        (
+            "auth alias summary missing alias",
+            lambda repo_root: (repo_root / AUTH_DOC).write_text(
+                (repo_root / AUTH_DOC)
+                .read_text(encoding="utf-8")
+                .replace("| `gemini` | `google` |\n", ""),
+                encoding="utf-8",
+            ),
+            "auth_alias_summary_missing_alias",
+        ),
+        (
+            "providers alias table wrong canonical",
+            lambda repo_root: (repo_root / PROVIDERS_DOC).write_text(
+                (repo_root / PROVIDERS_DOC)
+                .read_text(encoding="utf-8")
+                .replace("| `gemini` | `google` |", "| `gemini` | `openai` |"),
+                encoding="utf-8",
+            ),
+            "providers_alias_table_wrong_canonical",
+        ),
+    ]
+
+    for name, mutator, expected_check in post_write_cases:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo_root = Path(temp_dir)
+            ledger = base_fixture_ledger()
+            write_fixture(repo_root, ledger)
+            mutator(repo_root)
+            report, _ = validate(repo_root, repo_root / DEFAULT_LEDGER)
+            checks = {finding["check"] for finding in report["findings"]}
+            if report["status"] != "fail" or expected_check not in checks:
+                raise AssertionError(
+                    f"self-test case failed: {name}: {report['findings']}"
+                )
+            passed += 1
 
     with tempfile.TemporaryDirectory() as temp_dir:
         repo_root = Path(temp_dir)

@@ -3,9 +3,9 @@
   "bead": "bd-3uqg.12.1.1",
   "generated_at": "2026-02-14T00:40:00Z",
   "generated_by": "CopperBrook (Claude Opus 4.6)",
-  "last_reviewed_at": "2026-05-18T09:20:00Z",
+  "last_reviewed_at": "2026-05-18T09:22:00Z",
   "reviewed_by": "SilentReef (Codex)",
-  "review_bead": "bd-ryg6j.3",
+  "review_bead": "bd-ryg6j.4",
   "methodology": {
     "description": "Normalized discrepancy ledger synthesized from 4 upstream audit beads. Each finding is classified by root-cause and user-impact severity.",
     "source_beads": [
@@ -283,8 +283,8 @@
       "user_impact": "Users have no reference table showing canonical IDs, aliases, common brand names, and auth env keys in one place.",
       "evidence": "docs/providers.md canonical provider matrix and alias migration table; docs/provider-auth-troubleshooting.md provider name crosswalk with canonical IDs, aliases, auth env vars, and endpoints",
       "remediation_status": "fixed",
-      "remediation_note": "--list-providers remains the runtime discovery surface, and static docs now provide the requested provider-name crosswalk. docs/providers.md records source-of-truth references and docs/provider-auth-troubleshooting.md reports 91 canonical providers, 43 aliases, and env-key/endpoint mappings.",
-      "remediation_beads": ["bd-3gsk0", "bd-8t27h.7", "bd-ryg6j.1", "bd-ryg6j.2"],
+      "remediation_note": "--list-providers remains the runtime discovery surface, and static docs now provide the requested provider-name crosswalk. docs/providers.md records source-of-truth references and docs/provider-auth-troubleshooting.md reports 91 canonical providers, 43 aliases, and env-key/endpoint mappings. scripts/check_provider_discrepancy_ledger.py now fails closed if the checked crosswalk drifts from src/provider_metadata.rs.",
+      "remediation_beads": ["bd-3gsk0", "bd-8t27h.7", "bd-ryg6j.1", "bd-ryg6j.2", "bd-ryg6j.4"],
       "affected_providers": ["all"]
     },
     {
@@ -353,6 +353,7 @@
     "remediation_beads_created": [
       {"bead": "bd-tuh3g", "fixes": ["DISC-003"], "status": "closed"},
       {"bead": "bd-ryg6j.3", "fixes": ["DISC-003"], "status": "closed"},
+      {"bead": "bd-ryg6j.4", "fixes": ["DISC-017"], "status": "closed"},
       {"bead": "bd-1gi21", "fixes": ["DISC-005"], "status": "closed"},
       {"bead": "bd-1fgjj", "fixes": ["DISC-006"], "status": "closed"},
       {"bead": "bd-3gsk0", "fixes": ["DISC-004"], "status": "closed"}
