@@ -481,7 +481,7 @@ fn slash_input_to_rpc_steps(input: &str) -> anyhow::Result<Vec<RpcStep>> {
     let policy = slash_command_observability(trimmed);
     if policy.kind != SlashCommandObservability::RpcObservable {
         anyhow::bail!(
-            "slash input is not RPC-observable: {trimmed}; {}",
+            "slash input is not observable through the shared RPC protocol: {trimmed}; {}",
             policy.reason
         );
     }
