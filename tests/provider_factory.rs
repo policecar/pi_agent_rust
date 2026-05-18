@@ -136,6 +136,30 @@ fn drive_provider_stream_to_done(
     });
 }
 
+fn expect_provider_stream_start_error(
+    provider: Arc<dyn pi::provider::Provider>,
+    context: Context<'static>,
+    options: StreamOptions,
+) -> Error {
+    common::run_async(async move {
+        match provider.stream(&context, &options).await {
+            Ok(mut stream) => {
+                let mut event_count = 0usize;
+                while stream.next().await.is_some() {
+                    event_count += 1;
+                    if event_count >= 3 {
+                        break;
+                    }
+                }
+                Error::api(format!(
+                    "provider stream unexpectedly started and yielded {event_count} event(s)"
+                ))
+            }
+            Err(err) => err,
+        }
+    })
+}
+
 const WAVE_A_PRESET_CASES: [(&str, &str); 13] = [
     ("groq", "https://api.groq.com/openai/v1"),
     ("deepinfra", "https://api.deepinfra.com/v1/openai"),
@@ -1197,6 +1221,107 @@ fn bedrock_provider_uses_bearer_auth_and_converse_payload() {
     assert_eq!(body["system"][0]["text"], "Be concise.");
     assert_eq!(body["inferenceConfig"]["maxTokens"], 128);
     assert_eq!(body["toolConfig"]["tools"][0]["toolSpec"]["name"], "search");
+}
+
+#[test]
+fn bedrock_provider_surfaces_access_denied_error_without_live_credentials() {
+    let harness =
+        TestHarness::new("bedrock_provider_surfaces_access_denied_error_without_live_credentials");
+    let server = harness.start_mock_http_server();
+    let bedrock_model = "anthropic.claude-3-5-sonnet-20240620-v1:0";
+    server.add_route(
+        "POST",
+        "/model/anthropic.claude-3-5-sonnet-20240620-v1:0/converse",
+        MockHttpResponse::json(
+            403,
+            &serde_json::json!({
+                "__type": "AccessDeniedException",
+                "message": "The security token included in the request is invalid."
+            }),
+        ),
+    );
+
+    let mut entry = make_model_entry("amazon-bedrock", bedrock_model, &server.base_url());
+    entry.model.api = "bedrock-converse-stream".to_string();
+    let provider = create_provider(&entry, None).expect("amazon-bedrock provider");
+    let context = Context {
+        system_prompt: None,
+        messages: vec![Message::User(UserMessage {
+            content: UserContent::Text("Ping".to_string()),
+            timestamp: 0,
+        })]
+        .into(),
+        tools: Vec::new().into(),
+    };
+    let options = StreamOptions {
+        api_key: Some("bedrock-test-token".to_string()),
+        ..Default::default()
+    };
+
+    let err = expect_provider_stream_start_error(provider, context, options);
+    let msg = err.to_string();
+    assert!(msg.contains("HTTP 403"), "{msg}");
+    assert!(msg.contains("AccessDeniedException"), "{msg}");
+    assert!(
+        msg.contains("security token included in the request is invalid"),
+        "{msg}"
+    );
+
+    let requests = server.requests();
+    assert_eq!(requests.len(), 1, "expected exactly one request");
+    assert_eq!(
+        request_header(&requests[0].headers, "authorization").as_deref(),
+        Some("Bearer bedrock-test-token")
+    );
+}
+
+#[test]
+fn bedrock_provider_surfaces_rate_limit_error_without_live_credentials() {
+    let harness =
+        TestHarness::new("bedrock_provider_surfaces_rate_limit_error_without_live_credentials");
+    let server = harness.start_mock_http_server();
+    let bedrock_model = "anthropic.claude-3-5-sonnet-20240620-v1:0";
+    server.add_route(
+        "POST",
+        "/model/anthropic.claude-3-5-sonnet-20240620-v1:0/converse",
+        MockHttpResponse::json(
+            429,
+            &serde_json::json!({
+                "__type": "ThrottlingException",
+                "message": "Rate exceeded for Converse. Retry later."
+            }),
+        ),
+    );
+
+    let mut entry = make_model_entry("amazon-bedrock", bedrock_model, &server.base_url());
+    entry.model.api = "bedrock-converse-stream".to_string();
+    let provider = create_provider(&entry, None).expect("amazon-bedrock provider");
+    let context = Context {
+        system_prompt: None,
+        messages: vec![Message::User(UserMessage {
+            content: UserContent::Text("Ping".to_string()),
+            timestamp: 0,
+        })]
+        .into(),
+        tools: Vec::new().into(),
+    };
+    let options = StreamOptions {
+        api_key: Some("bedrock-test-token".to_string()),
+        ..Default::default()
+    };
+
+    let err = expect_provider_stream_start_error(provider, context, options);
+    let msg = err.to_string();
+    assert!(msg.contains("HTTP 429"), "{msg}");
+    assert!(msg.contains("ThrottlingException"), "{msg}");
+    assert!(msg.contains("Rate exceeded for Converse"), "{msg}");
+
+    let requests = server.requests();
+    assert_eq!(requests.len(), 1, "expected exactly one request");
+    assert_eq!(
+        request_header(&requests[0].headers, "authorization").as_deref(),
+        Some("Bearer bedrock-test-token")
+    );
 }
 
 #[test]

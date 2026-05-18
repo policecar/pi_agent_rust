@@ -3,9 +3,9 @@
   "bead": "bd-3uqg.12.1.1",
   "generated_at": "2026-02-14T00:40:00Z",
   "generated_by": "CopperBrook (Claude Opus 4.6)",
-  "last_reviewed_at": "2026-05-18T09:38:57Z",
+  "last_reviewed_at": "2026-05-18T09:43:22Z",
   "reviewed_by": "SilentReef (Codex)",
-  "review_bead": "bd-ryg6j.5",
+  "review_bead": "bd-ryg6j.6",
   "methodology": {
     "description": "Normalized discrepancy ledger synthesized from 4 upstream audit beads. Each finding is classified by root-cause and user-impact severity.",
     "source_beads": [
@@ -67,9 +67,9 @@
       "logging_schema_drift": 4
     },
     "by_remediation_status": {
-      "fixed": 16,
+      "fixed": 17,
       "partially_fixed": 0,
-      "open": 3
+      "open": 2
     }
   },
 
@@ -183,9 +183,9 @@
       "root_cause": "test_evidence_gap",
       "severity": "low",
       "user_impact": "No direct user impact. Error handling paths for Bedrock are untested by VCR replay, but are covered by unit-level assertion tests.",
-      "evidence": "bd-3uqg.14.3.2 comments: Deviation 1. AWS uses different error signaling format.",
-      "remediation_status": "open",
-      "remediation_note": "Owned by bd-ryg6j.6. Add credential-free deterministic Bedrock auth/rate-limit error coverage where possible; if true VCR cassettes require AWS credentials, keep that blocker explicit and link unit/request-shape proof.",
+      "evidence": "tests/provider_factory.rs includes credential-free mock HTTP coverage for Bedrock AccessDeniedException and ThrottlingException responses. Focused proof: `rch exec -- env ... cargo test --test provider_factory bedrock_provider_surfaces_ -- --nocapture`.",
+      "remediation_status": "fixed",
+      "remediation_note": "Bedrock auth and rate-limit error-path evidence now uses local mock Converse endpoints plus the bearer-token fallback, so no live AWS credentials or VCR cassettes are required to prove non-2xx AWS-style errors surface deterministically.",
       "remediation_beads": ["bd-ryg6j.6"],
       "affected_providers": ["amazon-bedrock"]
     },
@@ -324,6 +324,7 @@
         "DISC-006",
         "DISC-007",
         "DISC-008",
+        "DISC-009",
         "DISC-010",
         "DISC-011",
         "DISC-012",
@@ -342,7 +343,7 @@
     },
     "p2_medium_value": {
       "description": "Infrastructure/docs improvements",
-      "items": ["DISC-009"]
+      "items": []
     },
     "p3_low_value": {
       "description": "Nice-to-have or informational",
@@ -356,6 +357,7 @@
       {"bead": "bd-ryg6j.3", "fixes": ["DISC-003"], "status": "closed"},
       {"bead": "bd-ryg6j.4", "fixes": ["DISC-017"], "status": "closed"},
       {"bead": "bd-ryg6j.5", "fixes": ["DISC-011"], "status": "closed"},
+      {"bead": "bd-ryg6j.6", "fixes": ["DISC-009"], "status": "closed"},
       {"bead": "bd-1gi21", "fixes": ["DISC-005"], "status": "closed"},
       {"bead": "bd-1fgjj", "fixes": ["DISC-006"], "status": "closed"},
       {"bead": "bd-3gsk0", "fixes": ["DISC-004"], "status": "closed"}
