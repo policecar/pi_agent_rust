@@ -622,3 +622,80 @@ export default function activate(pi) {
         .unwrap_or_default();
     assert_eq!(result, "true|true|true|true|payload-more|false|true");
 }
+
+#[test]
+fn chmod_chown_existing_paths_succeed_but_missing_paths_throw() {
+    let result = eval_fs(
+        r#"(() => {
+        fs.writeFileSync("tmp/owned.txt", "data");
+        fs.chmodSync("tmp/owned.txt", 0o600);
+        fs.chownSync("tmp/owned.txt", 0, 0);
+        const outcomes = ["sync-ok"];
+        try {
+            fs.chmodSync("tmp/missing.txt", 0o600);
+            outcomes.push("chmod-missing-ok");
+        } catch (e) {
+            outcomes.push(e.message.includes("ENOENT") ? "chmod-missing-enoent" : e.message);
+        }
+        try {
+            fs.chownSync("tmp/missing.txt", 0, 0);
+            outcomes.push("chown-missing-ok");
+        } catch (e) {
+            outcomes.push(e.message.includes("ENOENT") ? "chown-missing-enoent" : e.message);
+        }
+        return outcomes.join("|");
+    })()"#,
+    );
+    assert_eq!(result, "sync-ok|chmod-missing-enoent|chown-missing-enoent");
+}
+
+#[test]
+fn fs_promises_chmod_chown_utimes_check_path_existence() {
+    let harness = common::TestHarness::new("fs_promises_permissions");
+    let source = r#"
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+
+export default function activate(pi) {
+  pi.on("agent_start", async () => {
+    fs.writeFileSync("tmp/promised.txt", "data");
+    await fsp.chmod("tmp/promised.txt", 0o600);
+    await fsp.chown("tmp/promised.txt", 0, 0);
+    await fsp.utimes("tmp/promised.txt", new Date(0), new Date(0));
+    const outcomes = ["promise-ok"];
+    try {
+      await fsp.chmod("tmp/missing.txt", 0o600);
+      outcomes.push("chmod-missing-ok");
+    } catch (e) {
+      outcomes.push(e.message.includes("ENOENT") ? "chmod-missing-enoent" : e.message);
+    }
+    try {
+      await fsp.chown("tmp/missing.txt", 0, 0);
+      outcomes.push("chown-missing-ok");
+    } catch (e) {
+      outcomes.push(e.message.includes("ENOENT") ? "chown-missing-enoent" : e.message);
+    }
+    try {
+      await fsp.utimes("tmp/missing.txt", new Date(0), new Date(0));
+      outcomes.push("utimes-missing-ok");
+    } catch (e) {
+      outcomes.push(e.message.includes("ENOENT") ? "utimes-missing-enoent" : e.message);
+    }
+    return { result: outcomes.join("|") };
+  });
+}
+"#;
+    let mgr = load_ext(&harness, source);
+    let response = common::run_async(async move {
+        mgr.dispatch_event_with_response(ExtensionEventName::AgentStart, None, 10_000)
+            .await
+            .expect("dispatch")
+    });
+    let result = response
+        .and_then(|v| v.get("result").and_then(|r| r.as_str()).map(String::from))
+        .unwrap_or_default();
+    assert_eq!(
+        result,
+        "promise-ok|chmod-missing-enoent|chown-missing-enoent|utimes-missing-enoent"
+    );
+}

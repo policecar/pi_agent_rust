@@ -11402,8 +11402,8 @@ export function accessSync(path, _mode) {
     throw new Error("ENOENT: no such file or directory");
   }
 }
-export function chmodSync(_path, _mode) { return; }
-export function chownSync(_path, _uid, _gid) { return; }
+export function chmodSync(path, _mode) { accessSync(path); return; }
+export function chownSync(path, _uid, _gid) { accessSync(path); return; }
 export function readlinkSync(path, opts) {
   const normalized = __pi_vfs.normalizePath(path);
   if (!__pi_vfs.symlinks.has(normalized)) {
@@ -11866,7 +11866,9 @@ export const promises = {
     return copyFileSync(src, dest);
   },
   appendFile: async (path, data, opts) => appendFileSync(path, data, opts),
-  chmod: async (_path, _mode) => {},
+  chmod: async (path, mode) => chmodSync(path, mode),
+  chown: async (path, uid, gid) => chownSync(path, uid, gid),
+  utimes: async (path, _atime, _mtime) => accessSync(path),
 };
 export default { constants, existsSync, readFileSync, appendFileSync, writeFileSync, readdirSync, statSync, lstatSync, mkdtempSync, realpathSync, unlinkSync, rmdirSync, rmSync, copyFileSync, renameSync, mkdirSync, accessSync, chmodSync, chownSync, readlinkSync, symlinkSync, openSync, closeSync, readSync, writeSync, fstatSync, ftruncateSync, futimesSync, watch, watchFile, unwatchFile, createReadStream, createWriteStream, readFile, writeFile, stat, lstat, readdir, mkdir, unlink, readlink, symlink, rmdir, rm, rename, copyFile, appendFile, chmod, chown, realpath, access, promises };
 "#
@@ -11904,9 +11906,9 @@ export async function cp(src, dest, opts = {}) {
   return fs.promises.copyFile(src, dest);
 }
 export async function rename(oldPath, newPath) { return fs.promises.rename(oldPath, newPath); }
-export async function chmod(path, mode) { return; }
-export async function chown(path, uid, gid) { return; }
-export async function utimes(path, atime, mtime) { return; }
+export async function chmod(path, mode) { return fs.promises.chmod(path, mode); }
+export async function chown(path, uid, gid) { return fs.promises.chown(path, uid, gid); }
+export async function utimes(path, atime, mtime) { return fs.promises.utimes(path, atime, mtime); }
 export async function appendFile(path, data, opts) { return fs.promises.appendFile(path, data, opts); }
 export async function open(path, flags, mode) { return { close: async () => {} }; }
 export async function truncate(path, len) { return; }
