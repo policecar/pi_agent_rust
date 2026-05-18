@@ -292,6 +292,15 @@ tikv-jemallocator = { version = "0.6", optional = true }
 [target.'cfg(target_os = "freebsd")'.dependencies]
 rquickjs = { version = "0.11", features = ["futures", "loader", "bindgen"] }
 
+# Android (including Termux on-device): rquickjs-sys 0.11 ships pre-generated
+# bindings for aarch64-linux-android only for some Cargo versions and not
+# others; the canonical fix is to regenerate via the `bindgen` feature so we
+# stop depending on a missing bindings/aarch64-linux-android.rs in the
+# upstream crate. Termux ships clang under $PREFIX/bin which bindgen picks
+# up automatically.
+[target.'cfg(target_os = "android")'.dependencies]
+rquickjs = { version = "0.11", features = ["futures", "loader", "bindgen"] }
+
 [features]
 default = ["sqlite-sessions"]
 full = [
