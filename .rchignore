@@ -34,8 +34,10 @@ codex-clippy/**
 .rch-tmp/**
 /artifacts/
 /artifacts/**
-legacy_pi_mono_code/
-legacy_pi_mono_code/**
+# The slash differential proof needs the pinned pi-mono source on RCH workers.
+# Keep machine-local dependencies out of transfer; provision or override them separately.
+legacy_pi_mono_code/pi-mono/node_modules/
+legacy_pi_mono_code/pi-mono/node_modules/**
 proptest-regressions/
 proptest-regressions/**
 release_artifacts/
