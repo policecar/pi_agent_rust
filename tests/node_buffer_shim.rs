@@ -2011,6 +2011,45 @@ fn global_buffer_bigint64_integer_vectors_match_node() {
 }
 
 #[test]
+fn global_buffer_floating_point_vectors_match_node() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["types", () => ["readFloatBE", "readFloatLE", "readDoubleBE", "readDoubleLE", "writeFloatBE", "writeFloatLE", "writeDoubleBE", "writeDoubleLE"].map((name) => name + ":" + typeof Buffer.prototype[name]).join(",")],
+            ["read_float_be", () => Buffer.from([0x3f, 0xc0, 0, 0]).readFloatBE(0)],
+            ["read_float_le", () => Buffer.from([0, 0, 0xc0, 0x3f]).readFloatLE(0)],
+            ["read_float_nan", () => Number.isNaN(Buffer.from([0x7f, 0xc0, 0, 0]).readFloatBE(0))],
+            ["read_double_be", () => Buffer.from([0x40, 0x09, 0x21, 0xfb, 0x54, 0x44, 0x2d, 0x18]).readDoubleBE(0)],
+            ["read_double_le", () => Buffer.from([0x18, 0x2d, 0x44, 0x54, 0xfb, 0x21, 0x09, 0x40]).readDoubleLE(0)],
+            ["write_float_be", () => { const b = Buffer.alloc(4); return b.writeFloatBE(1.5, 0) + ":" + b.toString("hex"); }],
+            ["write_float_le", () => { const b = Buffer.alloc(4); return b.writeFloatLE(1.5, 0) + ":" + b.toString("hex"); }],
+            ["write_float_string", () => { const b = Buffer.alloc(4); return b.writeFloatBE("1.5", 0) + ":" + b.toString("hex"); }],
+            ["write_float_nan", () => { const b = Buffer.alloc(4); return b.writeFloatBE(NaN, 0) + ":" + b.toString("hex"); }],
+            ["write_double_be", () => { const b = Buffer.alloc(8); return b.writeDoubleBE(Math.PI, 0) + ":" + b.toString("hex"); }],
+            ["write_double_le", () => { const b = Buffer.alloc(8); return b.writeDoubleLE(Math.PI, 0) + ":" + b.toString("hex"); }],
+            ["write_double_string", () => { const b = Buffer.alloc(8); return b.writeDoubleBE("3.25", 0) + ":" + b.toString("hex"); }],
+            ["read_offset_null", () => Buffer.alloc(4).readFloatBE(null)],
+            ["read_float_oob", () => Buffer.alloc(3).readFloatBE(0)],
+            ["read_double_oob", () => Buffer.alloc(7).readDoubleLE(0)],
+            ["write_float_offset_null", () => { const b = Buffer.alloc(4); return b.writeFloatBE(1.5, null) + ":" + b.toString("hex"); }],
+            ["write_double_offset_null", () => { const b = Buffer.alloc(8); return b.writeDoubleBE(1.5, null) + ":" + b.toString("hex"); }],
+        ];
+        return cases.map(([label, run]) => {
+            try {
+                return label + ":" + run();
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "types:readFloatBE:function,readFloatLE:function,readDoubleBE:function,readDoubleLE:function,writeFloatBE:function,writeFloatLE:function,writeDoubleBE:function,writeDoubleLE:function|read_float_be:1.5|read_float_le:1.5|read_float_nan:true|read_double_be:3.141592653589793|read_double_le:3.141592653589793|write_float_be:4:3fc00000|write_float_le:4:0000c03f|write_float_string:4:3fc00000|write_float_nan:4:7fc00000|write_double_be:8:400921fb54442d18|write_double_le:8:182d4454fb210940|write_double_string:8:400a000000000000|read_offset_null:TypeError|read_float_oob:RangeError|read_double_oob:RangeError|write_float_offset_null:TypeError|write_double_offset_null:TypeError"
+    );
+}
+
+#[test]
 fn global_buffer_variable_width_signed_integer_vectors_match_node() {
     let result = eval_global_buffer(
         r#"(() => {

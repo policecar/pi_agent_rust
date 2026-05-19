@@ -21389,6 +21389,10 @@ if (typeof globalThis.Buffer === 'undefined') {
         readBigUint64LE(offset) { return this.readBigUInt64LE(offset); }
         readBigInt64BE(offset) { const value = this.readBigUInt64BE(offset); return value >= 0x8000000000000000n ? value - 0x10000000000000000n : value; }
         readBigInt64LE(offset) { const value = this.readBigUInt64LE(offset); return value >= 0x8000000000000000n ? value - 0x10000000000000000n : value; }
+        readFloatBE(offset) { const o = Buffer._checkedOffset(offset, 4, this.length); return new DataView(this.buffer, this.byteOffset + o, 4).getFloat32(0, false); }
+        readFloatLE(offset) { const o = Buffer._checkedOffset(offset, 4, this.length); return new DataView(this.buffer, this.byteOffset + o, 4).getFloat32(0, true); }
+        readDoubleBE(offset) { const o = Buffer._checkedOffset(offset, 8, this.length); return new DataView(this.buffer, this.byteOffset + o, 8).getFloat64(0, false); }
+        readDoubleLE(offset) { const o = Buffer._checkedOffset(offset, 8, this.length); return new DataView(this.buffer, this.byteOffset + o, 8).getFloat64(0, true); }
         readUint8(offset) { return this.readUInt8(offset); }
         readUint16BE(offset) { return this.readUInt16BE(offset); }
         readUint16LE(offset) { return this.readUInt16LE(offset); }
@@ -21422,6 +21426,10 @@ if (typeof globalThis.Buffer === 'undefined') {
         writeBigUint64LE(value, offset) { return this.writeBigUInt64LE(value, offset); }
         writeBigInt64BE(value, offset) { let v = Buffer._checkedBigInt64Value(value); if (v < 0n) v += 0x10000000000000000n; return this.writeBigUInt64BE(v, offset); }
         writeBigInt64LE(value, offset) { let v = Buffer._checkedBigInt64Value(value); if (v < 0n) v += 0x10000000000000000n; return this.writeBigUInt64LE(v, offset); }
+        writeFloatBE(value, offset) { const o = Buffer._checkedOffset(offset, 4, this.length); new DataView(this.buffer, this.byteOffset + o, 4).setFloat32(0, +value, false); return o + 4; }
+        writeFloatLE(value, offset) { const o = Buffer._checkedOffset(offset, 4, this.length); new DataView(this.buffer, this.byteOffset + o, 4).setFloat32(0, +value, true); return o + 4; }
+        writeDoubleBE(value, offset) { const o = Buffer._checkedOffset(offset, 8, this.length); new DataView(this.buffer, this.byteOffset + o, 8).setFloat64(0, +value, false); return o + 8; }
+        writeDoubleLE(value, offset) { const o = Buffer._checkedOffset(offset, 8, this.length); new DataView(this.buffer, this.byteOffset + o, 8).setFloat64(0, +value, true); return o + 8; }
         writeUInt32BE(value, offset) { const o = Buffer._checkedOffset(offset, 4, this.length); const v = Buffer._checkedWriteValue(value, 0, 0xffffffff); this[o]=(v>>>24)&0xff; this[o+1]=(v>>>16)&0xff; this[o+2]=(v>>>8)&0xff; this[o+3]=v&0xff; return o+4; }
         writeUInt32LE(value, offset) { const o = Buffer._checkedOffset(offset, 4, this.length); const v = Buffer._checkedWriteValue(value, 0, 0xffffffff); this[o]=v&0xff; this[o+1]=(v>>>8)&0xff; this[o+2]=(v>>>16)&0xff; this[o+3]=(v>>>24)&0xff; return o+4; }
         writeUint32BE(value, offset) { return this.writeUInt32BE(value, offset); }
