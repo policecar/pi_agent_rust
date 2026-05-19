@@ -5,6 +5,10 @@ This checker enforces the Phase-0 counting taxonomy contract:
 - Every count must carry an explicit granularity label.
 - LOC/provider/extension dimensions must include required side-by-side labels.
 - Every metric must include tool provenance and command signature.
+
+Usage:
+  python3 scripts/ci/validate_counting_taxonomy.py --artifact ARTIFACT
+  python3 scripts/ci/validate_counting_taxonomy.py --self-test
 """
 
 from __future__ import annotations
@@ -71,7 +75,7 @@ def validate_artifact(artifact: dict, contract: dict) -> list[str]:
                     errors.append(f"{metric_path} missing field {field!r}")
 
             label = metric.get("granularity_label")
-            if isinstance(label, str):
+            if isinstance(label, str) and label.strip():
                 seen_labels.add(label)
             else:
                 errors.append(f"{metric_path}.granularity_label must be a non-empty string")
@@ -99,15 +103,162 @@ def validate_artifact(artifact: dict, contract: dict) -> list[str]:
     return errors
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--artifact", required=True, help="Evidence artifact JSON to validate")
+def fixture_contract() -> dict:
+    return {
+        "taxonomy_schema": "pi.qa.counting_taxonomy.v1",
+        "required_metric_fields": [
+            "metric_key",
+            "granularity_label",
+            "value",
+            "unit",
+            "tool_provenance",
+        ],
+        "required_tool_provenance_fields": ["source", "command_signature"],
+        "required_dimensions": {
+            "providers": {
+                "required_granularity_labels": [
+                    "provider_canonical_ids",
+                    "provider_alias_ids",
+                ],
+            },
+        },
+    }
+
+
+def fixture_metric(label: str, value: int | float = 1) -> dict:
+    return {
+        "metric_key": "provider_breadth",
+        "granularity_label": label,
+        "value": value,
+        "unit": "count",
+        "tool_provenance": {
+            "source": "fixture",
+            "command_signature": "python3 fixture",
+        },
+    }
+
+
+def fixture_artifact() -> dict:
+    return {
+        "counting_taxonomy": {
+            "schema": "pi.qa.counting_taxonomy.v1",
+            "dimensions": {
+                "providers": {
+                    "metrics": [
+                        fixture_metric("provider_canonical_ids", 2),
+                        fixture_metric("provider_alias_ids", 3),
+                    ],
+                },
+            },
+        },
+    }
+
+
+def run_self_test() -> int:
+    contract = fixture_contract()
+    failures: list[str] = []
+
+    def require(condition: bool, message: str) -> None:
+        if not condition:
+            failures.append(message)
+
+    valid_errors = validate_artifact(fixture_artifact(), contract)
+    require(valid_errors == [], f"valid fixture should pass, got {valid_errors!r}")
+
+    missing_taxonomy_errors = validate_artifact({}, contract)
+    require(
+        missing_taxonomy_errors == ["missing top-level counting_taxonomy object"],
+        f"missing taxonomy errors mismatch: {missing_taxonomy_errors!r}",
+    )
+
+    wrong_schema_artifact = fixture_artifact()
+    wrong_schema_artifact["counting_taxonomy"]["schema"] = "wrong.schema"
+    wrong_schema_errors = validate_artifact(wrong_schema_artifact, contract)
+    require(
+        any("counting_taxonomy.schema must be" in error for error in wrong_schema_errors),
+        f"schema mismatch was not reported: {wrong_schema_errors!r}",
+    )
+
+    missing_label_artifact = fixture_artifact()
+    missing_label_artifact["counting_taxonomy"]["dimensions"]["providers"]["metrics"] = [
+        fixture_metric("provider_canonical_ids", 2),
+    ]
+    missing_label_errors = validate_artifact(missing_label_artifact, contract)
+    require(
+        any("provider_alias_ids" in error for error in missing_label_errors),
+        f"missing label was not reported: {missing_label_errors!r}",
+    )
+
+    non_numeric_artifact = fixture_artifact()
+    non_numeric_artifact["counting_taxonomy"]["dimensions"]["providers"]["metrics"][0][
+        "value"
+    ] = "two"
+    non_numeric_errors = validate_artifact(non_numeric_artifact, contract)
+    require(
+        any(".value must be numeric" in error for error in non_numeric_errors),
+        f"non-numeric value was not reported: {non_numeric_errors!r}",
+    )
+
+    blank_label_artifact = fixture_artifact()
+    blank_label_artifact["counting_taxonomy"]["dimensions"]["providers"]["metrics"][0][
+        "granularity_label"
+    ] = ""
+    blank_label_errors = validate_artifact(blank_label_artifact, contract)
+    require(
+        any(
+            ".granularity_label must be a non-empty string" in error
+            for error in blank_label_errors
+        ),
+        f"blank granularity label was not reported: {blank_label_errors!r}",
+    )
+
+    blank_provenance_artifact = fixture_artifact()
+    blank_provenance_artifact["counting_taxonomy"]["dimensions"]["providers"]["metrics"][0][
+        "tool_provenance"
+    ]["command_signature"] = " "
+    blank_provenance_errors = validate_artifact(blank_provenance_artifact, contract)
+    require(
+        any(
+            "tool_provenance.command_signature must be non-empty" in error
+            for error in blank_provenance_errors
+        ),
+        f"blank provenance was not reported: {blank_provenance_errors!r}",
+    )
+
+    if failures:
+        print("Counting taxonomy validator self-test failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"  - {failure}", file=sys.stderr)
+        return 1
+
+    print("Counting taxonomy validator self-test passed.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--artifact", required=False, help="Evidence artifact JSON to validate")
     parser.add_argument(
         "--contract",
         default=str(project_root_from_script() / "docs/counting-taxonomy-contract.json"),
         help="Counting taxonomy contract JSON",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help="run deterministic in-memory validator checks",
+    )
+    args = parser.parse_args(argv)
+
+    if args.self_test:
+        return run_self_test()
+
+    if not args.artifact:
+        print("ERROR: --artifact is required unless --self-test is used", file=sys.stderr)
+        return 2
 
     artifact_path = Path(args.artifact)
     contract_path = Path(args.contract)
