@@ -20898,9 +20898,9 @@ if (typeof globalThis.Buffer === 'undefined') {
             }
             throw new Error('Buffer.from: unsupported input');
         }
-        static alloc(size, fill) {
+        static alloc(size, fill, encoding) {
             const buf = new Buffer(size);
-            if (fill !== undefined) buf.fill(typeof fill === 'number' ? fill : 0);
+            if (fill !== undefined) buf.fill(fill, 0, size, encoding);
             return buf;
         }
         static allocUnsafe(size) { return new Buffer(size); }
@@ -21049,10 +21049,33 @@ if (typeof globalThis.Buffer === 'undefined') {
             return copyLen;
         }
         fill(value, offset, end, encoding) {
-            const s = offset || 0;
-            const e = end !== undefined ? end : this.length;
-            const v = typeof value === 'number' ? (value & 0xff) : 0;
-            for (let i = s; i < e; i++) this[i] = v;
+            let s = 0;
+            let e = this.length;
+            let enc = encoding;
+            if (typeof offset === 'string') {
+                enc = offset;
+            } else {
+                s = offset || 0;
+                if (typeof end === 'string') {
+                    enc = end;
+                } else if (end !== undefined) {
+                    e = end;
+                }
+            }
+            let bytes;
+            if (typeof value === 'number') {
+                bytes = [value & 0xff];
+            } else if (typeof value === 'string') {
+                bytes = Buffer.from(value, enc);
+            } else if (value instanceof ArrayBuffer) {
+                bytes = new Uint8Array(value);
+            } else if (value instanceof Uint8Array) {
+                bytes = value;
+            } else {
+                bytes = Buffer.from(value);
+            }
+            if (bytes.length === 0) return this;
+            for (let i = s; i < e; i++) this[i] = bytes[(i - s) % bytes.length];
             return this;
         }
         readUInt8(offset) { return this[offset || 0]; }

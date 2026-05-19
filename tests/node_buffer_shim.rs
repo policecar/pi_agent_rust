@@ -671,6 +671,33 @@ fn global_buffer_hex_truncates_at_invalid_or_incomplete_pair_like_node() {
 }
 
 #[test]
+fn global_buffer_string_and_buffer_fill_match_node_vectors() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const allocString = Buffer.alloc(5, "ab").toString("hex");
+        const allocHex = Buffer.alloc(4, "61", "hex").toString("hex");
+        const fillString = Buffer.alloc(5);
+        fillString.fill("ab", 1, 5);
+        const fillHex = Buffer.alloc(5);
+        fillHex.fill("61", 1, 5, "hex");
+        const fillBuffer = Buffer.alloc(5);
+        fillBuffer.fill(Buffer.from([1, 2]), 1, 5);
+        return [
+            allocString,
+            allocHex,
+            fillString.toString("hex"),
+            fillHex.toString("hex"),
+            fillBuffer.toString("hex"),
+        ].join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "6162616261|61616161|0061626162|0061616161|0001020102"
+    );
+}
+
+#[test]
 fn global_buffer_unknown_encoding_strict_entrypoints_match_node() {
     let result = eval_global_buffer(
         r#"(() => {
