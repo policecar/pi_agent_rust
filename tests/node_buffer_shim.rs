@@ -748,6 +748,30 @@ fn global_buffer_array_like_inputs_match_node_vectors() {
 }
 
 #[test]
+fn global_buffer_concat_rejects_non_arrays_like_node() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["empty", () => Buffer.concat([]).toString("hex")],
+            ["not_array_string", () => Buffer.concat("abc").toString("hex")],
+            ["not_array_uint8", () => Buffer.concat(new Uint8Array([1, 2])).toString("hex")],
+        ];
+        return cases.map(([label, run]) => {
+            try {
+                return label + ":" + run();
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "empty:|not_array_string:TypeError|not_array_uint8:TypeError"
+    );
+}
+
+#[test]
 fn global_buffer_unknown_encoding_strict_entrypoints_match_node() {
     let result = eval_global_buffer(
         r#"(() => {

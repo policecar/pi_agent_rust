@@ -20926,7 +20926,8 @@ if (typeof globalThis.Buffer === 'undefined') {
             return new TextEncoder().encode(str).length;
         }
         static concat(list, totalLength) {
-            if (!Array.isArray(list) || list.length === 0) return Buffer.alloc(0);
+            if (!Array.isArray(list)) throw new TypeError('list argument must be an Array of Buffers');
+            if (list.length === 0) return Buffer.alloc(0);
             const total = totalLength !== undefined ? totalLength : list.reduce((s, b) => s + b.length, 0);
             const out = Buffer.alloc(total);
             let offset = 0;
