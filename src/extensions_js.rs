@@ -20942,6 +20942,16 @@ if (typeof globalThis.Buffer === 'undefined') {
             }
             return n;
         }
+        static _fillArgBound(value, defaultValue, max, allowPastEnd) {
+            if (value === undefined) return defaultValue;
+            if (typeof value !== 'number') {
+                throw new TypeError('The fill range arguments must be numbers');
+            }
+            if (!Number.isInteger(value) || value < 0 || (!allowPastEnd && value > max)) {
+                throw new RangeError('Index out of range');
+            }
+            return value;
+        }
         static _toStringBound(value, defaultValue, length) {
             const number = value === undefined ? defaultValue : Number(value);
             if (Number.isNaN(number) || number === -Infinity) return 0;
@@ -21294,14 +21304,21 @@ if (typeof globalThis.Buffer === 'undefined') {
             let s = 0;
             let e = this.length;
             let enc = encoding;
+            const valueIsString = typeof value === 'string';
             if (typeof offset === 'string') {
+                if (!valueIsString) {
+                    throw new TypeError('The offset argument must be a number');
+                }
                 enc = offset;
             } else {
-                s = Buffer._fillStartBound(offset, 0);
+                s = Buffer._fillArgBound(offset, 0, this.length, true);
                 if (typeof end === 'string') {
+                    if (!valueIsString) {
+                        throw new TypeError('The end argument must be a number');
+                    }
                     enc = end;
                 } else if (end !== undefined) {
-                    e = Buffer._writeBound(end, this.length, this.length);
+                    e = Buffer._fillArgBound(end, this.length, this.length, false);
                 }
             }
             let bytes;

@@ -960,6 +960,48 @@ fn global_buffer_fill_range_vectors_match_node() {
 }
 
 #[test]
+fn global_buffer_fill_argument_validation_matches_node_vectors() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            ["start_null", () => Buffer.alloc(4).fill(1, null).toString("hex")],
+            ["start_true", () => Buffer.alloc(4).fill(1, true).toString("hex")],
+            ["start_object", () => Buffer.alloc(4).fill(1, { valueOf() { return 1; } }).toString("hex")],
+            ["start_fraction", () => Buffer.alloc(4).fill(1, 1.9).toString("hex")],
+            ["start_nan", () => Buffer.alloc(4).fill(1, NaN).toString("hex")],
+            ["start_infinity", () => Buffer.alloc(4).fill(1, Infinity).toString("hex")],
+            ["start_oob", () => {
+                const b = Buffer.alloc(2);
+                const returned = b.fill(1, 3);
+                return (returned === b) + ":" + b.toString("hex");
+            }],
+            ["start_string_numeric_fill", () => Buffer.alloc(4).fill(1, "utf8").toString("hex")],
+            ["start_string_string_fill", () => Buffer.alloc(4).fill("61", "hex").toString("hex")],
+            ["end_null", () => Buffer.alloc(4).fill(1, 0, null).toString("hex")],
+            ["end_false", () => Buffer.alloc(4).fill(1, 0, false).toString("hex")],
+            ["end_object", () => Buffer.alloc(4).fill(1, 0, { valueOf() { return 1; } }).toString("hex")],
+            ["end_fraction", () => Buffer.alloc(4).fill(1, 0, 2.9).toString("hex")],
+            ["end_nan", () => Buffer.alloc(4).fill(1, 0, NaN).toString("hex")],
+            ["end_infinity", () => Buffer.alloc(4).fill(1, 0, Infinity).toString("hex")],
+            ["end_string_numeric_fill", () => Buffer.alloc(4).fill(1, 0, "utf8").toString("hex")],
+            ["end_string_string_fill", () => Buffer.alloc(4).fill("61", 0, "hex").toString("hex")],
+        ];
+        return cases.map(([label, run]) => {
+            try {
+                return label + ":" + run();
+            } catch (e) {
+                return label + ":" + e.name;
+            }
+        }).join("|");
+    })()"#,
+    );
+    assert_eq!(
+        result,
+        "start_null:TypeError|start_true:TypeError|start_object:TypeError|start_fraction:RangeError|start_nan:RangeError|start_infinity:RangeError|start_oob:true:0000|start_string_numeric_fill:TypeError|start_string_string_fill:61616161|end_null:TypeError|end_false:TypeError|end_object:TypeError|end_fraction:RangeError|end_nan:RangeError|end_infinity:RangeError|end_string_numeric_fill:TypeError|end_string_string_fill:61616161"
+    );
+}
+
+#[test]
 fn global_buffer_arraybuffer_offset_length_match_node_vectors() {
     let result = eval_global_buffer(
         r#"(() => {
