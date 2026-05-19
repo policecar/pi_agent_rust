@@ -20943,8 +20943,9 @@ if (typeof globalThis.Buffer === 'undefined') {
                 return new Buffer(input, offset, len);
             }
             if (ArrayBuffer.isView && ArrayBuffer.isView(input)) {
-                const out = new Buffer(input.byteLength);
-                out.set(new Uint8Array(input.buffer, input.byteOffset, input.byteLength));
+                const len = typeof input.length === 'number' ? input.length : 0;
+                const out = new Buffer(len);
+                for (let i = 0; i < len; i++) out[i] = input[i] & 0xff;
                 return out;
             }
             if (Array.isArray(input)) {

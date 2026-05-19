@@ -933,6 +933,22 @@ fn global_buffer_arraybuffer_backing_view_matches_node() {
 }
 
 #[test]
+fn global_buffer_typed_array_inputs_match_node_vectors() {
+    let result = eval_global_buffer(
+        r#"(() => {
+        const cases = [
+            new Uint8Array([1, 2, 3]),
+            new Uint16Array([0x0102, 0x03ff]),
+            new Int16Array([-1, 258]),
+            new DataView(new Uint8Array([1, 2, 3, 4]).buffer),
+        ];
+        return cases.map((input) => Buffer.from(input).toString("hex")).join("|");
+    })()"#,
+    );
+    assert_eq!(result, "010203|02ff|ff02|");
+}
+
+#[test]
 fn global_buffer_array_like_inputs_match_node_vectors() {
     let result = eval_global_buffer(
         r#"(() => {
