@@ -31,6 +31,26 @@ Repository: <https://github.com/Dicklesworthstone/pi_agent_rust>
   with `--max-tool-iterations` to make iteration-aware-handoff protocols
   self-enforceable.
 
+### Bug Fixes
+
+- **Coding-plan providers are now selectable by `--provider` alone** —
+  selecting a provider that has no models in the registry (the routing-only
+  presets such as `zai-coding-plan`, `minimax-coding-plan`, and
+  `kimi-for-coding`) previously failed with `No models available for
+  provider …`. Such providers now synthesize an ad-hoc model entry from a
+  per-provider default, honoring `config.default_model` only when it is
+  paired with the same provider via `config.default_provider`.
+- **Ad-hoc model entries resolve credentials from stored auth / env** —
+  synthesized entries started with no API key, so `model_entry_is_ready`
+  reported them as unconfigured even when valid credentials existed. Keys
+  are now resolved when the entry is created (the SAP path keeps its own
+  resolver), so readiness reflects reality.
+- **Provider default model ids modernized** — `zai`/`zai-coding-plan` default
+  to `glm-4.7` (was `glm-4.6`), `minimax`/`minimax-cn`/`minimax-coding-plan`
+  default to `MiniMax-M2.7` (was `MiniMax-M2.5`), and the Kimi for Coding plan
+  uses its stable virtual model id `kimi-for-coding`. The single defaults
+  table now also feeds ad-hoc synthesis, eliminating duplication.
+
 ---
 
 ## [v0.1.15] — 2026-05-02 — Release

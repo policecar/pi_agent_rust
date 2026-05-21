@@ -409,29 +409,49 @@ pub fn select_model_and_thinking(
             .cloned()
             .collect();
         if candidates.is_empty() {
-            bail!("No models available for provider {provider}");
-        }
-        let ready_candidates: Vec<ModelEntry> = candidates
-            .iter()
-            .filter(|entry| model_entry_is_ready(entry))
-            .cloned()
-            .collect();
-        let preferred_pool = if ready_candidates.is_empty() {
-            candidates.as_slice()
+            // Providers configured purely from routing metadata (e.g. the
+            // coding-plan presets) have no entries in the registry. Synthesize
+            // an ad-hoc model entry so the provider is still usable; credentials
+            // are resolved later by `resolve_api_key`.
+            //
+            // Honor `config.default_model` only when it is paired with this
+            // provider (via `config.default_provider`); otherwise it belongs to
+            // a different provider and we fall back to the provider's built-in
+            // default model.
+            let configured_default = config
+                .default_provider
+                .as_deref()
+                .filter(|default_provider| provider_ids_match(provider, default_provider))
+                .and(config.default_model.as_deref());
+            let default_model = configured_default.or_else(|| provider_default_model_id(provider));
+            selected_model = default_model
+                .and_then(|model_id| crate::models::ad_hoc_model_entry(provider, model_id));
+            if selected_model.is_none() {
+                bail!("No models available for provider {provider}");
+            }
         } else {
-            ready_candidates.as_slice()
-        };
-        selected_model = config
-            .default_model
-            .as_deref()
-            .and_then(|default_model| registry.find(provider, default_model))
-            .filter(|found| {
-                preferred_pool.iter().any(|candidate| {
-                    candidate.model.id.eq_ignore_ascii_case(&found.model.id)
-                        && provider_ids_match(&candidate.model.provider, &found.model.provider)
+            let ready_candidates: Vec<ModelEntry> = candidates
+                .iter()
+                .filter(|entry| model_entry_is_ready(entry))
+                .cloned()
+                .collect();
+            let preferred_pool = if ready_candidates.is_empty() {
+                candidates.as_slice()
+            } else {
+                ready_candidates.as_slice()
+            };
+            selected_model = config
+                .default_model
+                .as_deref()
+                .and_then(|default_model| registry.find(provider, default_model))
+                .filter(|found| {
+                    preferred_pool.iter().any(|candidate| {
+                        candidate.model.id.eq_ignore_ascii_case(&found.model.id)
+                            && provider_ids_match(&candidate.model.provider, &found.model.provider)
+                    })
                 })
-            })
-            .or_else(|| Some(default_model_from_candidates(preferred_pool)));
+                .or_else(|| Some(default_model_from_candidates(preferred_pool)));
+        }
     } else if let Some(model_id) = cli.model.as_deref() {
         if let Some((provider, scoped_model_id)) = split_provider_model_spec(model_id) {
             selected_model = registry
@@ -774,53 +794,94 @@ fn select_preferred_exact_id_match(candidates: &[ModelEntry]) -> Option<ModelEnt
     Some(default_model_from_candidates(preferred_pool))
 }
 
-fn default_model_from_candidates(candidates: &[ModelEntry]) -> ModelEntry {
-    let defaults = [
-        // Prefer Codex (ChatGPT OAuth) when available.
-        ("openai-codex", "gpt-5.5"),
-        ("openai-codex", "gpt-5.4"),
-        ("openai-codex", "gpt-5.3-codex"),
-        ("openai-codex", "gpt-5.2-codex"),
-        ("openai-codex", "gpt-5.1-codex-max"),
-        // Fall back to OpenAI API when configured.
-        ("openai", "gpt-5.5"),
-        ("openai", "gpt-5.4"),
-        ("openai", "gpt-5.3-codex"),
-        ("openai", "gpt-5.2-codex"),
-        ("openai", "gpt-5.1-codex"),
-        ("amazon-bedrock", "us.anthropic.claude-opus-4-20250514-v1:0"),
-        ("anthropic", "claude-opus-4-5"),
-        ("azure-openai-responses", "gpt-5.2"),
-        ("google", "gemini-2.5-pro"),
-        ("google-gemini-cli", "gemini-2.5-pro"),
-        ("google-antigravity", "gemini-3-pro-high"),
-        ("google-vertex", "gemini-3-pro-preview"),
-        ("github-copilot", "gpt-4o"),
-        ("openrouter", "openai/gpt-5.1-codex"),
-        ("vercel-ai-gateway", "anthropic/claude-opus-4.5"),
-        ("xai", "grok-4-fast-non-reasoning"),
-        ("groq", "openai/gpt-oss-120b"),
-        ("cerebras", "zai-glm-4.6"),
-        ("zai", "glm-4.6"),
-        ("mistral", "devstral-medium-latest"),
-        ("minimax", "MiniMax-M2.5"),
-        ("minimax-cn", "MiniMax-M2.5"),
-        ("huggingface", "moonshotai/Kimi-K2.5"),
-        ("opencode", "claude-opus-4-6"),
-        ("kimi-coding", "kimi-k2-thinking"),
-    ];
+/// Preferred default model per provider, in descending priority order.
+///
+/// This single table drives two behaviors:
+///   1. Picking the best entry out of a registry that already lists models for
+///      a provider (`default_model_from_candidates`).
+///   2. Synthesizing an ad-hoc default for providers that have no registry
+///      models (e.g. coding-plan providers configured purely from routing
+///      metadata) via [`provider_default_model_id`].
+///
+/// Multiple rows for the same provider are allowed and tried in order, which
+/// lets a provider expose both a virtual model id (matched by the synthesized
+/// ad-hoc entry) and concrete model ids (matched against registry listings).
+const PROVIDER_DEFAULT_MODELS: &[(&str, &str)] = &[
+    // Prefer Codex (ChatGPT OAuth) when available.
+    ("openai-codex", "gpt-5.5"),
+    ("openai-codex", "gpt-5.4"),
+    ("openai-codex", "gpt-5.3-codex"),
+    ("openai-codex", "gpt-5.2-codex"),
+    ("openai-codex", "gpt-5.1-codex-max"),
+    // Fall back to OpenAI API when configured.
+    ("openai", "gpt-5.5"),
+    ("openai", "gpt-5.4"),
+    ("openai", "gpt-5.3-codex"),
+    ("openai", "gpt-5.2-codex"),
+    ("openai", "gpt-5.1-codex"),
+    ("amazon-bedrock", "us.anthropic.claude-opus-4-20250514-v1:0"),
+    ("anthropic", "claude-opus-4-5"),
+    ("azure-openai-responses", "gpt-5.2"),
+    ("google", "gemini-2.5-pro"),
+    ("google-gemini-cli", "gemini-2.5-pro"),
+    ("google-antigravity", "gemini-3-pro-high"),
+    ("google-vertex", "gemini-3-pro-preview"),
+    ("github-copilot", "gpt-4o"),
+    ("openrouter", "openai/gpt-5.1-codex"),
+    ("vercel-ai-gateway", "anthropic/claude-opus-4.5"),
+    ("xai", "grok-4-fast-non-reasoning"),
+    ("groq", "openai/gpt-oss-120b"),
+    ("cerebras", "zai-glm-4.6"),
+    ("zai", "glm-4.7"),
+    ("zai-coding-plan", "glm-4.7"),
+    ("zhipuai-coding-plan", "glm-4.7"),
+    ("mistral", "devstral-medium-latest"),
+    ("minimax", "MiniMax-M2.7"),
+    ("minimax-cn", "MiniMax-M2.7"),
+    ("minimax-coding-plan", "MiniMax-M2.7"),
+    ("minimax-cn-coding-plan", "MiniMax-M2.7"),
+    ("huggingface", "moonshotai/Kimi-K2.5"),
+    ("opencode", "claude-opus-4-6"),
+    // The Kimi for Coding plan exposes a single stable virtual model id
+    // (`kimi-for-coding`) that the backend remaps to the latest model. Prefer
+    // it for the synthesized ad-hoc entry, then fall back to concrete ids when
+    // a registry actually lists Kimi models.
+    ("kimi-for-coding", "kimi-for-coding"),
+    ("kimi-for-coding", "kimi-k2-thinking"),
+];
 
+fn provider_default_matches(
+    default_provider: &str,
+    model_id: &str,
+) -> impl Fn(&ModelEntry) -> bool {
     let canonical = |provider: &str| {
         canonical_provider_id(provider)
             .unwrap_or(provider)
             .to_ascii_lowercase()
     };
+    let target_provider = canonical(default_provider);
+    let target_model = model_id.to_string();
+    move |m: &ModelEntry| {
+        canonical(&m.model.provider) == target_provider
+            && m.model.id.eq_ignore_ascii_case(&target_model)
+    }
+}
 
-    for (provider, model_id) in defaults {
-        if let Some(found) = candidates.iter().find(|m| {
-            canonical(&m.model.provider) == canonical(provider)
-                && m.model.id.eq_ignore_ascii_case(model_id)
-        }) {
+/// Resolve the preferred default model id for a provider that has no registry
+/// candidates, so an ad-hoc model entry can be synthesized for it.
+fn provider_default_model_id(provider: &str) -> Option<&'static str> {
+    let canonical = |p: &str| canonical_provider_id(p).unwrap_or(p).to_ascii_lowercase();
+    let target = canonical(provider);
+    PROVIDER_DEFAULT_MODELS
+        .iter()
+        .find(|(p, _)| canonical(p) == target)
+        .map(|(_, model_id)| *model_id)
+}
+
+fn default_model_from_candidates(candidates: &[ModelEntry]) -> ModelEntry {
+    for (provider, model_id) in PROVIDER_DEFAULT_MODELS {
+        let matches = provider_default_matches(provider, model_id);
+        if let Some(found) = candidates.iter().find(|&m| matches(m)) {
             return found.clone();
         }
     }
@@ -1403,6 +1464,70 @@ mod tests {
 
         assert_eq!(selection.model_entry.model.provider, "acme");
         assert_eq!(selection.model_entry.model.id, "local-model");
+    }
+
+    #[test]
+    fn select_model_and_thinking_provider_only_synthesizes_ad_hoc_for_coding_plan_provider() {
+        // Coding-plan providers have no registry entries; selecting them by
+        // provider alone must synthesize an ad-hoc model from the default table
+        // instead of failing with "No models available".
+        for (provider_arg, expected_model_id) in [
+            ("zai-coding-plan", "glm-4.7"),
+            ("minimax-coding-plan", "MiniMax-M2.7"),
+            ("kimi-for-coding", "kimi-for-coding"),
+        ] {
+            let cli = cli::Cli::parse_from(["pi", "--provider", provider_arg]);
+            let config = Config::default();
+            let session = Session::in_memory();
+            let registry =
+                registry_with_entries(vec![test_model_entry("unrelated-model", "openai", true)]);
+
+            let selection = select_model_and_thinking(
+                &cli,
+                &config,
+                &session,
+                &registry,
+                &[],
+                Path::new("/tmp"),
+            )
+            .unwrap_or_else(|err| {
+                panic!("provider {provider_arg} should synthesize an ad-hoc model: {err}")
+            });
+
+            assert!(
+                provider_ids_match(&selection.model_entry.model.provider, provider_arg),
+                "synthesized entry should belong to provider {provider_arg}"
+            );
+            assert_eq!(
+                selection.model_entry.model.id, expected_model_id,
+                "provider {provider_arg} should default to {expected_model_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn provider_default_model_id_resolves_coding_plan_and_corrected_defaults() {
+        assert_eq!(
+            provider_default_model_id("zai-coding-plan"),
+            Some("glm-4.7")
+        );
+        assert_eq!(provider_default_model_id("zai"), Some("glm-4.7"));
+        assert_eq!(
+            provider_default_model_id("minimax-coding-plan"),
+            Some("MiniMax-M2.7")
+        );
+        assert_eq!(provider_default_model_id("minimax"), Some("MiniMax-M2.7"));
+        // The Kimi for Coding plan uses a stable virtual model id.
+        assert_eq!(
+            provider_default_model_id("kimi-for-coding"),
+            Some("kimi-for-coding")
+        );
+        // Legacy alias still resolves via canonicalization.
+        assert_eq!(
+            provider_default_model_id("kimi-coding"),
+            Some("kimi-for-coding")
+        );
+        assert_eq!(provider_default_model_id("totally-unknown"), None);
     }
 
     #[test]

@@ -2231,10 +2231,22 @@ where
 }
 
 pub(crate) fn ad_hoc_model_entry(provider: &str, model_id: &str) -> Option<ModelEntry> {
-    ad_hoc_model_entry_with_sap_resolver(provider, model_id, || {
-        let auth = AuthStorage::load(crate::config::Config::auth_path()).ok()?;
-        resolve_sap_credentials(&auth)
-    })
+    let auth = AuthStorage::load(crate::config::Config::auth_path()).ok();
+    let mut entry = ad_hoc_model_entry_with_sap_resolver(provider, model_id, || {
+        auth.as_ref().and_then(resolve_sap_credentials)
+    })?;
+
+    // Synthesized entries start without credentials. Resolve them from stored
+    // auth / environment variables so `model_entry_is_ready` reflects reality
+    // and downstream selection logic does not treat an otherwise-usable
+    // provider as unconfigured.
+    if entry.api_key.is_none()
+        && let Some(auth) = auth.as_ref()
+    {
+        entry.api_key = normalize_api_key_opt(auth.resolve_api_key(provider, None));
+    }
+
+    Some(entry)
 }
 
 #[cfg(test)]
@@ -3816,14 +3828,17 @@ mod tests {
 
     #[test]
     fn ad_hoc_model_entry_creates_valid_entry() {
-        let entry = ad_hoc_model_entry("groq", "llama-3-70b").unwrap();
+        // Use the pure SAP-resolver seam so the assertion stays hermetic and
+        // independent of ambient `GROQ_API_KEY` / on-disk auth (the public
+        // `ad_hoc_model_entry` intentionally resolves credentials).
+        let entry = ad_hoc_model_entry_with_sap_resolver("groq", "llama-3-70b", || None).unwrap();
         assert_eq!(entry.model.id, "llama-3-70b");
         assert_eq!(entry.model.name, "llama-3-70b");
         assert_eq!(entry.model.provider, "groq");
         assert_eq!(entry.model.api, "openai-completions");
         assert!(entry.model.base_url.contains("groq.com"));
         assert!(entry.auth_header); // openai-compatible → auth_header = true
-        assert!(entry.api_key.is_none()); // no auth lookup
+        assert!(entry.api_key.is_none()); // pure synthesis performs no auth lookup
     }
 
     #[test]

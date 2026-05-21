@@ -856,7 +856,7 @@ impl PiApp {
             .model_entry
             .api_key
             .as_deref()
-            .map_or(false, |k| !k.is_empty())
+            .is_some_and(|k| !k.is_empty())
             || !model_requires_configured_credential(&self.model_entry);
         if !model_still_authenticated {
             self.auto_switch_to_authenticated_model(&auth, &changed_canonical);
@@ -913,25 +913,27 @@ impl PiApp {
         }
 
         let resolved_key_opt = resolved_key_for(&next);
-        let provider_impl =
-            match crate::providers::create_provider(&next, self.extensions.as_ref()) {
-                Ok(p) => p,
-                Err(err) => {
-                    self.status_message = Some(format!("Auto-switch failed: {err}"));
-                    return;
-                }
-            };
+        let provider_impl = match crate::providers::create_provider(&next, self.extensions.as_ref())
+        {
+            Ok(p) => p,
+            Err(err) => {
+                self.status_message = Some(format!("Auto-switch failed: {err}"));
+                return;
+            }
+        };
 
         let previous_id = format!(
             "{}/{}",
             self.model_entry.model.provider, self.model_entry.model.id
         );
-        if let Err(message) =
-            self.switch_active_model(&next, provider_impl, resolved_key_opt.as_deref(), "auth-sync")
-        {
+        if let Err(message) = self.switch_active_model(
+            &next,
+            provider_impl,
+            resolved_key_opt.as_deref(),
+            "auth-sync",
+        ) {
             self.status_message = Some(format!(
-                "Auto-switch from {} aborted: {message}. Use /model <provider/model> to pick one manually.",
-                previous_id
+                "Auto-switch from {previous_id} aborted: {message}. Use /model <provider/model> to pick one manually."
             ));
             return;
         }
