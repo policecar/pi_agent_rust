@@ -334,7 +334,7 @@ pub fn truncate_head(
 
     if max_lines == 0 {
         let truncated = !content.is_empty();
-        content.truncate(0);
+        content.clear();
         return TruncationResult {
             content,
             truncated,
@@ -357,7 +357,7 @@ pub fn truncate_head(
     if max_bytes == 0 {
         let truncated = !content.is_empty();
         let first_line_exceeds_limit = !content.is_empty();
-        content.truncate(0);
+        content.clear();
         return TruncationResult {
             content,
             truncated,
