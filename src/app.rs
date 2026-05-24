@@ -845,8 +845,13 @@ const PROVIDER_DEFAULT_MODELS: &[(&str, &str)] = &[
     // The Kimi for Coding plan exposes a single stable virtual model id
     // (`kimi-for-coding`) that the backend remaps to the latest model. Prefer
     // it for the synthesized ad-hoc entry, then fall back to concrete ids when
-    // a registry actually lists Kimi models.
+    // a registry actually lists Kimi models. Fallbacks are ordered newest-first
+    // so a registry that lacks the virtual id still picks the most recent
+    // shipped Kimi release (#93 — K2.6 ships 2026-04, K2.5 ships 2026-01,
+    // K2-thinking is the legacy default).
     ("kimi-for-coding", "kimi-for-coding"),
+    ("kimi-for-coding", "kimi-k2.6"),
+    ("kimi-for-coding", "kimi-k2.5"),
     ("kimi-for-coding", "kimi-k2-thinking"),
 ];
 
