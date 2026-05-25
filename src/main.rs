@@ -1031,6 +1031,16 @@ async fn run(
 ) -> Result<()> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
+    // Resolve the HTTP request timeout before any provider HTTP client is
+    // constructed so the client's single resolution path sees it. The
+    // `--request-timeout` flag is bound to the PI_HTTP_REQUEST_TIMEOUT_SECS env
+    // var via clap, so `cli.request_timeout` already reflects either the flag
+    // or that env var. Config-file values are applied later (lower precedence)
+    // once config is loaded. See pi_agent_rust#90.
+    if let Some(secs) = cli.request_timeout {
+        pi::http::client::set_request_timeout_override(secs);
+    }
+
     if let Some(command) = cli.command.take() {
         handle_subcommand(command, &cwd).await?;
         return Ok(());
@@ -1057,6 +1067,14 @@ async fn run(
         // CLI flag (and PI_NO_MOUSE_CAPTURE env var, which clap reads via #[arg(env)])
         // takes precedence over the persisted setting. Workaround for #78.
         config.disable_mouse_capture = Some(true);
+    }
+    // Apply the persisted request-timeout setting at the lowest precedence:
+    // only when neither the CLI flag nor the env var has already supplied one
+    // (`cli.request_timeout` reflects both). See pi_agent_rust#90.
+    if cli.request_timeout.is_none() {
+        if let Some(secs) = config.request_timeout_secs {
+            pi::http::client::set_request_timeout_override(secs);
+        }
     }
 
     let startup_mode = cli.mode.clone().unwrap_or_else(|| {

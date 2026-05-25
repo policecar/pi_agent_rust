@@ -48,6 +48,19 @@ pub struct Config {
     #[serde(alias = "enabledModels")]
     pub enabled_models: Option<Vec<String>>,
 
+    /// HTTP request timeout in seconds for provider API calls.
+    ///
+    /// Bounds connect + request + first-response-header latency for each
+    /// provider request. `0` disables the timeout entirely (unbounded).
+    ///
+    /// When unset, the default is provider-aware: 60s for cloud providers and
+    /// 600s for local providers (Ollama, LM Studio) where the first request can
+    /// block while the model loads into memory. Overridden by the
+    /// `--request-timeout` CLI flag / `PI_HTTP_REQUEST_TIMEOUT_SECS` env var.
+    /// See pi_agent_rust#90.
+    #[serde(alias = "requestTimeoutSecs", alias = "requestTimeoutSeconds")]
+    pub request_timeout_secs: Option<u64>,
+
     // Message Handling
     #[serde(alias = "steeringMode", alias = "queueMode")]
     pub steering_mode: Option<String>,
@@ -495,6 +508,7 @@ impl Config {
             default_model: other.default_model.or(base.default_model),
             default_thinking_level: other.default_thinking_level.or(base.default_thinking_level),
             enabled_models: other.enabled_models.or(base.enabled_models),
+            request_timeout_secs: other.request_timeout_secs.or(base.request_timeout_secs),
 
             // Message Handling
             steering_mode: other.steering_mode.or(base.steering_mode),

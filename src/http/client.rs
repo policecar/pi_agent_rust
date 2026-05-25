@@ -17,8 +17,6 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream::{self, BoxStream};
 use std::pin::Pin;
-#[cfg(not(test))]
-use std::sync::OnceLock;
 use std::task::{Context, Poll};
 
 const DEFAULT_USER_AGENT: &str = concat!("pi_agent_rust/", env!("CARGO_PKG_VERSION"));
@@ -38,32 +36,169 @@ const WRITE_ZERO_MAX_RETRIES: usize = 10;
 
 /// Initial backoff duration when a write returns `Ok(0)`.
 const WRITE_ZERO_BACKOFF: std::time::Duration = std::time::Duration::from_millis(10);
+/// Environment variable that overrides the request timeout (in seconds) for
+/// all providers. `0` disables the timeout entirely (unbounded). This is also
+/// the env clap binds the `--request-timeout` CLI flag and the
+/// `requestTimeoutSecs` setting to, so the three configuration surfaces share a
+/// single resolution path.
+pub const REQUEST_TIMEOUT_ENV: &str = "PI_HTTP_REQUEST_TIMEOUT_SECS";
+
+/// Default request timeout for remote (cloud) providers.
+///
+/// Covers connect + request-write + response-header latency. 60s is generous
+/// for any healthy cloud API; if a remote provider has not produced response
+/// headers within a minute something is wrong.
 #[cfg(not(test))]
-const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
+const DEFAULT_REMOTE_REQUEST_TIMEOUT_SECS: u64 = 60;
 
-fn default_request_timeout_from_env() -> Option<std::time::Duration> {
-    #[cfg(test)]
-    {
-        // Disable timeouts in unit tests to prevent `asupersync`'s virtual timer
-        // from instantly fast-forwarding and failing mock server requests.
-        None
-    }
+/// Default request timeout for *local* providers (Ollama, LM Studio, etc.).
+///
+/// Local inference servers frequently incur a large first-request latency: the
+/// model has to be loaded from disk into RAM/VRAM, which for a multi-GB model
+/// on a cold cache can take well over a minute (sometimes several). The cloud
+/// 60s default was too short for this and caused `pi --provider ollama ...` to
+/// fail with "Request timed out" while Ollama was still loading the model
+/// (pi_agent_rust#90).
+///
+/// 600s (10 minutes) is long enough to absorb realistic cold-start model loads
+/// while still bounding a truly hung/unreachable server so we never hang
+/// forever. Users who load enormous models on slow disks can raise it (or set
+/// it to `0` for unbounded) via `PI_HTTP_REQUEST_TIMEOUT_SECS` /
+/// `--request-timeout` / `requestTimeoutSecs`.
+#[cfg(not(test))]
+const DEFAULT_LOCAL_REQUEST_TIMEOUT_SECS: u64 = 600;
 
-    #[cfg(not(test))]
-    {
-        static REQUEST_TIMEOUT: OnceLock<Option<std::time::Duration>> = OnceLock::new();
-        *REQUEST_TIMEOUT.get_or_init(|| {
-            let timeout_secs = std::env::var("PI_HTTP_REQUEST_TIMEOUT_SECS")
-                .ok()
-                .and_then(|raw| raw.trim().parse::<u64>().ok())
-                .unwrap_or(DEFAULT_REQUEST_TIMEOUT_SECS);
-            if timeout_secs == 0 {
-                None
+/// How the request timeout should be resolved for a [`RequestBuilder`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RequestTimeout {
+    /// Resolve a provider-aware default at send time based on the target URL
+    /// (longer for local providers like Ollama, shorter for cloud APIs),
+    /// unless overridden by `PI_HTTP_REQUEST_TIMEOUT_SECS`.
+    Default,
+    /// Explicit timeout duration (from `.timeout()` or the global env override).
+    Explicit(std::time::Duration),
+    /// Explicitly unbounded (from `.no_timeout()` or `PI_HTTP_REQUEST_TIMEOUT_SECS=0`).
+    Disabled,
+}
+
+/// Process-global request-timeout override set explicitly by the application
+/// (from the `--request-timeout` CLI flag or the `requestTimeoutSecs` setting)
+/// before any provider request is made.
+///
+/// Sentinel `u64::MAX` means "unset" so this can be a plain atomic without a
+/// lock. `0` means "no timeout" (unbounded).
+#[cfg(not(test))]
+static REQUEST_TIMEOUT_OVERRIDE_SECS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(u64::MAX);
+
+/// Set the process-global request-timeout override, in seconds.
+///
+/// `0` disables the timeout entirely (unbounded). Takes precedence over the
+/// provider-aware defaults but is itself lower precedence than a per-request
+/// `.timeout()` / `.no_timeout()` call. Should be called once during startup,
+/// before any HTTP request is issued. See pi_agent_rust#90.
+#[cfg(not(test))]
+pub fn set_request_timeout_override(secs: u64) {
+    // Reserve u64::MAX as the "unset" sentinel; clamp the (absurd) edge case so
+    // callers asking for that exact value still get a finite timeout.
+    let stored = if secs == u64::MAX { secs - 1 } else { secs };
+    REQUEST_TIMEOUT_OVERRIDE_SECS.store(stored, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// No-op override setter under `cfg(test)`, where timeouts are disabled.
+#[cfg(test)]
+#[allow(clippy::missing_const_for_fn)]
+pub fn set_request_timeout_override(_secs: u64) {}
+
+/// Read the global timeout override, if any.
+///
+/// Resolution order: an explicit application override (set via
+/// [`set_request_timeout_override`]) first, then the
+/// `PI_HTTP_REQUEST_TIMEOUT_SECS` environment variable. In both cases `0` =>
+/// [`RequestTimeout::Disabled`]; any other value => an explicit duration.
+/// Returns `None` when neither is set so the provider-aware default applies.
+#[cfg(not(test))]
+fn timeout_override(env_lookup: impl FnOnce() -> Option<String>) -> Option<RequestTimeout> {
+    let secs = match REQUEST_TIMEOUT_OVERRIDE_SECS.load(std::sync::atomic::Ordering::Relaxed) {
+        u64::MAX => env_lookup()?.trim().parse::<u64>().ok()?,
+        explicit => explicit,
+    };
+    Some(if secs == 0 {
+        RequestTimeout::Disabled
+    } else {
+        RequestTimeout::Explicit(std::time::Duration::from_secs(secs))
+    })
+}
+
+/// Returns `true` when the URL targets a local/loopback inference server.
+///
+/// Local providers (Ollama on `127.0.0.1:11434`, LM Studio on
+/// `127.0.0.1:1234`, etc.) can have very high first-request latency from
+/// on-demand model loading, so they get a more generous default timeout.
+fn url_is_local_provider(url: &str) -> bool {
+    let Ok(parsed) = ParsedUrl::parse(url) else {
+        return false;
+    };
+    let host = parsed.host.trim_matches(|c| c == '[' || c == ']');
+    host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host.starts_with("127.")
+        || host == "::1"
+        || host == "0.0.0.0"
+        || host.eq_ignore_ascii_case("localhost.localdomain")
+}
+
+/// Resolve the effective timeout for a request, honoring the global env
+/// override first, then falling back to a provider-aware default.
+#[cfg(not(test))]
+fn resolve_timeout(setting: RequestTimeout, url: &str) -> Option<std::time::Duration> {
+    let resolved = match setting {
+        RequestTimeout::Explicit(duration) => RequestTimeout::Explicit(duration),
+        RequestTimeout::Disabled => RequestTimeout::Disabled,
+        RequestTimeout::Default => timeout_override(|| std::env::var(REQUEST_TIMEOUT_ENV).ok())
+            .unwrap_or_else(|| {
+            let secs = if url_is_local_provider(url) {
+                DEFAULT_LOCAL_REQUEST_TIMEOUT_SECS
             } else {
-                Some(std::time::Duration::from_secs(timeout_secs))
-            }
-        })
+                DEFAULT_REMOTE_REQUEST_TIMEOUT_SECS
+            };
+            RequestTimeout::Explicit(std::time::Duration::from_secs(secs))
+        }),
+    };
+    match resolved {
+        RequestTimeout::Explicit(duration) => Some(duration),
+        RequestTimeout::Disabled | RequestTimeout::Default => None,
     }
+}
+
+/// During unit tests, timeouts are disabled to prevent `asupersync`'s virtual
+/// timer from instantly fast-forwarding and failing mock server requests.
+#[cfg(test)]
+#[allow(clippy::missing_const_for_fn)]
+fn resolve_timeout(_setting: RequestTimeout, _url: &str) -> Option<std::time::Duration> {
+    None
+}
+
+/// Build a self-documenting timeout error message that tells the user the
+/// timeout that fired and how to raise it. Adds Ollama/local-provider-specific
+/// guidance (cold-start model load, model not pulled) when the target is a
+/// loopback inference server. See pi_agent_rust#90.
+fn timeout_error_message(url: &str, duration: std::time::Duration) -> String {
+    let secs = duration.as_secs();
+    let mut msg = format!(
+        "Request timed out after {secs}s. Raise the timeout with \
+         {REQUEST_TIMEOUT_ENV}=<seconds> (or `--request-timeout <seconds>`, or \
+         `requestTimeoutSecs` in settings.json); set it to 0 for no timeout."
+    );
+    if url_is_local_provider(url) {
+        msg.push_str(
+            " For local providers like Ollama, the first request often blocks \
+             while the model loads into memory (a cold start can take minutes), \
+             and the model must already be pulled — try `ollama pull <model>` \
+             and confirm the server is reachable (`ollama list`).",
+        );
+    }
+    msg
 }
 
 #[derive(Debug, Clone)]
@@ -139,7 +274,7 @@ pub struct RequestBuilder<'a> {
     url: String,
     headers: Vec<(String, String)>,
     body: Vec<u8>,
-    timeout: Option<std::time::Duration>,
+    timeout: RequestTimeout,
 }
 
 impl<'a> RequestBuilder<'a> {
@@ -150,7 +285,9 @@ impl<'a> RequestBuilder<'a> {
             url: url.to_string(),
             headers: Vec::new(),
             body: Vec::new(),
-            timeout: default_request_timeout_from_env(),
+            // Resolved at send time so the timeout can be provider-aware
+            // (longer default for local providers like Ollama).
+            timeout: RequestTimeout::Default,
         }
     }
 
@@ -186,7 +323,7 @@ impl<'a> RequestBuilder<'a> {
 
     #[must_use]
     pub const fn timeout(mut self, duration: std::time::Duration) -> Self {
-        self.timeout = Some(duration);
+        self.timeout = RequestTimeout::Explicit(duration);
         self
     }
 
@@ -194,7 +331,7 @@ impl<'a> RequestBuilder<'a> {
     /// an arbitrarily long time (e.g. long-polling SSE streams).
     #[must_use]
     pub const fn no_timeout(mut self) -> Self {
-        self.timeout = None;
+        self.timeout = RequestTimeout::Disabled;
         self
     }
 
@@ -242,8 +379,10 @@ impl<'a> RequestBuilder<'a> {
         }
 
         let send_fut = send_parts(client, method, &url, &headers, &body);
+        let resolved_timeout = resolve_timeout(timeout, &url);
 
-        let (status, response_headers, stream, timeout_info) = if let Some(duration) = timeout {
+        let (status, response_headers, stream, timeout_info) = if let Some(duration) = resolved_timeout
+        {
             use asupersync::time::{sleep, wall_now};
             use futures::future::{Either, FutureExt, select};
 
@@ -257,7 +396,7 @@ impl<'a> RequestBuilder<'a> {
 
             let (status, response_headers, stream) = match select(send_fut, sleep_fut).await {
                 Either::Left((res, _)) => res?,
-                Either::Right(_) => return Err(Error::api("Request timed out")),
+                Either::Right(_) => return Err(Error::api(timeout_error_message(&url, duration))),
             };
             (
                 status,
@@ -1766,8 +1905,9 @@ mod tests {
     fn request_builder_default_timeout() {
         let client = Client::new();
         let builder = client.get("https://api.example.com");
-        // During tests, default timeout is disabled to avoid virtual timer issues.
-        assert_eq!(builder.timeout, None);
+        // The default is resolved lazily at send time so it can be
+        // provider-aware (longer for local providers like Ollama).
+        assert_eq!(builder.timeout, RequestTimeout::Default);
     }
 
     #[test]
@@ -1776,14 +1916,51 @@ mod tests {
         let builder = client
             .get("https://api.example.com")
             .timeout(std::time::Duration::from_secs(30));
-        assert_eq!(builder.timeout, Some(std::time::Duration::from_secs(30)));
+        assert_eq!(
+            builder.timeout,
+            RequestTimeout::Explicit(std::time::Duration::from_secs(30))
+        );
     }
 
     #[test]
     fn request_builder_no_timeout() {
         let client = Client::new();
         let builder = client.get("https://api.example.com").no_timeout();
-        assert_eq!(builder.timeout, None);
+        assert_eq!(builder.timeout, RequestTimeout::Disabled);
+    }
+
+    #[test]
+    fn url_is_local_provider_detects_loopback() {
+        assert!(url_is_local_provider("http://127.0.0.1:11434/v1"));
+        assert!(url_is_local_provider("http://localhost:1234/v1"));
+        assert!(url_is_local_provider("http://[::1]:11434/v1"));
+        assert!(url_is_local_provider("http://0.0.0.0:11434/v1"));
+        assert!(!url_is_local_provider("https://api.openai.com/v1"));
+        assert!(!url_is_local_provider("https://api.anthropic.com/v1"));
+        assert!(!url_is_local_provider("not a url"));
+    }
+
+    #[test]
+    fn timeout_error_message_mentions_setting_and_ollama() {
+        let local = timeout_error_message(
+            "http://127.0.0.1:11434/v1",
+            std::time::Duration::from_secs(600),
+        );
+        assert!(local.contains("600s"));
+        assert!(local.contains("PI_HTTP_REQUEST_TIMEOUT_SECS"));
+        assert!(local.contains("--request-timeout"));
+        assert!(local.contains("requestTimeoutSecs"));
+        assert!(local.contains("Ollama"));
+        assert!(local.contains("pull"));
+
+        let remote = timeout_error_message(
+            "https://api.openai.com/v1",
+            std::time::Duration::from_secs(60),
+        );
+        assert!(remote.contains("60s"));
+        assert!(remote.contains("PI_HTTP_REQUEST_TIMEOUT_SECS"));
+        // Cloud providers should not get Ollama-specific guidance.
+        assert!(!remote.contains("Ollama"));
     }
 
     struct MockRetryWriter {

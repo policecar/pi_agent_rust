@@ -306,6 +306,20 @@ pub struct Cli {
     #[arg(long)]
     pub models: Option<String>,
 
+    /// HTTP request timeout in seconds for provider API calls.
+    ///
+    /// Bounds connect + request + first-response-header latency for each
+    /// provider request. `0` disables the timeout entirely (unbounded).
+    ///
+    /// When unset, the default is provider-aware: 60s for cloud providers and
+    /// 600s (10 minutes) for local providers (Ollama, LM Studio) where the
+    /// first request can block while the model loads into memory. Raise this if
+    /// a local model's cold start exceeds the default. Equivalent to the
+    /// `PI_HTTP_REQUEST_TIMEOUT_SECS` env var and the `requestTimeoutSecs`
+    /// setting. See pi_agent_rust#90.
+    #[arg(long, value_name = "SECONDS", env = "PI_HTTP_REQUEST_TIMEOUT_SECS")]
+    pub request_timeout: Option<u64>,
+
     // === Thinking/Reasoning ===
     /// Extended thinking level
     #[arg(long, value_parser = ["off", "minimal", "low", "medium", "high", "xhigh"])]

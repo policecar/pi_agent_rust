@@ -457,6 +457,16 @@ const fn aborted_hints() -> ErrorHint {
 }
 
 fn api_hints(msg: &str) -> ErrorHint {
+    if msg.contains("timed out") || msg.contains("timeout") {
+        return ErrorHint {
+            summary: "Request timed out",
+            hints: &[
+                "Raise the timeout: --request-timeout <seconds>, PI_HTTP_REQUEST_TIMEOUT_SECS=<seconds>, or requestTimeoutSecs in settings.json (0 = no timeout)",
+                "Local providers (Ollama/LM Studio): the first request can block while the model loads — ensure the model is pulled (ollama pull <model>) and the server is reachable (ollama list)",
+            ],
+            context_fields: &["url", "timeout_seconds"],
+        };
+    }
     if msg.contains("401") {
         return ErrorHint {
             summary: "Unauthorized API request",
