@@ -982,6 +982,22 @@ fn resolve_provider_api_key_cached(
         .clone()
 }
 
+/// Native-adapter providers whose request path resolves its own endpoint and
+/// therefore does not need a non-empty seed `base_url` to be routable. Today
+/// this is only `github-copilot`, whose adapter discovers the Copilot proxy
+/// endpoint via GitHub's token-exchange API (see `providers::copilot`). Such
+/// providers can be safely seeded from the upstream snapshot /
+/// models-override.json even though their seed default carries an empty
+/// `base_url`. Contrast with `azure-openai` / `sap-ai-core`, which also have an
+/// empty seed `base_url` but require a user-supplied resource/base_url and must
+/// stay excluded. (#100)
+fn provider_self_routes_without_base_url(canonical_provider: &str) -> bool {
+    matches!(
+        canonical_provider.to_ascii_lowercase().as_str(),
+        "github-copilot"
+    )
+}
+
 fn append_upstream_nonlegacy_models(
     auth: &AuthStorage,
     models: &mut Vec<ModelEntry>,
@@ -997,7 +1013,25 @@ fn append_upstream_nonlegacy_models(
         }
         let canonical_provider = canonical_provider_id(provider).unwrap_or(provider);
         if legacy_providers.contains(&canonical_provider.to_ascii_lowercase()) {
-            continue;
+            // Native-adapter legacy providers (openai-codex, github-copilot,
+            // google-gemini-cli, google-antigravity) should still honor
+            // snapshot / models-override.json entries so their model IDs become
+            // resolvable registry entries instead of dead autocomplete
+            // candidates. We admit them only when their native adapter can
+            // route a request without per-user configuration. Providers whose
+            // seed default has an empty base_url AND lack a self-resolving
+            // native adapter (notably azure-openai / sap-ai-core, which need a
+            // user-supplied resource/base_url) would fail at request time, so
+            // they stay excluded. (#100)
+            match native_adapter_seed_defaults(canonical_provider) {
+                Some(seed)
+                    if !seed.base_url.is_empty()
+                        || provider_self_routes_without_base_url(canonical_provider) =>
+                {
+                    // fall through and admit the snapshot/override entries
+                }
+                _ => continue,
+            }
         }
 
         let Some(defaults) = ad_hoc_provider_defaults(canonical_provider)
@@ -2523,6 +2557,34 @@ mod tests {
             .expect("gitlab upstream model");
         assert_eq!(gitlab.model.api, "gitlab-chat");
         assert!(gitlab.auth_header);
+    }
+
+    #[test]
+    fn built_in_models_seed_github_copilot_snapshot_entries_but_not_azure_openai() {
+        // #100: native-adapter legacy providers that self-route (github-copilot)
+        // must surface their snapshot / models-override.json model IDs as real
+        // registry entries so autocomplete candidates actually resolve. Providers
+        // that need per-user routing config (azure-openai, empty seed base_url and
+        // no self-resolving adapter) must stay excluded.
+        let (_dir, auth) = test_auth_storage();
+        let models = built_in_models(&auth, ModelRegistryLoadMode::Full);
+
+        let copilot = models
+            .iter()
+            .find(|m| m.model.provider == "github-copilot" && m.model.id == "claude-opus-4.6")
+            .expect("github-copilot snapshot model should be admitted");
+        assert_eq!(copilot.model.api, "openai-completions");
+        assert!(copilot.auth_header);
+
+        // azure-openai has an empty seed base_url and requires a user-supplied
+        // resource, so its snapshot IDs must NOT become registry entries. The
+        // snapshot lists an azure-only "model-router" id (absent from the
+        // curated legacy catalog), which serves as a canary: if the exclusion
+        // regressed, this snapshot-only id would leak into the registry.
+        assert!(
+            !models.iter().any(|m| m.model.id == "model-router"),
+            "azure-openai snapshot entries (e.g. model-router) must not be admitted from the upstream snapshot"
+        );
     }
 
     #[test]
