@@ -7929,10 +7929,7 @@ mod tests {
         // With the env var unset/empty, the resolver returns the public default.
         // (We avoid mutating the process env here to stay parallel-test-safe;
         // CI runs without GITHUB_COPILOT_CLIENT_ID set.)
-        if std::env::var("GITHUB_COPILOT_CLIENT_ID")
-            .map(|v| v.trim().is_empty())
-            .unwrap_or(true)
-        {
+        if std::env::var("GITHUB_COPILOT_CLIENT_ID").map_or(true, |v| v.trim().is_empty()) {
             assert_eq!(resolved_copilot_client_id(), DEFAULT_COPILOT_CLIENT_ID);
         }
     }

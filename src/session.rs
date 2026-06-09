@@ -553,7 +553,7 @@ pub enum SessionStoreKind {
 }
 
 impl SessionStoreKind {
-    fn from_config(config: &Config) -> Self {
+    pub(crate) fn from_config(config: &Config) -> Self {
         let Some(value) = config.session_store.as_deref() else {
             return Self::Jsonl;
         };

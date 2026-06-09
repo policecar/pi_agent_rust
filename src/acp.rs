@@ -39,7 +39,7 @@ use crate::models::ModelEntry;
 use crate::provider::StreamOptions;
 use crate::provider_metadata::provider_ids_match;
 use crate::providers;
-use crate::session::Session;
+use crate::session::{Session, SessionStoreKind};
 use crate::tools::ToolRegistry;
 use asupersync::channel::oneshot;
 use asupersync::runtime::RuntimeHandle;
@@ -196,6 +196,11 @@ pub struct AcpOptions {
     pub available_models: Vec<ModelEntry>,
     pub auth: AuthStorage,
     pub runtime_handle: RuntimeHandle,
+    /// When set (from the `--session-dir` CLI flag), ACP sessions persist to
+    /// this directory and autosave is enabled, so they can be resumed later via
+    /// `pi --session`/`--resume` (#102). When `None`, ACP keeps its in-memory,
+    /// non-persisted behavior.
+    pub session_dir: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -1151,6 +1156,26 @@ fn build_acp_system_prompt(cwd: &std::path::Path, enabled_tools: &[&str]) -> Str
     prompt
 }
 
+/// Build the backing session for a new ACP session.
+///
+/// When `--session-dir` is configured, the session persists to that directory
+/// using the configured store kind, and autosave is enabled (`save_enabled =
+/// true`) so the ACP session can be resumed later via `pi --session`/`--resume`
+/// (#102). Without it, ACP keeps its existing in-memory, non-persisted behavior.
+/// Takes the two inputs it needs (rather than the whole `AcpOptions`) so it can
+/// be unit-tested without constructing auth/runtime handles.
+fn new_acp_session(
+    session_dir: Option<&PathBuf>,
+    config: &Config,
+    cwd: &std::path::Path,
+) -> (Session, bool) {
+    let mut session = session_dir.map_or_else(Session::in_memory, |dir| {
+        Session::create_with_dir_and_store(Some(dir.clone()), SessionStoreKind::from_config(config))
+    });
+    session.header.cwd = cwd.display().to_string();
+    (session, session_dir.is_some())
+}
+
 fn handle_session_new(
     params: &Value,
     options: &AcpOptions,
@@ -1161,9 +1186,10 @@ fn handle_session_new(
         PathBuf::from,
     );
 
-    // Create a new in-memory session.
-    let mut session = Session::in_memory();
-    session.header.cwd = cwd.display().to_string();
+    // Create the backing session. Persists to disk when --session-dir is set
+    // (save_enabled), otherwise in-memory (existing default behavior).
+    let (session, save_enabled) =
+        new_acp_session(options.session_dir.as_ref(), &options.config, &cwd);
     let session_id = session.header.id.clone();
 
     // Set up the enabled tools (all standard tools).
@@ -1221,7 +1247,7 @@ fn handle_session_new(
         },
     };
 
-    let agent_session = AgentSession::new(agent, session_arc, false, compaction_settings)
+    let agent_session = AgentSession::new(agent, session_arc, save_enabled, compaction_settings)
         .with_runtime_handle(options.runtime_handle.clone());
 
     Ok((
@@ -1509,6 +1535,44 @@ mod tests {
     use crate::provider::{InputType, Model, ModelCost};
     use asupersync::runtime::RuntimeBuilder;
     use std::collections::HashMap;
+
+    #[test]
+    fn new_acp_session_in_memory_without_session_dir() {
+        // No --session-dir → existing behavior: in-memory, persistence disabled.
+        let (session, save_enabled) =
+            new_acp_session(None, &Config::default(), std::path::Path::new("/tmp/proj"));
+        assert!(
+            !save_enabled,
+            "ACP without --session-dir must keep persistence disabled"
+        );
+        assert!(
+            session.session_dir.is_none(),
+            "no session dir should be set: {:?}",
+            session.session_dir
+        );
+        assert_eq!(session.header.cwd, "/tmp/proj");
+    }
+
+    #[test]
+    fn new_acp_session_persists_with_session_dir() {
+        // --session-dir set → session persists there and autosave is enabled (#102).
+        let dir = PathBuf::from("/tmp/acp-sessions");
+        let (session, save_enabled) = new_acp_session(
+            Some(&dir),
+            &Config::default(),
+            std::path::Path::new("/tmp/proj"),
+        );
+        assert!(
+            save_enabled,
+            "ACP with --session-dir must enable persistence (#102)"
+        );
+        assert_eq!(
+            session.session_dir.as_deref(),
+            Some(dir.as_path()),
+            "session must persist to the provided --session-dir"
+        );
+        assert_eq!(session.header.cwd, "/tmp/proj");
+    }
 
     fn test_model_entry(provider: &str, id: &str) -> ModelEntry {
         ModelEntry {

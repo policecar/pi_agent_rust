@@ -190,15 +190,11 @@ fn provider_has_dedicated_login_flow(provider: &str) -> bool {
 /// headless/SSH sessions where a localhost OAuth redirect can't be reached.
 fn should_use_copilot_device_flow() -> bool {
     if std::env::var("PI_COPILOT_FORCE_DEVICE_FLOW")
-        .map(|v| matches!(v.as_str(), "1" | "true" | "yes"))
-        .unwrap_or(false)
+        .is_ok_and(|v| matches!(v.as_str(), "1" | "true" | "yes"))
     {
         return true;
     }
-    if std::env::var("GITHUB_COPILOT_CLIENT_ID")
-        .map(|v| v.trim().is_empty())
-        .unwrap_or(true)
-    {
+    if std::env::var("GITHUB_COPILOT_CLIENT_ID").map_or(true, |v| v.trim().is_empty()) {
         return true;
     }
     std::env::var_os("SSH_CONNECTION").is_some() || std::env::var_os("SSH_TTY").is_some()

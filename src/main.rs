@@ -1291,6 +1291,7 @@ async fn run(
             available_models,
             auth: auth.clone(),
             runtime_handle: runtime_handle.clone(),
+            session_dir: cli.session_dir.as_ref().map(PathBuf::from),
         };
         return run_acp_mode(acp_options).await;
     }
@@ -1699,7 +1700,9 @@ async fn run(
                 thinking_level: sm.thinking_level,
             })
             .collect::<Vec<_>>();
-        run_rpc_mode(
+        // Boxed: this future is large (clippy::large_futures); boxing keeps the
+        // enclosing future small.
+        Box::pin(run_rpc_mode(
             agent_session,
             resources,
             config.clone(),
@@ -1708,7 +1711,7 @@ async fn run(
             cli.api_key.clone(),
             auth.clone(),
             runtime_handle.clone(),
-        )
+        ))
         .await
     } else if is_interactive {
         let model_scope = selection
