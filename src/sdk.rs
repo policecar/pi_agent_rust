@@ -1603,6 +1603,10 @@ fn build_stream_options_with_optional_key(
         headers: selection.model_entry.headers.clone(),
         session_id: Some(session.header.id.clone()),
         thinking_level: Some(selection.thinking_level),
+        // Seed the per-request output cap from the model registry's `maxTokens`
+        // so embedders inherit the configured limit by default; they can still
+        // override it via `set_max_tokens`.
+        max_tokens: Some(selection.model_entry.model.max_tokens),
         ..Default::default()
     };
 
@@ -2722,12 +2726,20 @@ mod tests {
     }
 
     #[test]
-    fn max_tokens_default_is_none_and_set_overrides() {
+    fn max_tokens_defaults_to_registry_value_and_set_overrides() {
         let tmp = tempdir().expect("tempdir");
         let options = hermetic_session_options(tmp.path());
 
         let mut handle = run_async(create_agent_session(options)).expect("create session");
-        assert_eq!(handle.max_tokens(), None);
+        // The session now seeds `max_tokens` from the model registry's
+        // configured `maxTokens` so the value users set in `models.json`
+        // actually takes effect (instead of falling back to the provider's
+        // hardcoded per-request default).
+        let seeded = handle.max_tokens();
+        assert!(
+            seeded.is_some_and(|n| n > 0),
+            "expected max_tokens to be seeded from the registry, got {seeded:?}"
+        );
 
         handle.set_max_tokens(Some(32_000));
         assert_eq!(handle.max_tokens(), Some(32_000));
@@ -2736,6 +2748,7 @@ mod tests {
             Some(32_000)
         );
 
+        // Embedders can still fall back to the provider default explicitly.
         handle.set_max_tokens(None);
         assert_eq!(handle.max_tokens(), None);
     }

@@ -994,6 +994,10 @@ impl PiApp {
         let stream_options = agent_guard.stream_options_mut();
         stream_options.api_key.clone_from(&resolved_key_opt);
         stream_options.headers.clone_from(&next.headers);
+        // Pick up the new model's configured output cap so an interactive
+        // model switch honors its registry `maxTokens` instead of carrying
+        // over the previous model's limit.
+        stream_options.max_tokens = Some(next.model.max_tokens);
         stream_options.thinking_level = Some(next_thinking);
 
         session_guard.header.provider = Some(next.model.provider.clone());
@@ -1115,6 +1119,10 @@ impl PiApp {
             let stream_options = agent_guard.stream_options_mut();
             stream_options.api_key.clone_from(&resolved_key_opt);
             stream_options.headers.clone_from(&target_entry.headers);
+            // Pick up the new model's configured output cap so an interactive
+            // model switch honors its registry `maxTokens` instead of carrying
+            // over the previous model's limit.
+            stream_options.max_tokens = Some(target_entry.model.max_tokens);
         }
         agent_guard.stream_options_mut().thinking_level = Some(thinking_sync.effective);
         drop(agent_guard);

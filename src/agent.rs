@@ -8293,6 +8293,11 @@ impl AgentSession {
                 let stream_options = self.agent.stream_options_mut();
                 stream_options.api_key.clone_from(&resolved_key);
                 stream_options.headers.clone_from(&entry.headers);
+                // Track the new model's configured output cap so a runtime
+                // model switch (e.g. RPC `set_model`) honors its registry
+                // `maxTokens` instead of carrying over the previous model's
+                // limit or falling back to the provider default.
+                stream_options.max_tokens = Some(entry.model.max_tokens);
                 self.refresh_extension_completion_host_state();
                 Ok(())
             }

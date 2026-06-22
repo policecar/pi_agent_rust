@@ -926,6 +926,13 @@ pub fn build_stream_options(
         api_key,
         headers: selection.model_entry.headers.clone(),
         session_id: Some(session.header.id.clone()),
+        // Seed the per-request output cap from the model registry's `maxTokens`
+        // so the value users configure in `models.json` actually takes effect.
+        // Without this every provider falls back to its hardcoded per-request
+        // default (e.g. 4096), truncating turns that emit large tool-call
+        // arguments (most visibly the `write` tool). Embedders can still
+        // override via `set_max_tokens`.
+        max_tokens: Some(selection.model_entry.model.max_tokens),
         ..Default::default()
     };
 

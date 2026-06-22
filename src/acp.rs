@@ -1363,6 +1363,10 @@ fn handle_session_new(
         api_key,
         thinking_level: Some(resolve_acp_thinking_level(&options.config, &model_entry)),
         headers: model_entry.headers.clone(),
+        // Seed the per-request output cap from the model registry's `maxTokens`
+        // so ACP sessions honor the configured limit instead of the provider's
+        // hardcoded per-request default.
+        max_tokens: Some(model_entry.model.max_tokens),
         ..StreamOptions::default()
     };
 
