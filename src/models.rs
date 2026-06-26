@@ -37,7 +37,38 @@ impl ModelEntry {
                 | "gpt-5.2-codex"
                 | "gpt-5.3-codex"
                 | "gpt-5.3-codex-spark"
-        )
+        ) || self.is_deepseek_reasoning_model()
+    }
+
+    /// Whether this is a DeepSeek reasoning model whose thinking-mode API accepts
+    /// `reasoning_effort: "max"`.
+    ///
+    /// DeepSeek reasoning models route through the DeepSeek thinking format on
+    /// the chat-completions transport (see `OpenAIProvider::reasoning_style`), and
+    /// DeepSeek maps the `xhigh` thinking level to `reasoning_effort: "max"` in
+    /// thinking mode (gh #114; https://api-docs.deepseek.com/guides/thinking_mode).
+    /// They therefore genuinely support xhigh — without this the registry clamps
+    /// `XHigh -> High` before `build_request()` runs and the serializer's `"max"`
+    /// arm is dead at runtime.
+    ///
+    /// Detected the same way the transport detects DeepSeek (provider id
+    /// `deepseek`, or a `deepseek.com` base URL) AND restricted to reasoning
+    /// models, so the non-thinking `deepseek-chat` / V3 family is never enabled
+    /// (those are additionally excluded upstream, since `available_thinking_levels`
+    /// and `clamp_thinking_level` short-circuit on non-reasoning models).
+    fn is_deepseek_reasoning_model(&self) -> bool {
+        if !self.model.reasoning {
+            return false;
+        }
+        let provider_is_deepseek = canonical_provider_id(&self.model.provider)
+            .is_some_and(|canonical| canonical == "deepseek")
+            || self.model.provider.eq_ignore_ascii_case("deepseek");
+        let base_is_deepseek = self
+            .model
+            .base_url
+            .to_ascii_lowercase()
+            .contains("deepseek.com");
+        provider_is_deepseek || base_is_deepseek
     }
 
     /// Return the thinking levels that should be exposed for this model.
@@ -3487,6 +3518,20 @@ mod tests {
         }
     }
 
+    /// Like `make_model_entry`, but lets a test set the provider id and base URL
+    /// (needed to exercise DeepSeek thinking-format detection — gh #114).
+    fn make_model_entry_with_provider(
+        id: &str,
+        reasoning: bool,
+        provider: &str,
+        base_url: &str,
+    ) -> ModelEntry {
+        let mut entry = make_model_entry(id, reasoning);
+        entry.model.provider = provider.to_string();
+        entry.model.base_url = base_url.to_string();
+        entry
+    }
+
     #[test]
     fn supports_xhigh_for_known_models() {
         assert!(make_model_entry("gpt-5.1-codex-max", true).supports_xhigh());
@@ -3582,6 +3627,153 @@ mod tests {
             entry.clamp_thinking_level(ThinkingLevel::XHigh),
             ThinkingLevel::XHigh,
         );
+    }
+
+    // ─── DeepSeek xhigh support (gh #114) ────────────────────────────
+
+    #[test]
+    fn supports_xhigh_true_for_deepseek_reasoning_models() {
+        // Detected via the provider id...
+        assert!(
+            make_model_entry_with_provider(
+                "deepseek-v4-pro",
+                true,
+                "deepseek",
+                "https://api.deepseek.com"
+            )
+            .supports_xhigh()
+        );
+        assert!(
+            make_model_entry_with_provider(
+                "deepseek-reasoner",
+                true,
+                "deepseek",
+                "https://api.deepseek.com"
+            )
+            .supports_xhigh()
+        );
+        // ...and via a deepseek.com base URL even if the provider id is generic.
+        assert!(
+            make_model_entry_with_provider(
+                "deepseek-v4-flash",
+                true,
+                "custom",
+                "https://api.deepseek.com/v1"
+            )
+            .supports_xhigh()
+        );
+    }
+
+    #[test]
+    fn supports_xhigh_false_for_non_reasoning_deepseek() {
+        // deepseek-chat / V3 are non-thinking models: xhigh must stay off.
+        assert!(
+            !make_model_entry_with_provider(
+                "deepseek-chat",
+                false,
+                "deepseek",
+                "https://api.deepseek.com"
+            )
+            .supports_xhigh()
+        );
+    }
+
+    #[test]
+    fn available_thinking_levels_deepseek_reasoning_includes_xhigh() {
+        use crate::model::ThinkingLevel;
+        let entry = make_model_entry_with_provider(
+            "deepseek-v4-pro",
+            true,
+            "deepseek",
+            "https://api.deepseek.com",
+        );
+        assert_eq!(
+            entry.available_thinking_levels(),
+            vec![
+                ThinkingLevel::Off,
+                ThinkingLevel::Minimal,
+                ThinkingLevel::Low,
+                ThinkingLevel::Medium,
+                ThinkingLevel::High,
+                ThinkingLevel::XHigh,
+            ]
+        );
+    }
+
+    #[test]
+    fn clamp_xhigh_preserved_for_deepseek_reasoning() {
+        use crate::model::ThinkingLevel;
+        let entry = make_model_entry_with_provider(
+            "deepseek-v4-pro",
+            true,
+            "deepseek",
+            "https://api.deepseek.com",
+        );
+        assert_eq!(
+            entry.clamp_thinking_level(ThinkingLevel::XHigh),
+            ThinkingLevel::XHigh
+        );
+    }
+
+    /// End-to-end regression for gh #114: the runtime path is
+    /// `clamp_thinking_level` -> `OpenAIProvider::build_request`. #113's unit test
+    /// called `build_request()` directly with `XHigh`, bypassing the clamp that
+    /// (before this fix) downgraded `XHigh -> High` for DeepSeek. This drives the
+    /// full chain and asserts the wire body carries `reasoning_effort: "max"`.
+    #[test]
+    fn deepseek_reasoning_xhigh_survives_clamp_and_serializes_as_max() {
+        use crate::model::ThinkingLevel;
+        use crate::provider::{Context, StreamOptions};
+
+        let entry = make_model_entry_with_provider(
+            "deepseek-v4-pro",
+            true,
+            "deepseek",
+            "https://api.deepseek.com",
+        );
+
+        // (1) The clamp must pass XHigh through (the #114 gap).
+        let effective = entry.clamp_thinking_level(ThinkingLevel::XHigh);
+        assert_eq!(
+            effective,
+            ThinkingLevel::XHigh,
+            "clamp must not downgrade xhigh for a DeepSeek reasoning model"
+        );
+
+        // (2) Feed the clamped level into the real request builder.
+        let provider = crate::providers::openai::OpenAIProvider::new(entry.model.id.as_str())
+            .with_provider_name(entry.model.provider.as_str());
+        let context = Context {
+            system_prompt: None,
+            messages: vec![crate::model::Message::User(crate::model::UserMessage {
+                content: crate::model::UserContent::Text("solve it".to_string()),
+                timestamp: 0,
+            })]
+            .into(),
+            tools: Vec::<crate::provider::ToolDef>::new().into(),
+        };
+        let body = |level: ThinkingLevel| {
+            let options = StreamOptions {
+                thinking_level: Some(level),
+                ..Default::default()
+            };
+            serde_json::to_value(provider.build_request(&context, &options))
+                .expect("serialize request")
+        };
+
+        let xhigh_body = body(effective);
+        assert_eq!(xhigh_body["thinking"]["type"], "enabled");
+        assert_eq!(
+            xhigh_body["reasoning_effort"], "max",
+            "xhigh must reach the wire as reasoning_effort=max end-to-end"
+        );
+
+        // (3) high (and the other levels) still serialize exactly as before.
+        let high = entry.clamp_thinking_level(ThinkingLevel::High);
+        assert_eq!(high, ThinkingLevel::High);
+        let high_body = body(high);
+        assert_eq!(high_body["thinking"]["type"], "enabled");
+        assert_eq!(high_body["reasoning_effort"], "high");
     }
 
     #[test]
