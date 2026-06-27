@@ -16,6 +16,19 @@ Repository: <https://github.com/Dicklesworthstone/pi_agent_rust>
 
 ### Features
 
+- **Newer z.ai (GLM) and MiniMax models in the registry** — the model catalog
+  now includes z.ai **GLM-5.1** (`glm-5.1`, 200K context) and **GLM-5.2**
+  (`glm-5.2`, 1M context) under the `zai` provider, and **MiniMax-M3**
+  (`MiniMax-M3`, 1M context) under both `minimax` and `minimax-cn`. The
+  upstream provider-id snapshot is updated so the mainland `zhipuai`/BigModel
+  endpoint and the `zai-coding-plan`/`zhipuai-coding-plan`/`minimax-coding-plan`
+  routing presets also surface these ids. Context windows, max-output ceilings,
+  pricing, and reasoning support are taken from the published
+  [models.dev](https://models.dev) catalog and verified against the official
+  [z.ai](https://docs.z.ai) and [MiniMax](https://platform.minimax.io) API docs.
+  Select them with e.g. `pi --provider zai --model glm-5.2` or
+  `pi --provider minimax --model MiniMax-M3`. Fixes
+  [#115](https://github.com/Dicklesworthstone/pi_agent_rust/issues/115).
 - **`/mcp` slash command** — reports MCP (Model Context Protocol) server
   status in the interactive TUI instead of returning "Unknown command". Lists
   any MCP servers an installed extension has registered and clarifies that Pi
