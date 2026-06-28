@@ -300,6 +300,69 @@ pub struct AnthropicProvider {
     compat: Option<CompatConfig>,
 }
 
+/// Whether an Anthropic(-compatible) model on the `anthropic-messages`
+/// transport uses the modern adaptive-thinking API (`thinking: {type:"adaptive"}`
+/// plus `output_config.effort`) rather than the deprecated fixed-budget
+/// extended-thinking API (`thinking: {type:"enabled", budget_tokens:N}`).
+///
+/// Returns `None` for non-Claude ids (e.g. MiniMax over the Anthropic-compatible
+/// transport) so the caller keeps the legacy budget path. This is a *fallback*
+/// heuristic only: `compat.forceAdaptiveThinking` from the catalog is
+/// authoritative (gh #117), so newer models can be onboarded as data without a
+/// code change here.
+///
+/// Adaptive thinking is GA on Claude Opus 4.6/4.7/4.8, Sonnet 4.6, and the
+/// Claude Fable/Mythos (5.x) families; `budget_tokens` is rejected (400) on
+/// Opus 4.7/4.8/Fable/Mythos and deprecated on Opus 4.6 / Sonnet 4.6. Older
+/// models (Opus/Sonnet 4.5 and earlier, Claude 3.x, all Haiku) require
+/// `budget_tokens`.
+/// Ref: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking
+fn anthropic_model_uses_adaptive_thinking(model_id: &str) -> Option<bool> {
+    const ADAPTIVE_PREFIXES: [&str; 6] = [
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
+        "claude-fable-",
+        "claude-mythos-",
+    ];
+    let lower = model_id.to_ascii_lowercase();
+    let pos = lower.find("claude-")?;
+    let id = &lower[pos..];
+    Some(
+        ADAPTIVE_PREFIXES
+            .iter()
+            .any(|prefix| id.starts_with(prefix)),
+    )
+}
+
+/// Map pi's thinking level onto the Anthropic `output_config.effort` value for
+/// adaptive-thinking models. A per-model `thinkingLevelMap` from the catalog
+/// (gh #117) overrides the default mapping (e.g. mapping `xhigh -> max`),
+/// keyed by the lowercase `ThinkingLevel` name.
+///
+/// Default mapping: `minimal`/`low -> "low"`, `medium -> "medium"`,
+/// `high -> "high"`, `xhigh -> "xhigh"` (Anthropic has no `minimal` effort, and
+/// pi has no `max` level — both collapse to the nearest Anthropic tier). `off`
+/// yields `None` (no effort emitted; thinking is not enabled for `off`).
+fn anthropic_effort_for_level(
+    level: ThinkingLevel,
+    compat: Option<&CompatConfig>,
+) -> Option<String> {
+    if let Some(map) = compat.and_then(|c| c.thinking_level_map.as_ref())
+        && let Some(mapped) = map.get(level.to_string().as_str())
+    {
+        return Some(mapped.clone());
+    }
+    match level {
+        ThinkingLevel::Off => None,
+        ThinkingLevel::Minimal | ThinkingLevel::Low => Some("low".to_string()),
+        ThinkingLevel::Medium => Some("medium".to_string()),
+        ThinkingLevel::High => Some("high".to_string()),
+        ThinkingLevel::XHigh => Some("xhigh".to_string()),
+    }
+}
+
 impl AnthropicProvider {
     /// Create a new Anthropic provider.
     pub fn new(model: impl Into<String>) -> Self {
@@ -367,11 +430,41 @@ impl AnthropicProvider {
             )
         };
 
-        // Build thinking configuration if enabled
-        let thinking = options.thinking_level.and_then(|level| {
-            if level == ThinkingLevel::Off {
-                None
-            } else {
+        // Decide between the modern adaptive-thinking API and the legacy
+        // fixed-budget extended-thinking API. Catalog metadata
+        // (`compat.forceAdaptiveThinking`) is authoritative; the model-id
+        // heuristic is consulted only when the catalog is silent (gh #116/#117).
+        let adaptive = self
+            .compat
+            .as_ref()
+            .and_then(|compat| compat.force_adaptive_thinking)
+            .or_else(|| anthropic_model_uses_adaptive_thinking(&self.model))
+            .unwrap_or(false);
+
+        // Build thinking configuration if enabled.
+        let level = options
+            .thinking_level
+            .filter(|level| *level != ThinkingLevel::Off);
+        let (thinking, output_config) = match level {
+            None => (None, None),
+            Some(level) if adaptive => {
+                // Modern path: adaptive thinking + effort. `budget_tokens` is
+                // rejected (400) on Opus 4.7/4.8/Fable/Mythos and deprecated on
+                // Opus 4.6 / Sonnet 4.6. `display: "summarized"` keeps pi's
+                // thinking-stream visible (the default is "omitted" on the
+                // newest models).
+                let thinking = AnthropicThinking {
+                    r#type: "adaptive",
+                    budget_tokens: None,
+                    display: Some("summarized"),
+                };
+                let output_config = AnthropicOutputConfig {
+                    effort: anthropic_effort_for_level(level, self.compat.as_ref()),
+                };
+                (Some(thinking), Some(output_config))
+            }
+            Some(level) => {
+                // Legacy path: fixed-budget extended thinking.
                 let budget = options.thinking_budgets.as_ref().map_or_else(
                     || level.default_budget(),
                     |b| match level {
@@ -383,21 +476,28 @@ impl AnthropicProvider {
                         ThinkingLevel::XHigh => b.xhigh,
                     },
                 );
-                Some(AnthropicThinking {
+                let thinking = AnthropicThinking {
                     r#type: "enabled",
-                    budget_tokens: budget,
-                })
+                    budget_tokens: Some(budget),
+                    display: None,
+                };
+                (Some(thinking), None)
             }
-        });
+        };
 
         let mut max_tokens = options.max_tokens.unwrap_or(DEFAULT_MAX_TOKENS);
-        if let Some(t) = &thinking {
-            if max_tokens <= t.budget_tokens {
-                max_tokens = t.budget_tokens + 4096;
-            }
+        if let Some(budget) = thinking.as_ref().and_then(|t| t.budget_tokens)
+            && max_tokens <= budget
+        {
+            max_tokens = budget + 4096;
         }
 
-        let temperature = if thinking.is_some() {
+        // Adaptive-thinking models reject sampling params (`temperature`,
+        // `top_p`, `top_k`) with a 400; legacy extended thinking requires
+        // `temperature = 1.0`.
+        let temperature = if adaptive {
+            None
+        } else if thinking.is_some() {
             Some(1.0)
         } else {
             options.temperature
@@ -412,6 +512,7 @@ impl AnthropicProvider {
             tools,
             stream: true,
             thinking,
+            output_config,
         }
     }
 }
@@ -967,12 +1068,32 @@ pub struct AnthropicRequest<'a> {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<AnthropicThinking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    output_config: Option<AnthropicOutputConfig>,
 }
 
+/// Thinking configuration. Two shapes share this struct:
+/// - Legacy fixed-budget extended thinking: `{"type":"enabled","budget_tokens":N}`.
+/// - Modern adaptive thinking: `{"type":"adaptive","display":"summarized"}`.
+///
+/// `budget_tokens` is rejected (400) on Opus 4.7/4.8/Fable/Mythos and deprecated
+/// on Opus 4.6 / Sonnet 4.6; adaptive thinking + `output_config.effort` is the
+/// modern path (gh #116).
 #[derive(Debug, Serialize)]
 struct AnthropicThinking {
     r#type: &'static str,
-    budget_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    budget_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display: Option<&'static str>,
+}
+
+/// `output_config` carries the modern `effort` control for adaptive-thinking
+/// models (`low`/`medium`/`high`/`xhigh`/`max`). `high` is the API default.
+#[derive(Debug, Serialize)]
+struct AnthropicOutputConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1371,7 +1492,10 @@ mod tests {
 
         let thinking = request.thinking.expect("thinking config");
         assert_eq!(thinking.r#type, "enabled");
-        assert_eq!(thinking.budget_tokens, 9000);
+        assert_eq!(thinking.budget_tokens, Some(9000));
+        assert!(thinking.display.is_none());
+        // Legacy (non-adaptive) model: no modern effort knob.
+        assert!(request.output_config.is_none());
 
         assert_eq!(request.messages.len(), 1);
         assert_eq!(request.messages[0].role, "user");
@@ -1408,8 +1532,170 @@ mod tests {
         assert_eq!(request.system, None);
         assert!(request.tools.is_none());
         assert!(request.thinking.is_none());
+        assert!(request.output_config.is_none());
         assert_eq!(request.max_tokens, DEFAULT_MAX_TOKENS);
         assert!(request.stream);
+    }
+
+    /// gh #116: an adaptive-thinking Anthropic model must emit the modern
+    /// `thinking: {type:"adaptive", display:"summarized"}` + `output_config.effort`
+    /// wire shape at every thinking level — never the deprecated `budget_tokens`
+    /// — and must omit `temperature` (sampling params are rejected on these
+    /// models). This asserts the exact serialized JSON (the proof).
+    #[test]
+    fn test_build_request_adaptive_thinking_effort_wire_format() {
+        let provider = AnthropicProvider::new("claude-opus-4-8");
+
+        let cases = [
+            (ThinkingLevel::Minimal, "low"),
+            (ThinkingLevel::Low, "low"),
+            (ThinkingLevel::Medium, "medium"),
+            (ThinkingLevel::High, "high"),
+            (ThinkingLevel::XHigh, "xhigh"),
+        ];
+        for (level, effort) in cases {
+            let options = StreamOptions {
+                max_tokens: Some(16_000),
+                temperature: Some(0.7),
+                thinking_level: Some(level),
+                ..Default::default()
+            };
+            let body = serde_json::to_value(provider.build_request(&Context::default(), &options))
+                .expect("serialize request");
+            assert_eq!(
+                body["thinking"],
+                json!({ "type": "adaptive", "display": "summarized" }),
+                "level {level:?}: adaptive thinking wire shape"
+            );
+            assert_eq!(
+                body["output_config"],
+                json!({ "effort": effort }),
+                "level {level:?}: output_config.effort"
+            );
+            assert!(
+                body["thinking"].get("budget_tokens").is_none(),
+                "level {level:?}: adaptive must not emit deprecated budget_tokens"
+            );
+            assert!(
+                body.get("temperature").is_none(),
+                "level {level:?}: adaptive models reject temperature"
+            );
+        }
+
+        // `off`: no thinking, no effort, still no temperature on adaptive models.
+        let options = StreamOptions {
+            thinking_level: Some(ThinkingLevel::Off),
+            temperature: Some(0.7),
+            ..Default::default()
+        };
+        let body = serde_json::to_value(provider.build_request(&Context::default(), &options))
+            .expect("serialize request");
+        assert!(body.get("thinking").is_none(), "off: no thinking");
+        assert!(body.get("output_config").is_none(), "off: no output_config");
+        assert!(body.get("temperature").is_none(), "off: no temperature");
+    }
+
+    /// Pre-adaptive Anthropic(-compatible) models keep the legacy fixed-budget
+    /// extended-thinking path (`thinking: {type:"enabled", budget_tokens}`) with
+    /// `temperature = 1.0` and no `output_config`. MiniMax (Anthropic-compatible,
+    /// non-Claude id) must also stay on the budget path.
+    #[test]
+    fn test_build_request_legacy_model_keeps_budget_tokens() {
+        for model in [
+            "claude-opus-4-5",
+            "claude-3-5-sonnet-20241022",
+            "claude-sonnet-4-5",
+            "MiniMax-M3",
+        ] {
+            let provider = AnthropicProvider::new(model);
+            let options = StreamOptions {
+                max_tokens: Some(16_000),
+                thinking_level: Some(ThinkingLevel::High),
+                ..Default::default()
+            };
+            let context = Context::default();
+            let request = provider.build_request(&context, &options);
+            let thinking = request.thinking.as_ref().expect("thinking config");
+            assert_eq!(thinking.r#type, "enabled", "{model}: legacy budget path");
+            assert!(
+                thinking.budget_tokens.is_some(),
+                "{model}: budget_tokens set"
+            );
+            assert!(thinking.display.is_none(), "{model}: no display field");
+            assert!(request.output_config.is_none(), "{model}: no output_config");
+            assert_eq!(request.temperature, Some(1.0), "{model}: temperature 1.0");
+        }
+    }
+
+    /// gh #117: catalog metadata is authoritative. `forceAdaptiveThinking`
+    /// overrides the built-in model-id heuristic in both directions.
+    #[test]
+    fn test_build_request_force_adaptive_thinking_overrides_heuristic() {
+        // true: an id the heuristic does NOT recognize still goes adaptive.
+        let compat = CompatConfig {
+            force_adaptive_thinking: Some(true),
+            ..CompatConfig::default()
+        };
+        let provider = AnthropicProvider::new("some-new-anthropic-model").with_compat(Some(compat));
+        let options = StreamOptions {
+            thinking_level: Some(ThinkingLevel::High),
+            ..Default::default()
+        };
+        let context = Context::default();
+        let request = provider.build_request(&context, &options);
+        let thinking = request.thinking.as_ref().expect("thinking config");
+        assert_eq!(thinking.r#type, "adaptive");
+        assert_eq!(thinking.display, Some("summarized"));
+        assert!(thinking.budget_tokens.is_none());
+        assert_eq!(
+            request
+                .output_config
+                .as_ref()
+                .and_then(|c| c.effort.as_deref()),
+            Some("high")
+        );
+        assert!(request.temperature.is_none());
+
+        // false: an id the heuristic WOULD treat as adaptive is forced legacy.
+        let compat = CompatConfig {
+            force_adaptive_thinking: Some(false),
+            ..CompatConfig::default()
+        };
+        let provider = AnthropicProvider::new("claude-opus-4-8").with_compat(Some(compat));
+        let context = Context::default();
+        let request = provider.build_request(&context, &options);
+        assert_eq!(
+            request.thinking.as_ref().expect("thinking config").r#type,
+            "enabled"
+        );
+        assert!(request.output_config.is_none());
+    }
+
+    /// gh #117: a per-model `thinkingLevelMap` remaps the effort value
+    /// (e.g. `xhigh -> max`), overriding the transport's default mapping.
+    #[test]
+    fn test_build_request_thinking_level_map_overrides_effort() {
+        let mut map = HashMap::new();
+        map.insert("xhigh".to_string(), "max".to_string());
+        let compat = CompatConfig {
+            thinking_level_map: Some(map),
+            ..CompatConfig::default()
+        };
+        let provider = AnthropicProvider::new("claude-opus-4-8").with_compat(Some(compat));
+        let options = StreamOptions {
+            thinking_level: Some(ThinkingLevel::XHigh),
+            ..Default::default()
+        };
+        let context = Context::default();
+        let request = provider.build_request(&context, &options);
+        assert_eq!(
+            request
+                .output_config
+                .as_ref()
+                .and_then(|c| c.effort.as_deref()),
+            Some("max"),
+            "thinkingLevelMap xhigh->max must win over the default xhigh"
+        );
     }
 
     #[test]
