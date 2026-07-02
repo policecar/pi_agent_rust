@@ -8144,7 +8144,7 @@ mod tests {
         assert!(!is_retryable_prompt_result(&success));
     }
 
-    /// End-to-end (pi_agent_rust#118): a transient connection drop must be
+    /// End-to-end (`pi_agent_rust#118`): a transient connection drop must be
     /// re-driven through the REAL retry-decision path. A provider surfaces a
     /// typed `io::Error` mid-stream; it is wrapped at the source by
     /// `Error::sse` (the last place the `io::ErrorKind` is known), then
