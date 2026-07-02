@@ -271,7 +271,7 @@ impl Provider for CohereProvider {
                                 );
                             }
                             state.finished = true;
-                            let err = Error::api(format!("SSE error: {e}"));
+                            let err = Error::sse(&e);
                             return Some((Err(err), state));
                         }
                         None => {

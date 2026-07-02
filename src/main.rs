@@ -6947,8 +6947,11 @@ where
             }
             Err(err) => {
                 let err_str = err.to_string();
+                // Classify from the TYPED error first (transient io::ErrorKind
+                // via the source chain), then fall back to message-text matching
+                // for prose-only errors (pi_agent_rust#118).
                 if retry_count < max_retries
-                    && pi::error::is_retryable_error(&err_str, None, None)
+                    && (err.is_transient() || pi::error::is_retryable_error(&err_str, None, None))
                     && snapshot_print_text_stream_state(text_stream_state).can_retry(is_json)
                 {
                     retry_count += 1;
@@ -8139,6 +8142,63 @@ mod tests {
             ..retryable
         };
         assert!(!is_retryable_prompt_result(&success));
+    }
+
+    /// End-to-end (pi_agent_rust#118): a transient connection drop must be
+    /// re-driven through the REAL retry-decision path. A provider surfaces a
+    /// typed `io::Error` mid-stream; it is wrapped at the source by
+    /// `Error::sse` (the last place the `io::ErrorKind` is known), then
+    /// flattened to `AssistantMessage::error_message` exactly as
+    /// `Agent::build_error_message` does, producing a `StopReason::Error`
+    /// message. `is_retryable_prompt_result` — the function `main.rs`'s retry
+    /// loop actually consults — must classify it retryable, even though the
+    /// typed kind is gone by the time the message string is in hand.
+    #[test]
+    fn transient_connection_drop_retried_end_to_end() {
+        use pi::model::{AssistantMessage, Usage};
+
+        let build_error_turn = |flattened: String| AssistantMessage {
+            content: vec![],
+            api: "test".to_string(),
+            provider: "test".to_string(),
+            model: "test".to_string(),
+            usage: Usage::default(),
+            stop_reason: StopReason::Error,
+            error_message: Some(flattened),
+            timestamp: 0,
+        };
+
+        // Every transient io kind a dropped connection can surface, routed
+        // through the real source wrapper + flatten, must be retried.
+        for kind in [
+            std::io::ErrorKind::ConnectionReset,
+            std::io::ErrorKind::ConnectionAborted,
+            std::io::ErrorKind::BrokenPipe,
+            std::io::ErrorKind::UnexpectedEof,
+            std::io::ErrorKind::NotConnected,
+            std::io::ErrorKind::TimedOut,
+        ] {
+            let io_err = std::io::Error::new(kind, "opaque transport failure");
+            let flattened = pi::error::Error::sse(&io_err).to_string();
+            let turn = build_error_turn(flattened.clone());
+            assert!(
+                is_retryable_prompt_result(&turn),
+                "{kind:?} drop should be retried, flattened: {flattened}"
+            );
+        }
+
+        // The exact rustls close_notify string from the issue (prose fallback).
+        let close_notify = build_error_turn(
+            "API error: SSE error: tls connection closed without \
+                 close_notify"
+                .to_string(),
+        );
+        assert!(is_retryable_prompt_result(&close_notify));
+
+        // A genuinely fatal stream error is NOT retried (no false positives).
+        let fatal_io = std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid utf-8");
+        let fatal = build_error_turn(pi::error::Error::sse(&fatal_io).to_string());
+        assert!(!is_retryable_prompt_result(&fatal));
     }
 
     #[test]

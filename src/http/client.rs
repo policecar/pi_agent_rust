@@ -1005,7 +1005,13 @@ async fn read_response_head(
 
         let n = read_some(transport, &mut scratch).await?;
         if n == 0 {
-            return Err(Error::api("HTTP connection closed before headers"));
+            // A 0-byte read before the header terminator is an unexpected EOF:
+            // the peer dropped the connection mid-response. This is transient
+            // and safe to retry with a fresh connection, so it is tagged for
+            // the retry classifier (pi_agent_rust#118).
+            return Err(Error::api(
+                "HTTP connection closed before headers (transient connection drop)",
+            ));
         }
         let old_len = buf.len();
         buf.extend_from_slice(&scratch[..n]);

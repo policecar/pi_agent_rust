@@ -209,6 +209,60 @@ impl Error {
         Self::Api(message.into())
     }
 
+    /// Build the user-facing error for an I/O failure that terminated a
+    /// streaming (SSE) response read.
+    ///
+    /// Retryability is decided here — at the source — from the *typed*
+    /// [`std::io::ErrorKind`], because this is the last place the kind is
+    /// available: the caller immediately flattens the returned error into a
+    /// message string (`AssistantMessage::error_message`) that the retry loop
+    /// consults. For a transient connection drop (reset/abort/EOF/broken
+    /// pipe/timeout) a canonical `transient connection drop` marker is appended
+    /// so the drop is re-driven regardless of the dependency's (rustls/hyper)
+    /// prose, which changes phrasing between versions (pi_agent_rust#118).
+    pub fn sse(err: &std::io::Error) -> Self {
+        let base = format!("SSE error: {err}");
+        if io_kind_is_transient(err.kind()) {
+            Self::Api(format!("{base} (transient connection drop)"))
+        } else {
+            Self::Api(base)
+        }
+    }
+
+    /// Whether this error is a transient transport failure that is safe to
+    /// retry, classified from the *typed* error rather than its flattened
+    /// message string.
+    ///
+    /// Walks the [`std::error::Error::source`] chain (and, for
+    /// [`std::io::Error`] links, the [`std::io::Error::get_ref`] chain, which
+    /// `source` deliberately skips) looking for an [`std::io::Error`] whose
+    /// [`std::io::ErrorKind`] denotes a connection drop. This catches typed
+    /// I/O failures (e.g. an `UnexpectedEof` mid-body that propagates as
+    /// [`Error::Io`]) without depending on any substring match. Message-only
+    /// transient cases (dependency prose with no typed cause) are handled by
+    /// [`is_retryable_error`] as a documented fallback.
+    #[must_use]
+    pub fn is_transient(&self) -> bool {
+        // Direct io::Error link (get_ref walk covers io-wrapping-io).
+        if let Self::Io(io_err) = self {
+            if io_error_chain_is_transient(io_err) {
+                return true;
+            }
+        }
+        // Generic source chain: any link that is (or wraps) a transient
+        // io::Error makes this retryable.
+        let mut source = std::error::Error::source(self);
+        while let Some(cause) = source {
+            if let Some(io_err) = cause.downcast_ref::<std::io::Error>() {
+                if io_error_chain_is_transient(io_err) {
+                    return true;
+                }
+            }
+            source = cause.source();
+        }
+        false
+    }
+
     /// Map this error to a hostcall taxonomy code.
     ///
     /// The hostcall ABI requires every error to be one of:
@@ -986,12 +1040,56 @@ pub fn is_context_overflow(
 
 // ─── Retryable error classification ─────────────────────────────────────
 
-/// Check whether an error is retryable (transient). Matches pi-mono's
-/// `_isRetryableError()` logic:
+/// Whether an [`std::io::ErrorKind`] denotes a *transient* transport failure.
+///
+/// A transient failure is a connection that dropped mid-request and is worth
+/// retrying with a fresh connection, as opposed to a terminal error (refused,
+/// DNS, cert, ...). These are the kinds a dropped/half-open TLS or TCP
+/// connection surfaces: the peer reset/aborted the socket, the pipe broke, the
+/// read hit an unexpected EOF (rustls also reports a `close_notify`-less close
+/// as `UnexpectedEof`), the socket was reported not-connected, or the
+/// operation timed out.
+#[must_use]
+pub const fn io_kind_is_transient(kind: std::io::ErrorKind) -> bool {
+    matches!(
+        kind,
+        std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::UnexpectedEof
+            | std::io::ErrorKind::NotConnected
+            | std::io::ErrorKind::TimedOut
+    )
+}
+
+/// Walk an [`std::io::Error`] and its inner `get_ref` chain (which
+/// `Error::source` intentionally skips for io-wrapping-io) checking for a
+/// transient [`std::io::ErrorKind`].
+fn io_error_chain_is_transient(err: &std::io::Error) -> bool {
+    let mut current = Some(err);
+    while let Some(io_err) = current {
+        if io_kind_is_transient(io_err.kind()) {
+            return true;
+        }
+        current = io_err
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<std::io::Error>());
+    }
+    false
+}
+
+/// Check whether an error is retryable (transient) from its flattened message
+/// string.
+///
+/// This is the **fallback** classifier for errors that only exist as
+/// prose (dependency messages with no typed cause); typed errors should be
+/// classified with [`Error::is_transient`] first — see pi_agent_rust#118.
+/// Matches pi-mono's `_isRetryableError()` logic:
 ///
 /// 1. Error message must be non-empty.
 /// 2. Must NOT be context overflow (those need compaction, not retry).
-/// 3. Must match a retryable pattern (rate limit, server error, etc.).
+/// 3. Must match a retryable pattern (rate limit, server error, transient
+///    connection drop, etc.).
 pub fn is_retryable_error(
     error_message: &str,
     usage_input_tokens: Option<u64>,
@@ -1010,7 +1108,7 @@ pub fn is_retryable_error(
 
     let re = RETRYABLE_RE.get_or_init(|| {
         regex::Regex::new(
-            r"overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server error|internal error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|terminated|retry delay",
+            r"overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server error|internal error|connection.?error|connection.?refused|connection.?reset|connection.?aborted|connection.?closed|connection.?dropped|other side closed|closed before headers|closed before message|close_notify|broken pipe|unexpected eof|unexpected end of file|transient connection|fetch failed|upstream.?connect|reset before headers|terminated|retry delay",
         )
         .expect("retryable regex")
     });
@@ -2478,6 +2576,121 @@ mod tests {
     fn retryable_case_insensitive() {
         assert!(is_retryable_error("RATE LIMIT", None, None));
         assert!(is_retryable_error("Service Unavailable", None, None));
+    }
+
+    // ─── pi_agent_rust#118: typed transient classification ──────────────
+
+    #[test]
+    fn transient_io_kinds_classified_from_type() {
+        for kind in [
+            std::io::ErrorKind::ConnectionReset,
+            std::io::ErrorKind::ConnectionAborted,
+            std::io::ErrorKind::BrokenPipe,
+            std::io::ErrorKind::UnexpectedEof,
+            std::io::ErrorKind::NotConnected,
+            std::io::ErrorKind::TimedOut,
+        ] {
+            assert!(io_kind_is_transient(kind), "{kind:?} should be transient");
+        }
+        for kind in [
+            std::io::ErrorKind::PermissionDenied,
+            std::io::ErrorKind::NotFound,
+            std::io::ErrorKind::InvalidData,
+            std::io::ErrorKind::AlreadyExists,
+        ] {
+            assert!(
+                !io_kind_is_transient(kind),
+                "{kind:?} should NOT be transient"
+            );
+        }
+    }
+
+    #[test]
+    fn typed_io_error_is_transient_without_string_match() {
+        // Classified purely from the io::ErrorKind — the message contains no
+        // retryable keyword, so a substring matcher would miss it.
+        let reset = Error::Io(Box::new(std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "opaque cause with no keywords",
+        )));
+        assert!(reset.is_transient());
+        assert!(!is_retryable_error(&reset.to_string(), None, None));
+
+        // Non-transient io kind is not retried.
+        let denied = Error::Io(Box::new(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "denied",
+        )));
+        assert!(!denied.is_transient());
+
+        // Non-io variants have no transient io cause.
+        assert!(!Error::auth("invalid key").is_transient());
+        assert!(!Error::api("400 bad request").is_transient());
+    }
+
+    #[test]
+    fn is_transient_walks_wrapped_io_error() {
+        // io::Error wrapping another io::Error (reachable only via get_ref,
+        // which Error::source deliberately skips).
+        let inner = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken");
+        let outer = Error::Io(Box::new(std::io::Error::other(inner)));
+        assert!(outer.is_transient());
+    }
+
+    /// End-to-end: a mid-stream transient connection drop travels the REAL path
+    /// a provider takes. A typed `io::Error` is wrapped by `Error::sse` at the
+    /// source (the last place the kind is known), then flattened to a message
+    /// string exactly as `agent.rs` does via `AssistantMessage::error_message`,
+    /// and must be classified retryable by the string classifier the retry loop
+    /// consults for `StopReason::Error` turns.
+    #[test]
+    fn sse_transient_drop_retryable_end_to_end() {
+        // rustls reports a close_notify-less close as UnexpectedEof.
+        let io_err = std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "tls connection closed without close_notify",
+        );
+        let flattened = Error::sse(&io_err).to_string();
+        assert!(
+            is_retryable_error(&flattened, None, None),
+            "flattened transient SSE error should be retryable: {flattened}"
+        );
+
+        // A non-transient SSE failure (malformed body) is NOT retried.
+        let fatal = Error::sse(&std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid utf-8 in event",
+        ));
+        assert!(!is_retryable_error(&fatal.to_string(), None, None));
+    }
+
+    /// The two exact strings reported in pi_agent_rust#118 are now retryable,
+    /// both with the source-stamped canonical marker and as raw prose (the
+    /// documented text fallback for dependency messages).
+    #[test]
+    fn issue_118_reported_strings_retryable() {
+        assert!(is_retryable_error(
+            "API error: HTTP connection closed before headers (transient connection drop)",
+            None,
+            None,
+        ));
+        assert!(is_retryable_error(
+            "API error: SSE error: tls connection closed without close_notify \
+             (transient connection drop)",
+            None,
+            None,
+        ));
+        // Raw dependency phrasings, no marker (prose-only fallback path).
+        assert!(is_retryable_error(
+            "HTTP connection closed before headers",
+            None,
+            None,
+        ));
+        assert!(is_retryable_error(
+            "tls connection closed without close_notify",
+            None,
+            None,
+        ));
     }
 
     mod proptest_error {

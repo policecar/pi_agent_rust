@@ -407,7 +407,7 @@ impl Provider for OpenAIResponsesProvider {
                                      consecutive attempts, treating as fatal"
                                 );
                             }
-                            let err = Error::api(format!("SSE error: {e}"));
+                            let err = Error::sse(&e);
                             return Some((Err(err), state));
                         }
                         None => {

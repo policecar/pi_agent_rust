@@ -2281,9 +2281,13 @@ async fn run_prompt_with_retry(
             }
             Err(err) => {
                 let err_str = err.to_string();
-                // No usage/context_window from an Err (no response received),
-                // so pass None for both — text matching alone handles it.
-                if !crate::error::is_retryable_error(&err_str, None, None) {
+                // Classify from the TYPED error first — `is_transient` walks the
+                // source chain for a transient `io::ErrorKind` (connection
+                // reset/abort/EOF/broken pipe/timeout) without depending on the
+                // flattened message text. Fall back to message-text matching for
+                // prose-only errors (pi_agent_rust#118). No usage/context_window
+                // from an `Err` (no response received), so pass None for both.
+                if !err.is_transient() && !crate::error::is_retryable_error(&err_str, None, None) {
                     final_error = Some(err_str);
                     final_error_hints = Some(error_hints_value(&err));
                     break;
