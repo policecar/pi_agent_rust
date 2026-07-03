@@ -540,6 +540,7 @@ fn refresh_expired_extension_oauth_token_succeeds() {
         auth.set(
             "ext-prov",
             AuthCredential::OAuth {
+                extra: Default::default(),
                 access_token: fixture_value(&["old", "-access"]),
                 refresh_token: fixture_value(&["old", "-refresh"]),
                 expires: 0, // expired
@@ -575,6 +576,7 @@ fn refresh_extension_oauth_skips_anthropic_provider() {
         auth.set(
             "anthropic",
             AuthCredential::OAuth {
+                extra: Default::default(),
                 access_token: fixture_value(&["old"]),
                 refresh_token: fixture_value(&["old", "-ref"]),
                 expires: 0,
@@ -612,6 +614,7 @@ fn refresh_extension_oauth_skips_unexpired_token() {
         auth.set(
             "ext-prov",
             AuthCredential::OAuth {
+                extra: Default::default(),
                 access_token: fixture_value(&["valid", "-", "to", "ken"]),
                 refresh_token: fixture_value(&["ref"]),
                 expires: far_future,
@@ -657,6 +660,7 @@ fn refresh_extension_oauth_error_propagated() {
         auth.set(
             "ext-prov",
             AuthCredential::OAuth {
+                extra: Default::default(),
                 access_token: fixture_value(&["old"]),
                 refresh_token: fixture_value(&["revoked", "-refresh"]),
                 expires: 0,
@@ -698,6 +702,7 @@ fn oauth_credential_persists_across_reload() {
     auth.set(
         "ext-prov",
         AuthCredential::OAuth {
+            extra: Default::default(),
             access_token: fixture_value(&["persisted", "-access"]),
             refresh_token: fixture_value(&["persisted", "-refresh"]),
             expires: far_future,
@@ -728,6 +733,7 @@ fn resolve_api_key_returns_oauth_access_token() {
     auth.set(
         "ext-prov",
         AuthCredential::OAuth {
+            extra: Default::default(),
             access_token: fixture_value(&["oauth", "-access", "-", "to", "ken"]),
             refresh_token: fixture_value(&["ref"]),
             expires: far_future,
@@ -750,6 +756,7 @@ fn resolve_api_key_returns_none_for_expired_oauth() {
     auth.set(
         "ext-prov",
         AuthCredential::OAuth {
+            extra: Default::default(),
             access_token: fixture_value(&["expired", "-access"]),
             refresh_token: fixture_value(&["ref"]),
             expires: 0, // expired
@@ -773,6 +780,7 @@ fn resolve_api_key_override_takes_precedence_over_oauth() {
     auth.set(
         "ext-prov",
         AuthCredential::OAuth {
+            extra: Default::default(),
             access_token: fixture_value(&["oauth", "-", "to", "ken"]),
             refresh_token: fixture_value(&["ref"]),
             expires: far_future,
@@ -891,6 +899,7 @@ fn full_wiring_refresh_expired_token_via_mock_server() {
         auth.set(
             "ext-prov-a",
             AuthCredential::OAuth {
+                extra: Default::default(),
                 access_token: fixture_value(&["old", "-access"]),
                 refresh_token: fixture_value(&["old", "-refresh"]),
                 expires: 0, // expired
@@ -933,6 +942,7 @@ fn full_wiring_no_refresh_when_token_valid() {
         auth.set(
             "ext-prov-a",
             AuthCredential::OAuth {
+                extra: Default::default(),
                 access_token: fixture_value(&["still", "-valid"]),
                 refresh_token: fixture_value(&["ref"]),
                 expires: far_future,
@@ -970,6 +980,7 @@ fn full_wiring_refresh_skips_providers_without_config() {
         auth.set(
             "ext-prov-no-config",
             AuthCredential::OAuth {
+                extra: Default::default(),
                 access_token: fixture_value(&["old"]),
                 refresh_token: fixture_value(&["old", "-ref"]),
                 expires: 0,

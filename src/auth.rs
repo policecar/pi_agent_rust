@@ -6,7 +6,6 @@ use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::provider_metadata::{canonical_provider_id, provider_auth_env_keys, provider_metadata};
 use base64::Engine as _;
-use fs4::fs_std::FileExt;
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use std::collections::HashMap;
@@ -14,7 +13,7 @@ use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tempfile::NamedTempFile;
 
 const ANTHROPIC_OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -236,8 +235,21 @@ pub enum AuthCredential {
     ApiKey {
         key: String,
     },
+    /// OAuth credential, serialized in the shape upstream TS pi
+    /// (`@earendil-works/pi-coding-agent`) reads and writes to the shared
+    /// `~/.pi/agent/auth.json`: `{"type":"oauth","access":..,"refresh":..,"expires":..}`
+    /// (see `pi-ai` `dist/auth/types.d.ts` `OAuthCredential`). The variant tag and
+    /// field names carry `alias`es for the historical pi_agent_rust shape
+    /// (`o_auth` / `access_token` / `refresh_token`) so previously-written
+    /// credentials keep loading. `token_url`/`client_id` are pi_agent_rust-only
+    /// extras for self-contained refresh; upstream tolerates them via its
+    /// `[key: string]: unknown` credential type, and `extra` captures any extra
+    /// upstream keys so a rust round-trip is lossless.
+    #[serde(rename = "oauth", alias = "o_auth")]
     OAuth {
+        #[serde(rename = "access", alias = "access_token")]
         access_token: String,
+        #[serde(rename = "refresh", alias = "refresh_token")]
         refresh_token: String,
         expires: i64, // Unix ms
         /// Token endpoint URL for self-contained refresh (optional; backward-compatible).
@@ -246,6 +258,11 @@ pub enum AuthCredential {
         /// Client ID for self-contained refresh (optional; backward-compatible).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_id: Option<String>,
+        /// Any additional keys present in an upstream-written OAuth credential,
+        /// preserved verbatim so a load→save round-trip never drops fields
+        /// (upstream `OAuthCredentials` is `{ access, refresh, expires, [key]: unknown }`).
+        #[serde(flatten, default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+        extra: std::collections::HashMap<String, serde_json::Value>,
     },
     /// AWS IAM credentials for providers like Amazon Bedrock.
     ///
@@ -362,8 +379,8 @@ impl AuthStorage {
     /// Load auth.json (creates empty if missing).
     pub fn load(path: PathBuf) -> Result<Self> {
         let entries = if path.exists() {
-            let lock_handle = open_auth_lock_file(&path)?;
-            let _locked = lock_file_shared(lock_handle, Duration::from_secs(30))?;
+            let _locked = crate::file_lock::DirLock::acquire_for(&path, Duration::from_secs(30))
+                .map_err(|e| Error::auth(format!("auth lock: {e}")))?;
             let content =
                 fs::read_to_string(&path).map_err(|e| Error::auth(format!("auth.json: {e}")))?;
             let parsed: AuthFile = match serde_json::from_str(&content) {
@@ -430,8 +447,8 @@ impl AuthStorage {
             fs::create_dir_all(parent)?;
         }
 
-        let lock_handle = open_auth_lock_file(path)?;
-        let _locked = lock_file(lock_handle, Duration::from_secs(30))?;
+        let _locked = crate::file_lock::DirLock::acquire_for(path, Duration::from_secs(30))
+            .map_err(|e| Error::auth(format!("auth lock: {e}")))?;
 
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
         let mut temp = NamedTempFile::new_in(parent)?;
@@ -3193,33 +3210,6 @@ fn kimi_common_headers() -> Vec<(String, String)> {
     ]
 }
 
-fn auth_lock_path(path: &Path) -> PathBuf {
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map_or_else(|| "lock".to_string(), |ext| format!("{ext}.lock"));
-    path.with_extension(extension)
-}
-
-fn open_auth_lock_file(path: &Path) -> Result<File> {
-    let lock_path = auth_lock_path(path);
-    if let Some(parent) = lock_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let mut options = File::options();
-    options.read(true).write(true).create(true).truncate(false);
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-
-    options
-        .open(lock_path)
-        .map_err(|err| Error::auth(format!("auth lock file: {err}")))
-}
 
 #[cfg(unix)]
 fn sync_parent_dir(path: &Path) -> std::io::Result<()> {
@@ -3320,6 +3310,7 @@ pub async fn complete_anthropic_oauth(code_input: &str, verifier: &str) -> Resul
         .map_err(|e| Error::auth(format!("Invalid token response: {e}")))?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -3364,6 +3355,7 @@ async fn refresh_anthropic_oauth_token(
         .map_err(|e| Error::auth(format!("Invalid refresh response: {e}")))?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -3461,6 +3453,7 @@ pub async fn complete_openai_codex_oauth(
         .map_err(|e| Error::auth(format!("Invalid OpenAI Codex token response: {e}")))?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -3719,6 +3712,7 @@ pub async fn complete_google_gemini_cli_oauth(
         discover_google_gemini_cli_project_id(&client, &oauth_response.access_token).await?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: encode_project_scoped_access_token(&oauth_response.access_token, &project_id),
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -3760,6 +3754,7 @@ pub async fn complete_google_antigravity_oauth(
         discover_google_antigravity_project_id(&client, &oauth_response.access_token).await?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: encode_project_scoped_access_token(&oauth_response.access_token, &project_id),
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -3817,6 +3812,7 @@ async fn refresh_google_oauth_token_with_project(
         .map_err(|e| Error::auth(format!("Invalid {provider_name} refresh response: {e}")))?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: encode_project_scoped_access_token(&oauth_response.access_token, project_id),
         refresh_token: oauth_response
             .refresh_token
@@ -3987,6 +3983,7 @@ async fn poll_kimi_code_device_flow_with_client(
     };
 
     DeviceFlowPollResult::Success(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -4036,6 +4033,7 @@ async fn refresh_kimi_code_oauth_token(
         .map_err(|e| Error::auth(format!("Invalid Kimi refresh response: {e}")))?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response
             .refresh_token
@@ -4146,6 +4144,7 @@ pub async fn complete_extension_oauth_with_client(
         .map_err(|e| Error::auth(format!("Invalid token response: {e}")))?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -4189,6 +4188,7 @@ async fn refresh_extension_oauth_token(
         .map_err(|e| Error::auth(format!("Invalid refresh response: {e}")))?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -4238,6 +4238,7 @@ async fn refresh_self_contained_oauth_token(
         .map_err(|e| Error::auth(format!("Invalid refresh response from {provider}: {e}")))?;
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -4548,6 +4549,7 @@ fn parse_github_token_response(text: &str) -> Result<AuthCredential> {
         );
 
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token,
         refresh_token,
         expires,
@@ -4700,6 +4702,7 @@ pub async fn complete_gitlab_oauth(
 
     let base = trim_trailing_slash(&config.base_url);
     Ok(AuthCredential::OAuth {
+        extra: HashMap::new(),
         access_token: oauth_response.access_token,
         refresh_token: oauth_response.refresh_token,
         expires: oauth_expires_at_ms(oauth_response.expires_in),
@@ -4798,75 +4801,6 @@ fn parse_oauth_code_input(input: &str) -> (Option<String>, Option<String>) {
     }
 
     (Some(value.to_string()), None)
-}
-
-fn lock_file(file: File, timeout: Duration) -> Result<LockedFile> {
-    let start = Instant::now();
-    let mut attempt: u32 = 0;
-    loop {
-        match FileExt::try_lock_exclusive(&file) {
-            Ok(true) => return Ok(LockedFile { file }),
-            Ok(false) => {} // Lock held by another process, retry
-            Err(e) => {
-                return Err(Error::auth(format!("Failed to lock auth file: {e}")));
-            }
-        }
-
-        if start.elapsed() >= timeout {
-            return Err(Error::auth("Timed out waiting for auth lock".to_string()));
-        }
-
-        let base_ms: u64 = 10;
-        let cap_ms: u64 = 500;
-        let sleep_ms = base_ms
-            .checked_shl(attempt.min(5))
-            .unwrap_or(cap_ms)
-            .min(cap_ms);
-        let jitter = u64::from(start.elapsed().subsec_nanos()) % (sleep_ms / 2 + 1);
-        let delay = sleep_ms / 2 + jitter;
-        std::thread::sleep(Duration::from_millis(delay));
-        attempt = attempt.saturating_add(1);
-    }
-}
-
-fn lock_file_shared(file: File, timeout: Duration) -> Result<LockedFile> {
-    let start = Instant::now();
-    let mut attempt: u32 = 0;
-    loop {
-        match FileExt::try_lock_shared(&file) {
-            Ok(true) => return Ok(LockedFile { file }),
-            Ok(false) => {} // Lock held by another process exclusively, retry
-            Err(e) => {
-                return Err(Error::auth(format!("Failed to shared-lock auth file: {e}")));
-            }
-        }
-
-        if start.elapsed() >= timeout {
-            return Err(Error::auth("Timed out waiting for auth lock".to_string()));
-        }
-
-        let base_ms: u64 = 10;
-        let cap_ms: u64 = 500;
-        let sleep_ms = base_ms
-            .checked_shl(attempt.min(5))
-            .unwrap_or(cap_ms)
-            .min(cap_ms);
-        let jitter = u64::from(start.elapsed().subsec_nanos()) % (sleep_ms / 2 + 1);
-        let delay = sleep_ms / 2 + jitter;
-        std::thread::sleep(Duration::from_millis(delay));
-        attempt = attempt.saturating_add(1);
-    }
-}
-
-/// A file handle with an exclusive lock. Unlocks on drop.
-struct LockedFile {
-    file: File,
-}
-
-impl Drop for LockedFile {
-    fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.file);
-    }
 }
 
 /// Convenience to load auth from default path.
@@ -5271,6 +5205,7 @@ mod tests {
         auth.set(
             "anthropic",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "stored-oauth-token".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -5303,6 +5238,7 @@ mod tests {
         auth.set(
             "anthropic",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "expired-oauth-token".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -5558,6 +5494,7 @@ mod tests {
             auth.entries.insert(
                 "anthropic".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     access_token: initial_access.clone(),
                     refresh_token: initial_refresh,
                     expires: 0, // expired
@@ -5605,6 +5542,7 @@ mod tests {
             auth.entries.insert(
                 "my-ext".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     access_token: initial_access_token.clone(),
                     refresh_token: initial_refresh_token,
                     expires: far_future,
@@ -5650,6 +5588,7 @@ mod tests {
             auth.entries.insert(
                 "unknown-ext".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     access_token: initial_access_token.clone(),
                     refresh_token: initial_refresh_token,
                     expires: 0,
@@ -5692,6 +5631,7 @@ mod tests {
             auth.entries.insert(
                 "my-ext".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     // ubs:ignore test fixture credential, not live secret.
                     access_token: "old-access".to_string(),
                     // ubs:ignore test fixture credential, not live secret.
@@ -5883,6 +5823,7 @@ mod tests {
             auth.set(
                 "ext-provider",
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     access_token: expected_access_token.clone(),
                     refresh_token: expected_refresh_token.clone(),
                     expires: 9_999_999_999_000,
@@ -5927,6 +5868,7 @@ mod tests {
         auth.set(
             "ext-provider",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 access_token: expected_access_token.clone(),
                 refresh_token: expected_refresh_token,
                 expires: far_future,
@@ -5954,6 +5896,7 @@ mod tests {
         auth.set(
             "ext-provider",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 access_token: expected_access_token,
                 refresh_token: expected_refresh_token,
                 expires: 0, // expired
@@ -5978,6 +5921,7 @@ mod tests {
         auth.set(
             "valid-oauth",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "valid-access".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -5990,6 +5934,7 @@ mod tests {
         auth.set(
             "expired-oauth",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "expired-access".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -6399,6 +6344,7 @@ mod tests {
         auth.set(
             "anthropic",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "sk-ant-api-like-token".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -6428,6 +6374,7 @@ mod tests {
         auth.set(
             "openai-codex",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "codex-oauth-token".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -6643,6 +6590,7 @@ mod tests {
         auth.set(
             "google",
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "goog-token".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -6726,10 +6674,13 @@ mod tests {
         );
         original.save().expect("save original auth");
 
-        let lock_path = auth_lock_path(&auth_path);
+        // The proper-lockfile-compatible directory lock is created on acquire and
+        // removed (`rmdir`) on release, so it must NOT persist after `save()`.
+        // A leftover regular file here is exactly what poisons upstream TS pi.
+        let lock_path = crate::file_lock::lock_path_for(&auth_path);
         assert!(
-            lock_path.exists(),
-            "expected sibling lockfile to be created"
+            !lock_path.exists(),
+            "lock must not persist after save (no poisoning artifact)"
         );
 
         let mut replacement_entries = HashMap::new();
@@ -7846,6 +7797,7 @@ mod tests {
             .expect("parse");
 
             let cred = AuthCredential::OAuth {
+                extra: HashMap::new(),
                 access_token: response.access_token,
                 refresh_token: response.refresh_token,
                 expires: oauth_expires_at_ms(response.expires_in),
@@ -9404,6 +9356,7 @@ sso_region = us-east-1
             auth.entries.insert(
                 "copilot".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     // ubs:ignore test fixture credential, not live secret.
                     access_token: "about-to-expire".to_string(),
                     // ubs:ignore test fixture credential, not live secret.
@@ -9444,6 +9397,7 @@ sso_region = us-east-1
             auth.entries.insert(
                 "copilot".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     // ubs:ignore test fixture credential, not live secret.
                     access_token: "still-good".to_string(),
                     // ubs:ignore test fixture credential, not live secret.
@@ -9486,6 +9440,7 @@ sso_region = us-east-1
             auth.entries.insert(
                 "copilot".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     // ubs:ignore test fixture credential, not live secret.
                     access_token: "expired-copilot".to_string(),
                     // ubs:ignore test fixture credential, not live secret.
@@ -9531,6 +9486,7 @@ sso_region = us-east-1
             auth.entries.insert(
                 "ext-custom".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     // ubs:ignore test fixture credential, not live secret.
                     access_token: "old-ext".to_string(),
                     // ubs:ignore test fixture credential, not live secret.
@@ -9569,6 +9525,7 @@ sso_region = us-east-1
             auth.entries.insert(
                 "copilot".to_string(),
                 AuthCredential::OAuth {
+                    extra: HashMap::new(),
                     // ubs:ignore test fixture credential, not live secret.
                     access_token: "self-contained".to_string(),
                     // ubs:ignore test fixture credential, not live secret.
@@ -9613,6 +9570,7 @@ sso_region = us-east-1
         auth.entries.insert(
             "stale-ext".to_string(),
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "dead".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -9627,6 +9585,7 @@ sso_region = us-east-1
         auth.entries.insert(
             "copilot".to_string(),
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "old-copilot".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -9641,6 +9600,7 @@ sso_region = us-east-1
         auth.entries.insert(
             "recent-ext".to_string(),
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "recent".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -9682,6 +9642,7 @@ sso_region = us-east-1
         auth.entries.insert(
             "ext-prov".to_string(),
             AuthCredential::OAuth {
+                extra: HashMap::new(),
                 // ubs:ignore test fixture credential, not live secret.
                 access_token: "valid".to_string(),
                 // ubs:ignore test fixture credential, not live secret.
@@ -9700,6 +9661,7 @@ sso_region = us-east-1
     #[test]
     fn test_credential_serialization_preserves_new_fields() {
         let cred = AuthCredential::OAuth {
+            extra: HashMap::new(),
             // ubs:ignore test fixture credential, not live secret.
             access_token: "tok".to_string(),
             // ubs:ignore test fixture credential, not live secret.
@@ -9730,6 +9692,7 @@ sso_region = us-east-1
     #[test]
     fn test_credential_serialization_omits_none_fields() {
         let cred = AuthCredential::OAuth {
+            extra: HashMap::new(),
             // ubs:ignore test fixture credential, not live secret.
             access_token: "tok".to_string(),
             // ubs:ignore test fixture credential, not live secret.

@@ -122,6 +122,8 @@ pub mod extensions;
 #[doc(hidden)]
 pub mod extensions_js;
 #[doc(hidden)]
+pub mod file_lock;
+#[doc(hidden)]
 pub mod flake_classifier;
 #[doc(hidden)]
 pub mod hostcall_amac;

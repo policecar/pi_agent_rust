@@ -3,7 +3,6 @@
 use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::session::{Session, SessionEntry, SessionHeader};
-use fs4::fs_std::FileExt;
 use serde::Deserialize;
 use sqlmodel_core::Value;
 use sqlmodel_sqlite::{OpenFlags, SqliteConfig, SqliteConnection};
@@ -12,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const MAX_JSONL_LINE_BYTES: usize = 100 * 1024 * 1024;
 
@@ -353,13 +352,11 @@ impl SessionIndex {
         if let Some(parent) = self.db_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let lock_file = File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&self.lock_path)?;
-        let _lock = lock_file_guard(&lock_file, Duration::from_secs(5))?;
+        // `self.lock_path` is `<sessions>/session-index.lock` — the same path
+        // upstream TS pi locks with `proper-lockfile`. Use the directory-based
+        // protocol (see `crate::file_lock`) so the two interoperate.
+        let _lock = crate::file_lock::DirLock::acquire(&self.lock_path, Duration::from_secs(5))
+            .map_err(|e| Error::session(format!("session index lock: {e}")))?;
 
         let config = SqliteConfig::file(self.db_path.to_string_lossy())
             .flags(OpenFlags::create_read_write())
@@ -916,40 +913,6 @@ fn load_last_sync_epoch_ms(conn: &SqliteConnection) -> Result<Option<i64>> {
     Ok(value.parse::<i64>().ok())
 }
 
-fn lock_file_guard(file: &File, timeout: Duration) -> Result<LockGuard<'_>> {
-    let start = Instant::now();
-    loop {
-        match FileExt::try_lock_exclusive(file) {
-            Ok(true) => return Ok(LockGuard { file }),
-            Ok(false) => {}
-            Err(err) => {
-                return Err(Error::session(format!(
-                    "Failed to acquire session index lock: {err}"
-                )));
-            }
-        }
-
-        if start.elapsed() >= timeout {
-            return Err(Error::session(
-                "Timed out waiting for session index lock".to_string(),
-            ));
-        }
-
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
-#[derive(Debug)]
-struct LockGuard<'a> {
-    file: &'a File,
-}
-
-impl Drop for LockGuard<'_> {
-    fn drop(&mut self) {
-        let _ = FileExt::unlock(self.file);
-    }
-}
-
 #[cfg(test)]
 #[path = "../tests/common/mod.rs"]
 mod test_common;
@@ -1414,34 +1377,21 @@ mod tests {
     }
 
     #[test]
-    fn lock_file_guard_prevents_concurrent_access() {
-        let harness = TestHarness::new("lock_file_guard_prevents_concurrent_access");
-        let path = harness.temp_path("lockfile.lock");
-        fs::write(&path, "").expect("create lock file");
+    fn dir_lock_prevents_concurrent_access() {
+        use crate::file_lock::DirLock;
+        let harness = TestHarness::new("dir_lock_prevents_concurrent_access");
+        let lock_path = harness.temp_path("session-index.lock");
 
-        let file1 = File::options()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .expect("open file1");
-        let file2 = File::options()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .expect("open file2");
-
-        let guard1 = lock_file_guard(&file1, Duration::from_millis(50)).expect("acquire lock");
-        let err =
-            lock_file_guard(&file2, Duration::from_millis(50)).expect_err("expected lock timeout");
+        let guard1 = DirLock::acquire(&lock_path, Duration::from_millis(50)).expect("acquire lock");
+        assert!(lock_path.is_dir(), "held lock must be a directory");
+        let err = DirLock::acquire(&lock_path, Duration::from_millis(50))
+            .expect_err("expected lock timeout while held");
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
         drop(guard1);
-
-        assert!(
-            matches!(err, Error::Session(ref msg) if msg.contains("Timed out")),
-            "Expected Error::Session containing Timed out, got {err:?}",
-        );
+        assert!(!lock_path.exists(), "lock directory must be removed on release");
 
         let _guard2 =
-            lock_file_guard(&file2, Duration::from_millis(50)).expect("lock after release");
+            DirLock::acquire(&lock_path, Duration::from_millis(50)).expect("lock after release");
     }
 
     #[test]
