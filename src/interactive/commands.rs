@@ -1317,14 +1317,36 @@ impl PiApp {
                                 )))
                             }
                             crate::auth::DeviceFlowPollResult::Pending => {
-                                Err(crate::error::Error::auth(format!(
-                                    "Authorization for {provider} is still pending. Complete the browser step and submit again."
-                                )))
+                                // Still pending — re-arm the login so the user can
+                                // submit again, instead of discarding pending_oauth.
+                                let _ = crate::interactive::enqueue_pi_event(
+                                    &event_tx,
+                                    &task_cx,
+                                    PiMsg::OAuthDeviceFlowPending {
+                                        provider: provider.clone(),
+                                        device_code: dc.clone(),
+                                        status: format!(
+                                            "Authorization for {provider} is still pending. Complete the browser step and press Enter to check again."
+                                        ),
+                                    },
+                                )
+                                .await;
+                                return;
                             }
                             crate::auth::DeviceFlowPollResult::SlowDown => {
-                                Err(crate::error::Error::auth(format!(
-                                    "Authorization server asked to slow down for {provider}. Wait a few seconds and submit again."
-                                )))
+                                let _ = crate::interactive::enqueue_pi_event(
+                                    &event_tx,
+                                    &task_cx,
+                                    PiMsg::OAuthDeviceFlowPending {
+                                        provider: provider.clone(),
+                                        device_code: dc.clone(),
+                                        status: format!(
+                                            "Authorization server asked to slow down for {provider}. Wait a few seconds and press Enter to check again."
+                                        ),
+                                    },
+                                )
+                                .await;
+                                return;
                             }
                         }
                     }

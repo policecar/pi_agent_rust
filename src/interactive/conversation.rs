@@ -181,10 +181,21 @@ pub fn conversation_from_session(session: &Session) -> (Vec<ConversationMessage>
             SessionMessage::BashExecution {
                 command,
                 output,
+                exit_code,
+                cancelled,
+                truncated,
+                full_output_path,
                 extra,
                 ..
             } => {
-                let mut text = bash_execution_to_text(command, output, 0, false, false, None);
+                let mut text = bash_execution_to_text(
+                    command,
+                    output,
+                    *exit_code,
+                    cancelled.unwrap_or(false),
+                    truncated.unwrap_or(false),
+                    full_output_path.as_deref(),
+                );
                 if extra
                     .get("excludeFromContext")
                     .and_then(Value::as_bool)

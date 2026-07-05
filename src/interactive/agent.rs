@@ -648,6 +648,27 @@ After approving access in the browser, press Enter in Pi to complete login."
                 self.input.focus();
                 self.status_message = None;
             }
+            PiMsg::OAuthDeviceFlowPending {
+                provider,
+                device_code,
+                status,
+            } => {
+                // The poll is still pending; re-arm the login so the user can
+                // submit again (Enter) to re-poll, per the status message.
+                self.pending_oauth = Some(PendingOAuth {
+                    provider,
+                    kind: PendingLoginKind::DeviceFlow,
+                    verifier: String::new(),
+                    oauth_config: None,
+                    device_code: Some(device_code),
+                    redirect_uri: None,
+                });
+                self.agent_state = AgentState::Idle;
+                self.input_mode = InputMode::SingleLine;
+                self.set_input_height(3);
+                self.input.focus();
+                self.status_message = Some(status);
+            }
             PiMsg::ConversationReset {
                 messages,
                 usage,
@@ -1858,6 +1879,20 @@ After approving access in the browser, press Enter in Pi to complete login."
     #[allow(clippy::too_many_lines)]
     pub(super) fn submit_message(&mut self, message: &str) -> Option<Cmd> {
         let message = message.trim();
+
+        // A pending device-flow login completes by the user pressing Enter (the
+        // browser step carries the code), so an empty submit is valid here and
+        // must be handled before the empty-input guard below.
+        if let Some(pending) = self.pending_oauth.take() {
+            if message.is_empty() && pending.kind != PendingLoginKind::DeviceFlow {
+                // Auth-code / API-key logins still need the pasted value; keep
+                // the pending state and ignore a stray empty submit.
+                self.pending_oauth = Some(pending);
+                return None;
+            }
+            return self.submit_oauth_code(message, pending);
+        }
+
         if message.is_empty() {
             return None;
         }
@@ -1876,10 +1911,6 @@ After approving access in the browser, press Enter in Pi to complete login."
             self.input.reset();
             self.input.focus();
             return None;
-        }
-
-        if let Some(pending) = self.pending_oauth.take() {
-            return self.submit_oauth_code(message, pending);
         }
 
         if let Some((command, exclude_from_context)) = parse_bash_command(message) {

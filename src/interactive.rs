@@ -1852,6 +1852,14 @@ pub enum PiMsg {
         verification_uri: String,
         expires_in: u64,
     },
+    /// A device-flow poll returned `Pending`/`SlowDown`: the login is still
+    /// alive and the user should submit again. Restores `pending_oauth` (which
+    /// was consumed when the poll was launched) so pressing Enter re-polls.
+    OAuthDeviceFlowPending {
+        provider: String,
+        device_code: String,
+        status: String,
+    },
     /// Replace conversation state from session (compaction/fork).
     ConversationReset {
         messages: Vec<ConversationMessage>,
