@@ -65,6 +65,7 @@ fn known_long_option(name: &str) -> Option<LongOptionSpec> {
         | "no-prompt-templates"
         | "no-themes"
         | "list-providers"
+        | "refresh-models"
         | "hide-cwd-in-prompt" => (false, false),
         "provider"
         | "model"
@@ -86,6 +87,8 @@ fn known_long_option(name: &str) -> Option<LongOptionSpec> {
         | "theme"
         | "theme-path"
         | "max-tool-iterations"
+        | "request-timeout"
+        | "fetch-models"
         | "export" => (true, false),
         "list-models" => (true, true),
         _ => return None,

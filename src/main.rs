@@ -1255,7 +1255,14 @@ async fn run(
     };
 
     let mut auth = auth_result?;
-    auth.refresh_expired_oauth_tokens().await?;
+    // A failed OAuth refresh (offline, revoked token, or a stale credential for
+    // a provider the user no longer uses) must not abort startup — the user may
+    // want an API-key provider, a local model, or a different OAuth provider
+    // that refreshed fine. Log and continue with existing credentials, matching
+    // the extension-token path below.
+    if let Err(err) = auth.refresh_expired_oauth_tokens().await {
+        tracing::warn!("{err}; continuing with existing credentials");
+    }
 
     // Prune stale credentials that are well past expiry and lack refresh metadata.
     // 7-day cutoff (in milliseconds).

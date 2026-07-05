@@ -1673,7 +1673,11 @@ pub async fn create_agent_session(options: SessionOptions) -> Result<AgentSessio
     let config = Config::load()?;
 
     let mut auth = AuthStorage::load_async(Config::auth_path()).await?;
-    auth.refresh_expired_oauth_tokens().await?;
+    // A failed OAuth refresh must not abort SDK init — continue with existing
+    // credentials (see the equivalent handling in main.rs).
+    if let Err(err) = auth.refresh_expired_oauth_tokens().await {
+        tracing::warn!("{err}; continuing with existing credentials");
+    }
 
     let global_dir = Config::global_dir();
     let package_dir = Config::package_dir();

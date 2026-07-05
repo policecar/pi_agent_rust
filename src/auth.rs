@@ -3271,6 +3271,9 @@ pub async fn complete_anthropic_oauth(code_input: &str, verifier: &str) -> Resul
         return Err(Error::auth("Missing authorization code".to_string()));
     };
 
+    // When the pasted input carries a `state`, it must match the PKCE verifier;
+    // a missing state falls back to the verifier so the comparison is a no-op
+    // (CSRF protection rests on the PKCE verifier required in the token exchange).
     let state = state.unwrap_or_else(|| verifier.to_string());
     if state.ne(verifier) {
         return Err(Error::auth("State mismatch".to_string()));
@@ -3412,6 +3415,9 @@ pub async fn complete_openai_codex_oauth(
     let Some(code) = code else {
         return Err(Error::auth("Missing authorization code".to_string()));
     };
+    // When the pasted input carries a `state`, it must match the PKCE verifier;
+    // a missing state falls back to the verifier so the comparison is a no-op
+    // (CSRF protection rests on the PKCE verifier required in the token exchange).
     let state = state.unwrap_or_else(|| verifier.to_string());
     if state.ne(verifier) {
         return Err(Error::auth("State mismatch".to_string()));
@@ -3691,6 +3697,9 @@ pub async fn complete_google_gemini_cli_oauth(
     let Some(code) = code else {
         return Err(Error::auth("Missing authorization code".to_string()));
     };
+    // When the pasted input carries a `state`, it must match the PKCE verifier;
+    // a missing state falls back to the verifier so the comparison is a no-op
+    // (CSRF protection rests on the PKCE verifier required in the token exchange).
     let state = state.unwrap_or_else(|| verifier.to_string());
     if state.ne(verifier) {
         return Err(Error::auth("State mismatch".to_string()));
@@ -3733,6 +3742,9 @@ pub async fn complete_google_antigravity_oauth(
     let Some(code) = code else {
         return Err(Error::auth("Missing authorization code".to_string()));
     };
+    // When the pasted input carries a `state`, it must match the PKCE verifier;
+    // a missing state falls back to the verifier so the comparison is a no-op
+    // (CSRF protection rests on the PKCE verifier required in the token exchange).
     let state = state.unwrap_or_else(|| verifier.to_string());
     if state.ne(verifier) {
         return Err(Error::auth("State mismatch".to_string()));
@@ -4107,6 +4119,9 @@ pub async fn complete_extension_oauth_with_client(
         return Err(Error::auth("Missing authorization code".to_string()));
     };
 
+    // When the pasted input carries a `state`, it must match the PKCE verifier;
+    // a missing state falls back to the verifier so the comparison is a no-op
+    // (CSRF protection rests on the PKCE verifier required in the token exchange).
     let state = state.unwrap_or_else(|| verifier.to_string());
     if state.ne(verifier) {
         return Err(Error::auth("State mismatch".to_string()));
@@ -4330,6 +4345,9 @@ pub async fn complete_copilot_browser_oauth(
         ));
     };
 
+    // When the pasted input carries a `state`, it must match the PKCE verifier;
+    // a missing state falls back to the verifier so the comparison is a no-op
+    // (CSRF protection rests on the PKCE verifier required in the token exchange).
     let state = state.unwrap_or_else(|| verifier.to_string());
     if state.ne(verifier) {
         return Err(Error::auth("State mismatch".to_string()));
@@ -4650,6 +4668,9 @@ pub async fn complete_gitlab_oauth(
         ));
     };
 
+    // When the pasted input carries a `state`, it must match the PKCE verifier;
+    // a missing state falls back to the verifier so the comparison is a no-op
+    // (CSRF protection rests on the PKCE verifier required in the token exchange).
     let state = state.unwrap_or_else(|| verifier.to_string());
     if state.ne(verifier) {
         return Err(Error::auth("State mismatch".to_string()));
