@@ -131,6 +131,10 @@ fn migrate_auth_to_auth_json(agent_dir: &Path, warnings: &mut Vec<String>) -> Ve
     let mut providers = BTreeSet::new();
     let mut parsed_oauth = false;
     let mut oauth_has_unmigrated_entries = false;
+    // The settings.json rewrite that strips migrated apiKeys is deferred until
+    // auth.json has been persisted, so a crash or failed auth write can never
+    // leave the keys removed from settings.json but absent from auth.json.
+    let mut pending_settings_rewrite: Option<Value> = None;
 
     if oauth_path.exists() {
         match fs::read_to_string(&oauth_path) {
@@ -205,32 +209,10 @@ fn migrate_auth_to_auth_json(agent_dir: &Path, warnings: &mut Vec<String>) -> Ve
                                     );
                                 }
                             }
-                            match serde_json::to_string_pretty(&settings_value) {
-                                    Ok(updated) => {
-                                        let tmp = settings_path.with_extension("json.tmp");
-                                        let mut opts = fs::OpenOptions::new();
-                                        opts.write(true).create(true).truncate(true);
-                                        #[cfg(unix)]
-                                        {
-                                            use std::os::unix::fs::OpenOptionsExt;
-                                            opts.mode(0o600);
-                                        }
-                                        let res = opts.open(&tmp).and_then(|mut f| {
-                                            use std::io::Write;
-                                            f.write_all(updated.as_bytes())?;
-                                            f.sync_all()
-                                        }).and_then(|()| fs::rename(&tmp, &settings_path));
-
-                                        if let Err(err) = res {
-                                            warnings.push(format!(
-                                                "could not persist settings.json after apiKeys migration: {err}"
-                                            ));
-                                        }
-                                    }
-                                    Err(err) => warnings.push(format!(
-                                        "could not serialize settings.json after apiKeys migration: {err}"
-                                    )),
-                                }
+                            // Defer the actual write until after auth.json is
+                            // persisted (see below), so we never strip keys from
+                            // settings.json before they are safely in auth.json.
+                            pending_settings_rewrite = Some(settings_value);
                         }
                     }
                 }
@@ -282,6 +264,48 @@ fn migrate_auth_to_auth_json(agent_dir: &Path, warnings: &mut Vec<String>) -> Ve
                 }
             }
             Err(err) => warnings.push(format!("could not serialize migrated auth.json: {err}")),
+        }
+    }
+
+    // Now that auth.json holds the migrated apiKeys, strip them from
+    // settings.json. Only do this once auth persisted, so a failed auth write
+    // leaves settings.json (and its keys) intact for a retry.
+    if let Some(settings_value) = pending_settings_rewrite {
+        if auth_persisted {
+            match serde_json::to_string_pretty(&settings_value) {
+                Ok(updated) => {
+                    let tmp = settings_path.with_extension("json.tmp");
+                    let mut opts = fs::OpenOptions::new();
+                    opts.write(true).create(true).truncate(true);
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::OpenOptionsExt;
+                        opts.mode(0o600);
+                    }
+                    let res = opts
+                        .open(&tmp)
+                        .and_then(|mut f| {
+                            use std::io::Write;
+                            f.write_all(updated.as_bytes())?;
+                            f.sync_all()
+                        })
+                        .and_then(|()| fs::rename(&tmp, &settings_path));
+
+                    if let Err(err) = res {
+                        warnings.push(format!(
+                            "could not persist settings.json after apiKeys migration: {err}"
+                        ));
+                    }
+                }
+                Err(err) => warnings.push(format!(
+                    "could not serialize settings.json after apiKeys migration: {err}"
+                )),
+            }
+        } else {
+            warnings.push(
+                "skipped stripping apiKeys from settings.json because auth.json was not persisted"
+                    .to_string(),
+            );
         }
     }
 

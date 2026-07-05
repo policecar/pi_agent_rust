@@ -221,25 +221,32 @@ pub async fn load_session_meta(path: &Path) -> Result<SqliteSessionMeta> {
 
     let mut message_count: Option<u64> = None;
     let mut name: Option<String> = None;
+    // Distinguish "no name row" (unknown → needs the entry scan) from "name row
+    // present but empty" (a known-unnamed session). Without this, every unnamed
+    // session falls into the full read_all_entries scan on each meta load.
+    let mut has_name_row = false;
     for row in meta_rows {
         let key = row_get_string(&row, "key")?;
         let value = row_get_string(&row, "value")?;
         match key.as_str() {
             "message_count" => message_count = value.parse::<u64>().ok(),
-            "name" if !value.is_empty() => {
-                name = Some(value);
+            "name" => {
+                has_name_row = true;
+                if !value.is_empty() {
+                    name = Some(value);
+                }
             }
             _ => {}
         }
     }
 
-    if message_count.is_none() || name.is_none() {
+    if message_count.is_none() || !has_name_row {
         let entries = read_all_entries(&conn)?;
         let (fallback_message_count, fallback_name) = compute_message_count_and_name(&entries);
         if message_count.is_none() {
             message_count = Some(fallback_message_count);
         }
-        if name.is_none() {
+        if !has_name_row {
             name = fallback_name;
         }
     }
