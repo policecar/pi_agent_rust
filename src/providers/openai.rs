@@ -500,6 +500,11 @@ impl Provider for OpenAIProvider {
                             // OpenAI sends "[DONE]" as final message
                             if msg.data == "[DONE]" {
                                 state.done = true;
+                                // Parse any tool-call arguments accumulated as a
+                                // raw string; a server that finishes on [DONE]
+                                // without a finish_reason chunk would otherwise
+                                // yield tool calls with null arguments. Idempotent.
+                                state.finalize_tool_call_arguments();
                                 let reason = state.partial.stop_reason;
                                 let message = std::mem::take(&mut state.partial);
                                 return Some((Ok(StreamEvent::Done { reason, message }), state));
@@ -544,6 +549,7 @@ impl Provider for OpenAIProvider {
                         // instead of silently losing it.
                         None => {
                             state.done = true;
+                            state.finalize_tool_call_arguments();
                             let reason = state.partial.stop_reason;
                             let message = std::mem::take(&mut state.partial);
                             return Some((Ok(StreamEvent::Done { reason, message }), state));
@@ -828,8 +834,13 @@ where
 
                 // Update ID if present
 
+                // The `id` and `name` are sent whole in the first delta for a
+                // tool-call index (only `arguments` is streamed in fragments).
+                // Assign rather than append: a backend that re-sends the full id
+                // or name on later deltas would otherwise corrupt them into
+                // `call_abccall_abc`, breaking tool-result correlation.
                 if let Some(id) = tc_delta.id {
-                    tc.id.push_str(&id);
+                    tc.id = id;
 
                     if let Some(ContentBlock::ToolCall(block)) =
                         self.partial.content.get_mut(content_index)
@@ -842,7 +853,7 @@ where
 
                 if let Some(function) = tc_delta.function {
                     if let Some(name) = function.name {
-                        tc.name.push_str(&name);
+                        tc.name = name;
 
                         if let Some(ContentBlock::ToolCall(block)) =
                             self.partial.content.get_mut(content_index)

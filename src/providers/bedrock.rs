@@ -297,6 +297,7 @@ impl BedrockProvider {
                             thought_signature: None,
                         }));
                     }
+                    BedrockResponseContent::Unknown(_) => {}
                 }
             }
         }
@@ -757,6 +758,11 @@ enum BedrockResponseContent {
         #[serde(rename = "toolUse")]
         tool_use: BedrockResponseToolUse,
     },
+    /// Any other Converse content block (e.g. `reasoningContent`, `guardContent`).
+    /// Kept as a catch-all so one unrecognized block does not fail
+    /// deserialization of the whole response and discard the completed turn.
+    /// Must be last: `#[serde(untagged)]` tries variants in order.
+    Unknown(serde::de::IgnoredAny),
 }
 
 #[derive(Debug, Deserialize)]

@@ -640,8 +640,18 @@ where
     fn process_response(&mut self, response: GeminiStreamResponse) -> Result<()> {
         // Handle usage metadata
         if let Some(metadata) = response.usage_metadata {
-            self.partial.usage.input = metadata.prompt_token_count.unwrap_or(0);
-            self.partial.usage.output = metadata.candidates_token_count.unwrap_or(0);
+            let cached = metadata.cached_content_token_count.unwrap_or(0);
+            // `prompt_token_count` includes cached tokens; bill `input` and
+            // `cache_read` separately to avoid double-charging cached input.
+            self.partial.usage.input = metadata
+                .prompt_token_count
+                .unwrap_or(0)
+                .saturating_sub(cached);
+            self.partial.usage.cache_read = cached;
+            // `candidates_token_count` excludes thinking tokens; add them so
+            // output (and output cost) reflects the full generated token count.
+            self.partial.usage.output = metadata.candidates_token_count.unwrap_or(0)
+                + metadata.thoughts_token_count.unwrap_or(0);
             self.partial.usage.total_tokens = metadata.total_token_count.unwrap_or(0);
         }
 
@@ -673,12 +683,27 @@ where
 
         // Handle finish reason
         if let Some(reason) = candidate.finish_reason.as_deref() {
-            self.partial.stop_reason = match reason {
+            let mapped = match reason {
                 "MAX_TOKENS" => StopReason::Length,
                 "SAFETY" | "RECITATION" | "OTHER" => StopReason::Error,
                 "FUNCTION_CALL" => StopReason::ToolUse,
                 // STOP and any other reason treated as normal stop
                 _ => StopReason::Stop,
+            };
+            // Gemini often emits a trailing usage/finish-only chunk with
+            // `finishReason: "STOP"` after a `functionCall` chunk. Don't let that
+            // downgrade an already-established ToolUse (which would leave the
+            // agent loop unaware of the pending tool call): keep ToolUse whenever
+            // a tool call is present and the model didn't error or truncate.
+            let has_tool_call = self
+                .partial
+                .content
+                .iter()
+                .any(|block| matches!(block, ContentBlock::ToolCall(_)));
+            self.partial.stop_reason = if mapped == StopReason::Stop && has_tool_call {
+                StopReason::ToolUse
+            } else {
+                mapped
             };
         }
 
@@ -950,6 +975,13 @@ pub(crate) struct GeminiUsageMetadata {
     pub(crate) candidates_token_count: Option<u64>,
     #[serde(default)]
     pub(crate) total_token_count: Option<u64>,
+    /// Thinking tokens. `candidates_token_count` excludes these on 2.5+ models,
+    /// so they must be added to output to avoid undercounting.
+    #[serde(default)]
+    pub(crate) thoughts_token_count: Option<u64>,
+    /// Implicit/explicit context-cache hit tokens, billed at the cache-read rate.
+    #[serde(default)]
+    pub(crate) cached_content_token_count: Option<u64>,
 }
 
 // ============================================================================

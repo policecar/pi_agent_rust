@@ -158,19 +158,23 @@ impl VertexProvider {
             return url.clone();
         }
 
-        let method = if self.publisher == "anthropic" {
-            "streamRawPredict"
+        let (method, query) = if self.publisher == "anthropic" {
+            ("streamRawPredict", "")
         } else {
-            "streamGenerateContent"
+            // `streamGenerateContent` returns a JSON array unless `?alt=sse` is
+            // requested; without it the SSE parser sees no `data:` lines and the
+            // stream ends empty. Mirrors the native Gemini transport (gemini.rs).
+            ("streamGenerateContent", "?alt=sse")
         };
 
         format!(
-            "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/{publisher}/models/{model}:{method}",
+            "https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/{publisher}/models/{model}:{method}{query}",
             location = location,
             project = project,
             publisher = self.publisher,
             model = self.model,
             method = method,
+            query = query,
         )
     }
 
@@ -252,6 +256,20 @@ impl Provider for VertexProvider {
         context: &Context<'_>,
         options: &StreamOptions,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
+        // Anthropic-on-Vertex uses the `streamRawPredict` endpoint with an
+        // Anthropic Messages request/response shape, not the Gemini shape this
+        // provider builds and parses. Rather than send a malformed Gemini body
+        // (which the endpoint rejects, or silently parses to an empty stream),
+        // fail explicitly until the Anthropic transport is wired up here.
+        if self.publisher == "anthropic" {
+            return Err(Error::provider(
+                "google-vertex",
+                "Anthropic models on Vertex AI (publishers/anthropic) are not yet \
+                 supported by this transport; use a native Anthropic provider or a \
+                 Google-published Vertex model.",
+            ));
+        }
+
         // Resolve auth: Bearer token for Vertex AI.
         let auth_value = options
             .api_key
@@ -699,7 +717,7 @@ mod tests {
         let url = provider.streaming_url("my-project", "us-central1");
         assert_eq!(
             url,
-            "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/gemini-2.0-flash:streamGenerateContent"
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/gemini-2.0-flash:streamGenerateContent?alt=sse"
         );
     }
 

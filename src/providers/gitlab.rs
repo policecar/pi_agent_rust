@@ -299,12 +299,13 @@ impl Provider for GitLabProvider {
 
         // Parse the response — try JSON first, fall back to plain text.
         let response_text = if let Ok(parsed) = serde_json::from_str::<GitLabChatResponse>(&text) {
-            if !parsed.response.is_empty() {
-                parsed.response
-            } else if !parsed.content.is_empty() {
+            // A recognized envelope with both fields empty means an empty reply;
+            // returning the raw JSON text here would surface `{"response":""}`
+            // to the user as the assistant's answer.
+            if parsed.response.is_empty() {
                 parsed.content
             } else {
-                text
+                parsed.response
             }
         } else {
             // Plain text response.

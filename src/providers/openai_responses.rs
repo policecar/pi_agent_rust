@@ -7,7 +7,7 @@ use crate::error::{Error, Result};
 use crate::http::client::Client;
 use crate::model::{
     AssistantMessage, ContentBlock, Message, StopReason, StreamEvent, TextContent, ThinkingContent,
-    ToolCall, Usage, UserContent,
+    ThinkingLevel, ToolCall, Usage, UserContent,
 };
 use crate::models::CompatConfig;
 use crate::provider::{Context, Provider, StreamOptions, ToolDef};
@@ -123,10 +123,14 @@ impl OpenAIResponsesProvider {
         // Codex mode requires additional fields per the TS reference implementation.
         // tool_choice and parallel_tool_calls are always sent (not conditional on tools).
         let (tool_choice, parallel_tool_calls, text, include, reasoning) = if self.codex_mode {
-            let effort = options
-                .thinking_level
-                .as_ref()
-                .map_or_else(|| "high".to_string(), ToString::to_string);
+            // The Responses/Codex `reasoning.effort` accepts
+            // minimal|low|medium|high|xhigh — not "off". Map a disabled thinking
+            // level to the lowest valid effort so the request isn't 400'd.
+            let effort = match options.thinking_level.as_ref() {
+                None => "high".to_string(),
+                Some(ThinkingLevel::Off) => "minimal".to_string(),
+                Some(level) => level.to_string(),
+            };
             (
                 Some("auto"),
                 Some(true),
@@ -1009,7 +1013,12 @@ where
             | OpenAIResponsesChunk::ResponseDone { response }
             | OpenAIResponsesChunk::ResponseIncomplete { response } => {
                 self.ensure_started();
-                self.partial.usage.input = response.usage.input_tokens;
+                let cached = response.usage.cached_tokens();
+                // `input_tokens` includes cached tokens; the cost model bills
+                // `input` and `cache_read` separately, so subtract to avoid
+                // double-charging cached input at the full input rate.
+                self.partial.usage.input = response.usage.input_tokens.saturating_sub(cached);
+                self.partial.usage.cache_read = cached;
                 self.partial.usage.output = response.usage.output_tokens;
                 self.partial.usage.total_tokens = response
                     .usage
@@ -1645,6 +1654,24 @@ struct OpenAIResponsesUsage {
     output_tokens: u64,
     #[serde(default)]
     total_tokens: Option<u64>,
+    #[serde(default)]
+    input_tokens_details: Option<OpenAIResponsesInputTokensDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIResponsesInputTokensDetails {
+    #[serde(default)]
+    cached_tokens: Option<u64>,
+}
+
+impl OpenAIResponsesUsage {
+    /// Cached input tokens, if the server reported them.
+    fn cached_tokens(&self) -> u64 {
+        self.input_tokens_details
+            .as_ref()
+            .and_then(|details| details.cached_tokens)
+            .unwrap_or(0)
+    }
 }
 
 impl OpenAIResponsesDonePayload {

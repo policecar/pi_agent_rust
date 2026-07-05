@@ -178,9 +178,25 @@ impl AzureOpenAIProvider {
             Some(context.tools.iter().map(convert_tool_to_azure).collect())
         };
 
+        // Some Azure deployments (o-series, gpt-5) reject `max_tokens` and
+        // require `max_completion_tokens`; honor the compat escape hatch, same
+        // as the OpenAI transport.
+        let use_alt_field = self
+            .compat
+            .as_ref()
+            .and_then(|c| c.max_tokens_field.as_deref())
+            .is_some_and(|f| f == "max_completion_tokens");
+        let token_limit = options.max_tokens.or(Some(DEFAULT_MAX_TOKENS));
+        let (max_tokens, max_completion_tokens) = if use_alt_field {
+            (None, token_limit)
+        } else {
+            (token_limit, None)
+        };
+
         AzureRequest {
             messages,
-            max_tokens: options.max_tokens.or(Some(DEFAULT_MAX_TOKENS)),
+            max_tokens,
+            max_completion_tokens,
             temperature: options.temperature,
             tools,
             stream: true,
@@ -323,6 +339,11 @@ impl Provider for AzureOpenAIProvider {
                             // Azure also sends "[DONE]" as final message
                             if msg.data == "[DONE]" {
                                 state.done = true;
+                                // Parse any tool-call arguments accumulated as a
+                                // raw string; otherwise a server that finishes on
+                                // [DONE] without a finish_reason chunk yields tool
+                                // calls with null arguments. Idempotent.
+                                state.finalize_tool_call_arguments();
                                 let reason = state.partial.stop_reason;
                                 let message = std::mem::take(&mut state.partial);
                                 return Some((Ok(StreamEvent::Done { reason, message }), state));
@@ -367,6 +388,7 @@ impl Provider for AzureOpenAIProvider {
                         // instead of silently losing it.
                         None => {
                             state.done = true;
+                            state.finalize_tool_call_arguments();
                             let reason = state.partial.stop_reason;
                             let message = std::mem::take(&mut state.partial);
                             return Some((Ok(StreamEvent::Done { reason, message }), state));
@@ -491,7 +513,14 @@ where
 
         // Process usage if present
         if let Some(usage) = chunk.usage {
-            self.partial.usage.input = usage.prompt_tokens;
+            let cached = usage
+                .prompt_tokens_details
+                .and_then(|details| details.cached_tokens)
+                .unwrap_or(0);
+            self.partial.usage.cache_read = cached;
+            // `prompt_tokens` includes cached tokens; bill `input` and
+            // `cache_read` separately to avoid double-charging cached input.
+            self.partial.usage.input = usage.prompt_tokens.saturating_sub(cached);
             self.partial.usage.output = usage.completion_tokens.unwrap_or(0);
             self.partial.usage.total_tokens = usage.total_tokens;
         }
@@ -656,6 +685,8 @@ pub struct AzureRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<AzureTool>>,
@@ -779,6 +810,14 @@ struct AzureUsage {
     completion_tokens: Option<u64>,
     #[allow(dead_code)]
     total_tokens: u64,
+    #[serde(default)]
+    prompt_tokens_details: Option<AzurePromptTokensDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AzurePromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: Option<u64>,
 }
 
 // ============================================================================
