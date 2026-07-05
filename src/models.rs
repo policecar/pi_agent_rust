@@ -2938,6 +2938,85 @@ mod tests {
         assert!(!cohere.auth_header);
     }
 
+    /// End-to-end coverage for gh #122 (custom base URL for custom providers).
+    ///
+    /// The canonical use case is pointing an OpenAI-compatible provider at a
+    /// user-supplied endpoint (a local model server, a proxy, or an alternate
+    /// gateway). This exercises the full path: the `baseUrl` from a
+    /// user-defined provider in `models.json` flows through
+    /// `apply_custom_models` onto the model entry, and the transport-facing URL
+    /// builder (`normalize_openai_base`) turns it into the correct request
+    /// endpoint — appending the API path exactly once and not doubling the
+    /// slash introduced by a trailing `/`. It also asserts that omitting
+    /// `baseUrl` leaves the default endpoint unchanged.
+    #[test]
+    fn apply_custom_models_honors_custom_base_url_for_openai_compatible_provider() {
+        use crate::providers::normalize_openai_base;
+
+        let (_dir, auth) = test_auth_storage();
+
+        // (1) Custom provider WITH an explicit base_url. A trailing slash is
+        // included deliberately to exercise path-join robustness.
+        let mut models = Vec::new();
+        let config = ModelsConfig {
+            providers: HashMap::from([(
+                "my-local".to_string(),
+                ProviderConfig {
+                    api: Some("openai-completions".to_string()),
+                    base_url: Some("http://localhost:11434/v1/".to_string()),
+                    models: Some(vec![ModelConfig {
+                        id: "llama-3.1-70b".to_string(),
+                        ..ModelConfig::default()
+                    }]),
+                    ..ProviderConfig::default()
+                },
+            )]),
+        };
+        apply_custom_models(&auth, &mut models, &config, None);
+
+        let entry = models
+            .iter()
+            .find(|entry| entry.model.provider == "my-local")
+            .expect("custom provider model should be added");
+        // The configured base URL is carried onto the model entry verbatim;
+        // normalization to a concrete request endpoint happens at request time.
+        assert_eq!(entry.model.base_url, "http://localhost:11434/v1/");
+        // The transport builds the correct endpoint: the API path is appended
+        // exactly once and the trailing '/' does not produce a doubled slash.
+        assert_eq!(
+            normalize_openai_base(&entry.model.base_url),
+            "http://localhost:11434/v1/chat/completions"
+        );
+
+        // (2) Custom provider WITHOUT a base_url falls back to the
+        // openai-completions default endpoint (unchanged default behavior).
+        let mut defaulted = Vec::new();
+        let default_config = ModelsConfig {
+            providers: HashMap::from([(
+                "my-proxy".to_string(),
+                ProviderConfig {
+                    api: Some("openai-completions".to_string()),
+                    models: Some(vec![ModelConfig {
+                        id: "proxy-model".to_string(),
+                        ..ModelConfig::default()
+                    }]),
+                    ..ProviderConfig::default()
+                },
+            )]),
+        };
+        apply_custom_models(&auth, &mut defaulted, &default_config, None);
+
+        let default_entry = defaulted
+            .iter()
+            .find(|entry| entry.model.provider == "my-proxy")
+            .expect("defaulted custom provider model should be added");
+        assert_eq!(default_entry.model.base_url, "https://api.openai.com/v1");
+        assert_eq!(
+            normalize_openai_base(&default_entry.model.base_url),
+            "https://api.openai.com/v1/chat/completions"
+        );
+    }
+
     #[test]
     fn apply_custom_models_merges_provider_and_model_compat() {
         let (_dir, auth) = test_auth_storage();
