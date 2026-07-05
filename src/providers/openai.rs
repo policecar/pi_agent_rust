@@ -1014,15 +1014,12 @@ enum OpenAIContent<'a> {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum OpenAIContentPart<'a> {
     Text { text: Cow<'a, str> },
-    ImageUrl { image_url: OpenAIImageUrl<'a> },
+    ImageUrl { image_url: OpenAIImageUrl },
 }
 
 #[derive(Debug, Serialize)]
-struct OpenAIImageUrl<'a> {
+struct OpenAIImageUrl {
     url: String,
-    #[serde(skip)]
-    // Phantom data for lifetime if needed, but url is String here as constructed from format!
-    _phantom: std::marker::PhantomData<&'a ()>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1212,10 +1209,7 @@ fn convert_message_to_openai(message: &Message) -> Vec<OpenAIMessage<'_>> {
                     ContentBlock::Image(img) => {
                         let url = format!("data:{};base64,{}", img.mime_type, img.data);
                         image_parts.push(OpenAIContentPart::ImageUrl {
-                            image_url: OpenAIImageUrl {
-                                url,
-                                _phantom: std::marker::PhantomData,
-                            },
+                            image_url: OpenAIImageUrl { url },
                         });
                     }
                     _ => {}
@@ -1271,10 +1265,7 @@ fn convert_user_content(content: &UserContent) -> OpenAIContent<'_> {
                         // Convert to data URL for OpenAI
                         let url = format!("data:{};base64,{}", img.mime_type, img.data);
                         Some(OpenAIContentPart::ImageUrl {
-                            image_url: OpenAIImageUrl {
-                                url,
-                                _phantom: std::marker::PhantomData,
-                            },
+                            image_url: OpenAIImageUrl { url },
                         })
                     }
                     _ => None,

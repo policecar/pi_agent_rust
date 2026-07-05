@@ -630,29 +630,14 @@ pub fn truncate_tail(
         content
     });
 
-    // If we have a partial last line, we need to append the *rest* of the content
-    // that we successfully kept (the `byte_count` lines).
-    // Wait, `partial_output` replaces the *current line*.
-    // The previous successful lines are in `content[old_start_idx..]`.
-    // My logic above for partial output:
-    // `truncated_chunk` is the partial tail of the *current line*.
-    // We need to prepend it to the lines we already collected?
-    // Actually, `content` is the full string.
-    // We are scanning backwards.
-    // `start_idx` tracks the start of the valid suffix so far.
-    // When we hit the byte limit, we are at `line_start..start_idx`.
-    // `truncated_chunk` is the tail of *that* segment.
-    // So final output = `truncated_chunk` + `content[start_idx..]`.
-
+    // On the byte-truncation path, `output` holds only the truncated tail of the
+    // current line; append the suffix of whole lines already collected from the
+    // backward scan (`content[start_idx..]`) so the result is
+    // `truncated_chunk + kept_lines`.
     if let Some(suffix) = partial_suffix {
-        // Need to reconstruct.
-        // `output` is currently just the truncated chunk.
-        // We need to append the previously accumulated suffix.
-        // `content` still holds everything.
-        // `start_idx` points to the start of the *valid* suffix from previous iters.
         output.push_str(&suffix);
-        // Recalculate line count from the final output.
-        // Since truncated output is bounded (<= max_bytes), this scan is cheap.
+        // Recompute the line count from the final output. It is bounded by
+        // max_bytes, so this scan is cheap.
         let mut count = memchr::memchr_iter(b'\n', output.as_bytes()).count();
         if !output.ends_with('\n') && !output.is_empty() {
             count += 1;
