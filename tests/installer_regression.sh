@@ -386,6 +386,31 @@ run_installer() {
   )
 }
 
+# Like run_installer, but pipes the script via stdin (`... | bash -s -- args`),
+# reproducing `curl ... | bash` where BASH_SOURCE[0] is empty. Used to prove the
+# bundled-skill detection does not treat $PWD as a trusted script directory.
+run_installer_piped() {
+  local dir="$1"
+  shift
+  local out="${dir}/output.log"
+  local rc_file="${dir}/exit_code"
+  local path_value="${dir}/fakebin:/usr/bin:/bin"
+  local run_cwd="${PI_INSTALLER_TEST_CWD:-$PWD}"
+
+  (
+    set +e
+    cd "$run_cwd" || exit 1
+    HOME="${dir}/home" \
+    XDG_STATE_HOME="${dir}/state" \
+    XDG_DATA_HOME="${dir}/data" \
+    XDG_CONFIG_HOME="${dir}/config" \
+    PATH="${path_value}" \
+    SHELL="/bin/bash" \
+    bash -s -- "$@" <"${INSTALLER}" >"${out}" 2>&1
+    echo "$?" > "${rc_file}"
+  )
+}
+
 run_uninstaller() {
   local dir="$1"
   shift
@@ -448,7 +473,13 @@ assert_file_contains() {
 
 run_test() {
   local name="$1"
-  if "$name"; then
+  # Run in a subshell with errexit re-enabled. Calling `if "$name"` directly
+  # disables `set -e` inside the test body (bash suppresses errexit for the
+  # whole function when it runs as an `if` condition), so a failed non-final
+  # assertion would be ignored and only the last command's status counted.
+  local rc=0
+  ( set -e; "$name" ) || rc=$?
+  if [ "$rc" -eq 0 ]; then
     PASS_COUNT=$((PASS_COUNT + 1))
     echo "[PASS] ${name}"
   else
@@ -1061,6 +1092,45 @@ SKILL
   [ -f "$claude_commands" ] || { echo "missing Claude reference docs after shadow cwd install" >&2; return 1; }
   if grep -Fq "SHADOW SKILL FROM PWD" "$claude_skill"; then
     echo "installer should ignore shadow skill content from PWD" >&2
+    return 1
+  fi
+}
+
+# Guards the `curl ... | bash` path specifically: when piped, BASH_SOURCE[0] is
+# empty and a naive `dirname` resolves the script dir to $PWD, which would let a
+# repo the user is sitting in inject $PWD/.claude/skills/... as a "bundled" skill.
+test_agent_skill_piped_install_ignores_shadow_pwd_skill() {
+  local dir artifact artifact_url checksum shadow_skill claude_skill
+  dir="$(case_dir "agent-skills-piped-shadow-pwd")"
+  write_existing_pi_stub "$dir"
+
+  mkdir -p "${dir}/shadow/.claude/skills/pi-agent-rust"
+  shadow_skill="${dir}/shadow/.claude/skills/pi-agent-rust/SKILL.md"
+  cat > "$shadow_skill" <<'SKILL'
+# SHADOW SKILL FROM PWD
+SKILL
+
+  artifact="${dir}/fixtures/pi-fixture"
+  write_artifact_binary "$artifact" "unsupported"
+  artifact_url="file://${artifact}"
+  checksum="$(sha256_file "$artifact")"
+
+  # Same args as the file-path shadow test, but piped via stdin so BASH_SOURCE[0]
+  # is not a real file. The install must reach the skill step and fall back to
+  # the inline content, never treating the $PWD shadow skill as bundled.
+  PI_INSTALLER_TEST_CWD="${dir}/shadow" run_installer_piped "$dir" \
+    --yes --no-gum --offline \
+    --version v9.9.9 \
+    --dest "${dir}/dest" \
+    --artifact-url "${artifact_url}" \
+    --checksum "${checksum}" \
+    --no-completions
+
+  assert_exit_code "$dir" 0
+  claude_skill="${dir}/home/.claude/skills/pi-agent-rust/SKILL.md"
+  [ -f "$claude_skill" ] || { echo "missing Claude skill after piped install" >&2; return 1; }
+  if grep -Fq "SHADOW SKILL FROM PWD" "$claude_skill"; then
+    echo "piped installer must not install shadow skill content from PWD" >&2
     return 1
   fi
 }
@@ -1851,6 +1921,7 @@ main() {
   run_test test_legacy_cleanup_skips_unexpected_settings_paths
   run_test test_agent_skills_install_by_default
   run_test test_agent_skill_install_ignores_shadow_pwd_skill
+  run_test test_agent_skill_piped_install_ignores_shadow_pwd_skill
   run_test test_no_agent_skills_opt_out
   run_test test_existing_custom_skill_dirs_are_not_overwritten
   run_test test_skill_copy_failure_preserves_existing_managed_skills

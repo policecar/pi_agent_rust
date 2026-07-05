@@ -3125,18 +3125,33 @@ install_agent_skills() {
   local source_desc="inline"
   local bundled_dir=""
 
+  # Only trust a "bundled" skill next to the script when we are actually running
+  # from a script file on disk. When the installer is piped (`curl ... | bash`),
+  # BASH_SOURCE[0] is empty, so `dirname ""` -> "." and script_dir would resolve
+  # to $PWD — which would let any repo the user happens to be sitting in inject a
+  # $PWD/.claude/skills/... payload as if it were bundled. Require a real source.
   local script_dir=""
-  local script_dir_candidate=""
-  if script_dir_candidate="$(cd "$(dirname "${BASH_SOURCE[0]:-}")" 2>/dev/null && pwd -P)"; then
-    script_dir="$script_dir_candidate"
+  local script_src="${BASH_SOURCE[0]:-}"
+  if [ -n "$script_src" ] && [ -f "$script_src" ]; then
+    local script_dir_candidate=""
+    if script_dir_candidate="$(cd "$(dirname "$script_src")" 2>/dev/null && pwd -P)"; then
+      script_dir="$script_dir_candidate"
+    fi
   fi
-  local bundled_candidate=""
-  bundled_candidate="$script_dir/.claude/skills/${AGENT_SKILL_NAME}"
-  if [ -f "$bundled_candidate/SKILL.md" ]; then
-    bundled_dir="$bundled_candidate"
+  if [ -n "$script_dir" ]; then
+    local bundled_candidate=""
+    bundled_candidate="$script_dir/.claude/skills/${AGENT_SKILL_NAME}"
+    if [ -f "$bundled_candidate/SKILL.md" ]; then
+      bundled_dir="$bundled_candidate"
+    fi
   fi
 
   local temp_skill_dir=""
+  # Clean up the staging dir on every exit from this function. The success and
+  # partial-success branches below `return 0` early, so a single trailing
+  # cleanup would leak the mktemp'd tree on every non-bundled install.
+  # shellcheck disable=SC2064
+  trap 'if [ -n "$temp_skill_dir" ] && [ -d "$temp_skill_dir" ]; then remove_path_recursively "$temp_skill_dir" 2>/dev/null || true; fi; trap - RETURN' RETURN
   if [ -n "$bundled_dir" ]; then
     source_kind="dir"
     source_path="$bundled_dir"
@@ -3258,10 +3273,7 @@ install_agent_skills() {
   else
     AGENT_SKILL_STATUS="failed (unable to write skill files)"
   fi
-
-  if [ -n "$temp_skill_dir" ] && [ -d "$temp_skill_dir" ]; then
-    remove_path_recursively "$temp_skill_dir" 2>/dev/null || true
-  fi
+  # temp_skill_dir is removed by the RETURN trap installed above.
 }
 
 load_existing_state() {

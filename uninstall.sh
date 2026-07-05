@@ -562,8 +562,12 @@ remove_installed_binary() {
 
   if [ -n "$PIAR_INSTALL_BIN" ] && [ -e "$PIAR_INSTALL_BIN" ]; then
     if is_rust_pi_binary "$PIAR_INSTALL_BIN"; then
-      remove_file_if_exists "$PIAR_INSTALL_BIN" && removed=1
-      ok "Removed Rust binary: $PIAR_INSTALL_BIN"
+      if remove_file_if_exists "$PIAR_INSTALL_BIN"; then
+        removed=1
+        ok "Removed Rust binary: $PIAR_INSTALL_BIN"
+      else
+        warn "Failed to remove Rust binary: $PIAR_INSTALL_BIN"
+      fi
     else
       warn "Skipping non-Rust binary at recorded path: $PIAR_INSTALL_BIN"
     fi
@@ -573,8 +577,12 @@ remove_installed_binary() {
     while IFS= read -r cand; do
       [ -n "$cand" ] || continue
       if [ -e "$cand" ] && is_rust_pi_binary "$cand"; then
-        remove_file_if_exists "$cand" && removed=1
-        ok "Removed Rust binary: $cand"
+        if remove_file_if_exists "$cand"; then
+          removed=1
+          ok "Removed Rust binary: $cand"
+        else
+          warn "Failed to remove Rust binary: $cand"
+        fi
       fi
     done < <(fallback_binary_candidates)
   fi
@@ -636,8 +644,12 @@ remove_compat_alias() {
 
   if [ -n "$PIAR_COMPAT_ALIAS_PATH" ] && [ -e "$PIAR_COMPAT_ALIAS_PATH" ]; then
     if is_managed_alias "$PIAR_COMPAT_ALIAS_PATH"; then
-      remove_file_if_exists "$PIAR_COMPAT_ALIAS_PATH" && removed=1
-      ok "Removed compatibility alias: $PIAR_COMPAT_ALIAS_PATH"
+      if remove_file_if_exists "$PIAR_COMPAT_ALIAS_PATH"; then
+        removed=1
+        ok "Removed compatibility alias: $PIAR_COMPAT_ALIAS_PATH"
+      else
+        warn "Failed to remove compatibility alias: $PIAR_COMPAT_ALIAS_PATH"
+      fi
     else
       warn "Skipping non-managed compatibility alias: $PIAR_COMPAT_ALIAS_PATH"
     fi
@@ -647,8 +659,12 @@ remove_compat_alias() {
     while IFS= read -r cand; do
       [ -n "$cand" ] || continue
       if [ -e "$cand" ] && is_managed_alias "$cand"; then
-        remove_file_if_exists "$cand" && removed=1
-        ok "Removed compatibility alias: $cand"
+        if remove_file_if_exists "$cand"; then
+          removed=1
+          ok "Removed compatibility alias: $cand"
+        else
+          warn "Failed to remove compatibility alias: $cand"
+        fi
       fi
     done < <(fallback_alias_candidates)
   fi
@@ -693,7 +709,18 @@ remove_state() {
     ok "Removed installer state file"
   fi
 
-  if [ "$PURGE_STATE" -eq 1 ] || [ -z "$(ls -A "$STATE_DIR" 2>/dev/null || true)" ]; then
+  if [ "$PURGE_STATE" -eq 1 ]; then
+    # Purge means remove the whole installer state dir, including any extra
+    # files. A plain `rmdir` would fail (and silently no-op) on a non-empty dir.
+    if [ -d "$STATE_DIR" ]; then
+      remove_path_recursively "$STATE_DIR" 2>/dev/null || true
+      if [ ! -e "$STATE_DIR" ]; then
+        ok "Purged installer state directory: $STATE_DIR"
+      else
+        warn "Failed to purge installer state directory: $STATE_DIR"
+      fi
+    fi
+  elif [ -z "$(ls -A "$STATE_DIR" 2>/dev/null || true)" ]; then
     rmdir "$STATE_DIR" 2>/dev/null || true
   fi
 }
