@@ -261,7 +261,11 @@ pub enum AuthCredential {
         /// Any additional keys present in an upstream-written OAuth credential,
         /// preserved verbatim so a load→save round-trip never drops fields
         /// (upstream `OAuthCredentials` is `{ access, refresh, expires, [key]: unknown }`).
-        #[serde(flatten, default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+        #[serde(
+            flatten,
+            default,
+            skip_serializing_if = "std::collections::HashMap::is_empty"
+        )]
         extra: std::collections::HashMap<String, serde_json::Value>,
     },
     /// AWS IAM credentials for providers like Amazon Bedrock.
@@ -3209,7 +3213,6 @@ fn kimi_common_headers() -> Vec<(String, String)> {
         ),
     ]
 }
-
 
 #[cfg(unix)]
 fn sync_parent_dir(path: &Path) -> std::io::Result<()> {

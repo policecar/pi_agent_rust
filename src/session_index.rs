@@ -1388,7 +1388,10 @@ mod tests {
             .expect_err("expected lock timeout while held");
         assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
         drop(guard1);
-        assert!(!lock_path.exists(), "lock directory must be removed on release");
+        assert!(
+            !lock_path.exists(),
+            "lock directory must be removed on release"
+        );
 
         let _guard2 =
             DirLock::acquire(&lock_path, Duration::from_millis(50)).expect("lock after release");

@@ -131,8 +131,7 @@ impl DirLock {
                     #[cfg(unix)]
                     {
                         use std::os::unix::fs::PermissionsExt as _;
-                        let _ =
-                            fs::set_permissions(lock_path, fs::Permissions::from_mode(0o700));
+                        let _ = fs::set_permissions(lock_path, fs::Permissions::from_mode(0o700));
                     }
                     return Ok(DirLock {
                         lock_path: lock_path.to_path_buf(),
@@ -273,7 +272,10 @@ mod tests {
         {
             let _g = DirLock::acquire(&lp, Duration::from_millis(500))
                 .expect("should heal stale regular file and acquire");
-            assert!(lp.is_dir(), "poisoning file must be replaced by a directory");
+            assert!(
+                lp.is_dir(),
+                "poisoning file must be replaced by a directory"
+            );
         }
         assert!(!lp.exists());
     }

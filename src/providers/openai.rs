@@ -623,12 +623,24 @@ where
 
         // Handle usage in final chunk
         if let Some(usage) = chunk.usage {
-            self.partial.usage.input = usage.prompt_tokens;
+            let cached = usage
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|details| details.cached_tokens)
+                .unwrap_or(0);
+            self.partial.usage.cache_read = cached;
+            // Anthropic convention (used across all transports): `usage.input`
+            // EXCLUDES cache reads so that `input + cache_read` reconstructs the
+            // full prompt. OpenAI-style APIs report `prompt_tokens` INCLUDING
+            // cached tokens, so subtract the cached count (saturating to avoid
+            // underflow if a provider ever reports cached > prompt). DeepSeek
+            // exposes the miss count directly via `prompt_cache_miss_tokens`;
+            // prefer it when present as a more robust source.
+            self.partial.usage.input = usage
+                .prompt_cache_miss_tokens
+                .unwrap_or_else(|| usage.prompt_tokens.saturating_sub(cached));
             self.partial.usage.output = usage.completion_tokens.unwrap_or(0);
             self.partial.usage.total_tokens = usage.total_tokens;
-            if let Some(details) = usage.prompt_tokens_details {
-                self.partial.usage.cache_read = details.cached_tokens.unwrap_or(0);
-            }
         }
 
         if let Some(error) = chunk.error {
@@ -1085,6 +1097,10 @@ struct OpenAIUsage {
     total_tokens: u64,
     #[serde(default)]
     prompt_tokens_details: Option<OpenAIPromptTokensDetails>,
+    /// DeepSeek reports the cache-miss (uncached) prompt token count directly.
+    /// When present it is the authoritative source for `usage.input`.
+    #[serde(default)]
+    prompt_cache_miss_tokens: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2621,6 +2637,65 @@ mod tests {
             let empty = stream::empty::<std::result::Result<Vec<u8>, std::io::Error>>();
             let sse = crate::sse::SseStream::new(Box::pin(empty));
             StreamState::new(sse, "gpt-test".into(), "openai".into(), "openai".into())
+        }
+
+        /// Regression for #121: cached prompt tokens must not be double-counted.
+        /// `prompt_tokens` includes cached tokens, so `usage.input` must exclude
+        /// them (`prompt_tokens - cached_tokens`) while `cache_read` keeps the
+        /// cached count, matching the Anthropic convention where
+        /// `input + cache_read` reconstructs the full prompt.
+        #[test]
+        fn cache_heavy_usage_excludes_cache_reads_from_input() {
+            let mut state = make_state();
+            let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":172405,"completion_tokens":40,"total_tokens":172445,"prompt_tokens_details":{"cached_tokens":172288}}}"#;
+            state.process_event(chunk).expect("process usage chunk");
+
+            assert_eq!(state.partial.usage.input, 117);
+            assert_eq!(state.partial.usage.cache_read, 172_288);
+            assert_eq!(state.partial.usage.output, 40);
+            assert_eq!(state.partial.usage.total_tokens, 172_445);
+            // input + cache_read reconstructs the full prompt token count.
+            assert_eq!(
+                state.partial.usage.input + state.partial.usage.cache_read,
+                172_405
+            );
+        }
+
+        /// DeepSeek reports the cache-miss count directly; prefer it over
+        /// subtraction as the authoritative source for `usage.input`.
+        #[test]
+        fn deepseek_prompt_cache_miss_tokens_is_authoritative_for_input() {
+            let mut state = make_state();
+            let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000,"completion_tokens":20,"total_tokens":1020,"prompt_cache_miss_tokens":128,"prompt_tokens_details":{"cached_tokens":872}}}"#;
+            state.process_event(chunk).expect("process usage chunk");
+
+            assert_eq!(state.partial.usage.input, 128);
+            assert_eq!(state.partial.usage.cache_read, 872);
+        }
+
+        /// Guard against underflow: if a provider ever reports more cached
+        /// tokens than prompt tokens, `input` saturates to 0 rather than
+        /// wrapping around.
+        #[test]
+        fn cached_greater_than_prompt_saturates_input_to_zero() {
+            let mut state = make_state();
+            let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"total_tokens":105,"prompt_tokens_details":{"cached_tokens":250}}}"#;
+            state.process_event(chunk).expect("process usage chunk");
+
+            assert_eq!(state.partial.usage.input, 0);
+            assert_eq!(state.partial.usage.cache_read, 250);
+        }
+
+        /// No cache details: `input` equals `prompt_tokens` and `cache_read`
+        /// stays zero (no regression for the common uncached case).
+        #[test]
+        fn usage_without_cache_details_maps_input_directly() {
+            let mut state = make_state();
+            let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":500,"completion_tokens":10,"total_tokens":510}}"#;
+            state.process_event(chunk).expect("process usage chunk");
+
+            assert_eq!(state.partial.usage.input, 500);
+            assert_eq!(state.partial.usage.cache_read, 0);
         }
 
         fn small_string() -> impl Strategy<Value = String> {
