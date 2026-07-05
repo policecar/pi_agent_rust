@@ -3518,7 +3518,13 @@ pub(crate) async fn run_bash_command(
             .timer_driver()
             .map_or_else(wall_now, |timer| timer.now());
         let drain_deadline = drain_start + Duration::from_secs(5);
-        let allow_drain_cancellation = !cancelled && !timed_out && exit_code.is_none();
+        // Once the command itself has exited (`exit_code` is set), any remaining
+        // drain wait is only for lingering pipe holders (e.g. a grandchild that
+        // inherited the fd), so let the user cancel out of it. The previous
+        // `!cancelled && !timed_out && exit_code.is_none()` was always false —
+        // every path into this drain sets one of those three — so the checkpoint
+        // below was dead and the drain was uninterruptible.
+        let allow_drain_cancellation = exit_code.is_some();
         loop {
             // Drain everything currently available in the channel.
             let mut got_data = false;
@@ -3844,21 +3850,22 @@ fn strip_bom(s: &str) -> (&str, bool) {
 
 fn detect_line_ending(content: &str) -> &'static str {
     let bytes = content.as_bytes();
-    let mut idx = 0;
-    while idx < bytes.len() {
-        match bytes[idx] {
-            b'\r' => {
-                return if bytes.get(idx + 1) == Some(&b'\n') {
-                    "\r\n"
-                } else {
-                    "\r"
-                };
+    // Decide off the first real line terminator ('\n'): "\r\n" if that '\n' is
+    // preceded by '\r', otherwise "\n". A bare interior '\r' before the first
+    // '\n' (e.g. a carriage return inside an otherwise-LF file) must NOT be
+    // mistaken for a classic-Mac "\r" ending, which would rewrite the whole
+    // replacement with bare-CR endings. Only when the file has no '\n' at all
+    // does a present '\r' indicate classic-Mac line endings.
+    bytes.iter().position(|&b| b == b'\n').map_or_else(
+        || if bytes.contains(&b'\r') { "\r" } else { "\n" },
+        |nl| {
+            if nl > 0 && bytes[nl - 1] == b'\r' {
+                "\r\n"
+            } else {
+                "\n"
             }
-            b'\n' => return "\n",
-            _ => idx += 1,
-        }
-    }
-    "\n"
+        },
+    )
 }
 
 fn normalize_to_lf(text: &str) -> String {
@@ -6958,12 +6965,14 @@ async fn get_file_lines_async<'a>(
             }
         };
         let content = String::from_utf8_lossy(&bytes);
+        // Split on '\n' only — ripgrep numbers lines by '\n', so a bare interior
+        // '\r' must NOT start a new line here or the cache indices (and the
+        // hashline tags derived from them) would drift from the line numbers rg
+        // reports. Strip a trailing '\r' to normalize CRLF endings.
         let mut lines = Vec::new();
         for line in content.split('\n') {
             let trimmed = line.strip_suffix('\r').unwrap_or(line);
-            for piece in trimmed.split('\r') {
-                lines.push(piece.to_string());
-            }
+            lines.push(trimmed.to_string());
         }
         if content.ends_with('\n') && lines.last().is_some_and(std::string::String::is_empty) {
             lines.pop();
@@ -7694,6 +7703,7 @@ impl Tool for HashlineEditTool {
             temp_file
                 .persist(&absolute_path_clone)
                 .map_err(|e| e.error)?;
+            sync_parent_dir(&absolute_path_clone)?;
             Ok(())
         })
         .await
