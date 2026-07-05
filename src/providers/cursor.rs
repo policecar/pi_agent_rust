@@ -189,6 +189,11 @@ mod pb {
 const CONNECT_END_STREAM_FLAG: u8 = 0b0000_0010;
 /// Connect compression flag (bit 0).
 const CONNECT_COMPRESSED_FLAG: u8 = 0b0000_0001;
+/// Upper bound on a single Connect frame's declared payload length. The length
+/// prefix is server-controlled, so this caps how much we will buffer for one
+/// frame; agent stream frames are small (per-delta), and 64 MiB is far above any
+/// legitimate frame while still bounding memory against a hostile length prefix.
+const MAX_CONNECT_FRAME_LEN: usize = 64 * 1024 * 1024;
 
 /// Wrap a payload in a Connect envelope: `[flag][len: u32 BE][payload]`.
 #[allow(clippy::cast_possible_truncation)] // request payloads are far below u32::MAX
@@ -201,6 +206,7 @@ fn encode_frame(flags: u8, payload: &[u8]) -> Vec<u8> {
 }
 
 /// A fully-decoded Connect frame.
+#[derive(Debug)]
 struct ConnectFrame {
     end_stream: bool,
     compressed: bool,
@@ -220,23 +226,36 @@ impl FrameBuffer {
     }
 
     /// Pop the next complete frame if one is fully buffered.
-    fn next_frame(&mut self) -> Option<ConnectFrame> {
+    ///
+    /// Returns `None` while the next frame is still incomplete, `Some(Ok(frame))`
+    /// once a full frame is buffered, and `Some(Err(..))` if the frame's declared
+    /// length exceeds [`MAX_CONNECT_FRAME_LEN`]. The length is attacker-influenced
+    /// (a 4-byte prefix up to `u32::MAX`), so without the cap a single hostile or
+    /// buggy prefix would make the buffer grow without bound waiting for bytes
+    /// that never arrive — an out-of-memory vector. We can't resync past a frame
+    /// whose length we don't trust, so an over-cap length is a fatal stream error.
+    fn next_frame(&mut self) -> Option<Result<ConnectFrame>> {
         if self.buf.len() < 5 {
             return None;
         }
         let flags = self.buf[0];
         let len = u32::from_be_bytes([self.buf[1], self.buf[2], self.buf[3], self.buf[4]]) as usize;
+        if len > MAX_CONNECT_FRAME_LEN {
+            return Some(Err(Error::api(format!(
+                "Cursor stream frame length {len} exceeds the maximum of {MAX_CONNECT_FRAME_LEN} bytes"
+            ))));
+        }
         let total = 5usize.checked_add(len)?;
         if self.buf.len() < total {
             return None;
         }
         let payload = self.buf[5..total].to_vec();
         self.buf.drain(0..total);
-        Some(ConnectFrame {
+        Some(Ok(ConnectFrame {
             end_stream: flags & CONNECT_END_STREAM_FLAG != 0,
             compressed: flags & CONNECT_COMPRESSED_FLAG != 0,
             payload,
-        })
+        }))
     }
 }
 
@@ -620,6 +639,12 @@ impl StreamState {
                 }
             }
             self.finalize();
+            // The end-of-stream frame is the protocol terminator: stop reading so
+            // we neither process data frames that arrive after `Done` nor block on
+            // `source.next()` if the server holds the HTTP body open. `finalize`
+            // has already enqueued the terminal `Done`/`Error` into `pending`,
+            // which `next_event` drains before it observes `done`.
+            self.done = true;
             return Ok(());
         }
         for event in decode_server_message(&frame.payload) {
@@ -679,12 +704,21 @@ impl StreamState {
                 return None;
             }
 
-            if let Some(frame) = self.frames.next_frame() {
-                if let Err(err) = self.process_frame(&frame) {
+            match self.frames.next_frame() {
+                Some(Ok(frame)) => {
+                    if let Err(err) = self.process_frame(&frame) {
+                        self.done = true;
+                        return Some(Err(err));
+                    }
+                    continue;
+                }
+                Some(Err(err)) => {
+                    // Malformed framing (e.g. an over-cap length prefix): the
+                    // stream can't be resynced, so surface it and stop reading.
                     self.done = true;
                     return Some(Err(err));
                 }
-                continue;
+                None => {}
             }
 
             match self.source.next().await {
@@ -929,7 +963,7 @@ mod tests {
         for byte in &a {
             fb.push(&[*byte]);
             while let Some(frame) = fb.next_frame() {
-                frames.push(frame);
+                frames.push(frame.expect("valid frame"));
             }
         }
         assert_eq!(frames.len(), 2);
@@ -943,6 +977,35 @@ mod tests {
     fn frame_length_prefix_is_big_endian() {
         let frame = encode_frame(0, &[0xAB, 0xCD]);
         assert_eq!(&frame[0..5], &[0x00, 0x00, 0x00, 0x00, 0x02]);
+    }
+
+    #[test]
+    fn frame_over_max_length_is_error_not_unbounded_buffering() {
+        // A hostile/buggy length prefix declaring more than MAX_CONNECT_FRAME_LEN
+        // must be reported as an error rather than making FrameBuffer grow without
+        // bound waiting for bytes that will never arrive.
+        let mut header = vec![0u8]; // flags
+        let over = (MAX_CONNECT_FRAME_LEN as u32) + 1;
+        header.extend_from_slice(&over.to_be_bytes());
+        let mut fb = FrameBuffer::default();
+        fb.push(&header);
+        match fb.next_frame() {
+            Some(Err(_)) => {}
+            other => panic!("expected Some(Err(..)) for over-cap frame length, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn frame_at_max_length_boundary_is_accepted() {
+        // A length exactly at the cap is allowed (only strictly-greater is rejected).
+        let payload = vec![0x7u8; 3];
+        let mut fb = FrameBuffer::default();
+        fb.push(&encode_frame(0, &payload));
+        let frame = fb
+            .next_frame()
+            .expect("frame buffered")
+            .expect("within cap");
+        assert_eq!(frame.payload, payload);
     }
 
     // ── request encoding ────────────────────────────────────────────────
