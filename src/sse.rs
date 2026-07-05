@@ -604,6 +604,15 @@ where
                     }
                 }
                 Poll::Ready(Some(Err(e))) => {
+                    // A transport error is terminal, exactly like a UTF-8 decode
+                    // error or EOF: clear buffered state and stop so a consumer
+                    // driving `while let Some(item) = stream.next().await` does not
+                    // re-poll the inner body after it has already errored (and so
+                    // stale buffered events are not replayed as if healthy).
+                    self.pending_events.clear();
+                    self.utf8_buffer.clear();
+                    self.parser = SseParser::new();
+                    self.terminated = true;
                     return Poll::Ready(Some(Err(e)));
                 }
                 Poll::Ready(None) => {

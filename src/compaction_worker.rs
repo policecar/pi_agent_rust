@@ -278,7 +278,21 @@ impl CompactionWorkerState {
 
     /// Non-blocking check for a completed compaction result.
     pub async fn try_recv(&mut self) -> Option<CompactionOutcome> {
-        // Check timeout first (read-only borrow, then drop before mutation).
+        // Claim a finished result before considering the timeout: a task that
+        // completed successfully must not be discarded as "timed out" just
+        // because the caller polled late (e.g. an idle gap between turns longer
+        // than the compaction timeout). A genuinely hung task is never finished,
+        // so the timeout path below still fires for it.
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(PendingCompaction::is_finished)
+        {
+            let pending = self.pending.take()?;
+            return Some(pending.join.await);
+        }
+
+        // Not finished: enforce the timeout on a still-running task.
         let timed_out = self
             .pending
             .as_ref()
@@ -293,16 +307,7 @@ impl CompactionWorkerState {
             )));
         }
 
-        if !self
-            .pending
-            .as_ref()
-            .is_some_and(PendingCompaction::is_finished)
-        {
-            return None;
-        }
-
-        let pending = self.pending.take()?;
-        Some(pending.join.await)
+        None
     }
 
     /// Spawn a background compaction on the provided runtime.

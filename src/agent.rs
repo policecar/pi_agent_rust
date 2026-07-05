@@ -9877,14 +9877,20 @@ fn semantic_context_prompt_budget_for_provider(
 ) -> SemanticContextPromptBudget {
     let provider_max_bytes = match api {
         "gitlab-chat" => 8 * 1024,
-        "bedrock-converse-stream" | "google-gemini" | "google-vertex" => 12 * 1024,
+        "bedrock-converse-stream"
+        | "google-generative-ai"
+        | "google-gemini-cli"
+        | "google-vertex" => 12 * 1024,
         "openai-responses" | "openai-completions" | "azure-openai" => 24 * 1024,
-        "anthropic" => 32 * 1024,
+        "anthropic-messages" => 32 * 1024,
         _ => DEFAULT_SEMANTIC_CONTEXT_PROMPT_MAX_BYTES,
     };
     let provider_max_items = match api {
         "gitlab-chat" => 8,
-        "bedrock-converse-stream" | "google-gemini" | "google-vertex" => 12,
+        "bedrock-converse-stream"
+        | "google-generative-ai"
+        | "google-gemini-cli"
+        | "google-vertex" => 12,
         _ => DEFAULT_SEMANTIC_CONTEXT_PROMPT_MAX_ITEMS,
     };
 
