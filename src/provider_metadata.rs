@@ -155,6 +155,23 @@ pub const PROVIDER_METADATA: &[ProviderMetadata] = &[
         test_obligations: TEST_REQUIRED,
     },
     ProviderMetadata {
+        canonical_id: "cursor",
+        display_name: Some("Cursor"),
+        aliases: &["cursor-agent"],
+        auth_env_keys: &["CURSOR_API_KEY", "CURSOR_ACCESS_TOKEN"],
+        onboarding: ProviderOnboardingMode::BuiltInNative,
+        routing_defaults: Some(ProviderRoutingDefaults {
+            api: "cursor-agent",
+            base_url: "https://api2.cursor.sh/agent.v1.AgentService/Run",
+            auth_header: true,
+            reasoning: true,
+            input: &INPUT_TEXT,
+            context_window: 200_000,
+            max_tokens: 64_000,
+        }),
+        test_obligations: TEST_REQUIRED,
+    },
+    ProviderMetadata {
         canonical_id: "groq",
         display_name: Some("Groq"),
         aliases: &[],

@@ -31,6 +31,7 @@ pub mod azure;
 pub mod bedrock;
 pub mod cohere;
 pub mod copilot;
+pub mod cursor;
 pub mod gemini;
 pub mod gitlab;
 pub mod model_fetch;
@@ -134,6 +135,7 @@ enum ProviderRouteKind {
     NativeOpenAIResponses,
     NativeOpenAICodexResponses,
     NativeCohere,
+    NativeCursor,
     NativeGoogle,
     NativeGoogleGeminiCli,
     NativeGoogleVertex,
@@ -158,6 +160,7 @@ impl ProviderRouteKind {
             Self::NativeOpenAIResponses => "native:openai-responses",
             Self::NativeOpenAICodexResponses => "native:openai-codex-responses",
             Self::NativeCohere => "native:cohere",
+            Self::NativeCursor => "native:cursor",
             Self::NativeGoogle => "native:google",
             Self::NativeGoogleGeminiCli => "native:google-gemini-cli",
             Self::NativeGoogleVertex => "native:google-vertex",
@@ -197,6 +200,7 @@ fn resolve_provider_route(entry: &ModelEntry) -> Result<(ProviderRouteKind, Stri
         }
         "openai-codex" => ProviderRouteKind::NativeOpenAICodexResponses,
         "cohere" => ProviderRouteKind::NativeCohere,
+        "cursor" => ProviderRouteKind::NativeCursor,
         "google" => ProviderRouteKind::NativeGoogle,
         "google-gemini-cli" | "google-antigravity" => ProviderRouteKind::NativeGoogleGeminiCli,
         "google-vertex" | "vertexai" => ProviderRouteKind::NativeGoogleVertex,
@@ -957,6 +961,12 @@ pub fn create_provider(
                 .with_compat(entry.compat.clone())
                 .with_client(client),
         )),
+        ProviderRouteKind::NativeCursor => Ok(Arc::new(
+            cursor::CursorProvider::new(entry.model.id.clone())
+                .with_provider_name(entry.model.provider.clone())
+                .with_base_url(normalize_cursor_base(&entry.model.base_url))
+                .with_client(client),
+        )),
         ProviderRouteKind::NativeCohere | ProviderRouteKind::ApiCohereChat => Ok(Arc::new(
             cohere::CohereProvider::new(entry.model.id.clone())
                 .with_provider_name(entry.model.provider.clone())
@@ -1237,6 +1247,34 @@ pub fn normalize_cohere_base(base_url: &str) -> String {
         return base_url;
     }
     format!("{base_url}/chat")
+}
+
+/// Normalize a Cursor base URL into the full Connect RPC endpoint.
+///
+/// Accepts an empty string (uses the default), a bare origin such as
+/// `https://api2.cursor.sh` (appends the RPC path), or a full path already
+/// ending in `/agent.v1.AgentService/Run`.
+pub fn normalize_cursor_base(base_url: &str) -> String {
+    const RPC_PATH: &str = "agent.v1.AgentService/Run";
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() {
+        return cursor::CURSOR_API_URL.to_string();
+    }
+
+    if let Ok(url) = Url::parse(trimmed) {
+        if !url.cannot_be_a_base() {
+            if trimmed_url_path(&url).ends_with(&format!("/{RPC_PATH}")) {
+                return canonicalize_url_path(&url);
+            }
+            return append_url_path(&url, RPC_PATH);
+        }
+    }
+
+    let base = trimmed.trim_end_matches('/');
+    if base.ends_with(RPC_PATH) {
+        return base.to_string();
+    }
+    format!("{base}/{RPC_PATH}")
 }
 
 #[cfg(test)]
