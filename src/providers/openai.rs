@@ -583,6 +583,153 @@ struct ToolCallState {
     arguments: String,
 }
 
+/// Best-effort completion of a partial JSON document into the most-complete
+/// valid `Value` it can represent (#124).
+///
+/// Streaming tool-call `arguments` arrive as a growing prefix of a JSON object
+/// (e.g. `{"path": "src/li`). Snapshot-based clients render the partial
+/// message's `arguments`, so leaving it `Null` until the terminal event makes a
+/// large tool call pop in all at once instead of streaming like text. This
+/// closes an open string and any open objects/arrays, dropping a dangling
+/// trailing comma or `"key":` (a key with no value yet) so the prefix parses.
+///
+/// Safety: it only ever CLOSES structure that is already open — it never
+/// fabricates content — and returns `None` when the prefix still can't be
+/// parsed, so the caller keeps the last good value. The result is therefore
+/// always either a valid `Value` that is a faithful completion of the prefix,
+/// or `None`; it can never surface wrong data.
+fn complete_partial_json(input: &str) -> Option<serde_json::Value> {
+    let s = input.trim();
+    if s.is_empty() {
+        return None;
+    }
+    // Fast path: the accumulated prefix is already valid JSON.
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(s) {
+        return Some(value);
+    }
+
+    // Structural scan to learn what is still open.
+    let mut closers: Vec<char> = Vec::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    for byte in s.bytes() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' => closers.push('}'),
+            b'[' => closers.push(']'),
+            b'}' | b']' => {
+                closers.pop();
+            }
+            _ => {}
+        }
+    }
+
+    let mut out = String::from(s);
+    if in_string {
+        if escaped {
+            // Dangling escape backslash (`..."ab\`) — drop it before closing.
+            out.pop();
+        }
+        out.push('"');
+    }
+
+    // Close each open container, trimming a dangling tail before its closer so
+    // the result parses.
+    while let Some(closer) = closers.pop() {
+        trim_dangling_json_tail(&mut out, closer == '}');
+        out.push(closer);
+    }
+
+    serde_json::from_str::<serde_json::Value>(&out).ok()
+}
+
+/// Before appending a container's closer, drop a trailing comma, and (for an
+/// object) a dangling `"key":` or bare `"key"` (a key with no value yet), so the
+/// closed container is valid JSON. A complete `"key": "value"` member is left
+/// intact — a trailing string preceded by `:` is a value, not a dangling key.
+fn trim_dangling_json_tail(out: &mut String, is_object: bool) {
+    loop {
+        let before = out.len();
+        while out.ends_with(char::is_whitespace) {
+            out.pop();
+        }
+        if out.ends_with(',') {
+            out.pop();
+            continue;
+        }
+        if is_object {
+            // `"key":` with no value yet → drop the colon and the key string.
+            if out.ends_with(':') {
+                out.pop();
+                while out.ends_with(char::is_whitespace) {
+                    out.pop();
+                }
+                remove_trailing_json_string(out);
+                continue;
+            }
+            // A trailing string: a value (preceded by `:`) means the member is
+            // complete — stop and close. Otherwise (preceded by `,`/`{`) it's a
+            // dangling key with no colon yet → drop it.
+            if let Some(start) = trailing_json_string_start(out) {
+                let preceded_by_colon = out[..start].trim_end().ends_with(':');
+                if preceded_by_colon {
+                    break;
+                }
+                out.truncate(start);
+                continue;
+            }
+        }
+        if out.len() == before {
+            break;
+        }
+    }
+}
+
+/// Byte index of the opening quote of the JSON string literal that `out` ends
+/// with (honoring backslash escapes), or `None` if `out` does not end with a
+/// closing quote.
+fn trailing_json_string_start(out: &str) -> Option<usize> {
+    let bytes = out.as_bytes();
+    if bytes.last() != Some(&b'"') {
+        return None;
+    }
+    let mut i = bytes.len() - 1; // the closing quote
+    while i > 0 {
+        i -= 1;
+        if bytes[i] == b'"' {
+            // Count preceding backslashes to tell an escaped quote from the open.
+            let mut backslashes = 0usize;
+            let mut j = i;
+            while j > 0 && bytes[j - 1] == b'\\' {
+                backslashes += 1;
+                j -= 1;
+            }
+            if backslashes % 2 == 0 {
+                return Some(i);
+            }
+        }
+    }
+    None
+}
+
+/// Remove a complete trailing JSON string literal (`"..."`, honoring escapes)
+/// from `out`. No-op if `out` does not end with a closing quote.
+fn remove_trailing_json_string(out: &mut String) {
+    if let Some(start) = trailing_json_string_start(out) {
+        out.truncate(start);
+    }
+}
+
 impl<S> StreamState<S>
 where
     S: Stream<Item = std::result::Result<Vec<u8>, std::io::Error>> + Unpin,
@@ -854,14 +1001,23 @@ where
                     if let Some(args) = function.arguments {
                         tc.arguments.push_str(&args);
 
-                        // Update arguments in partial (best effort parse, or just raw string if we supported it)
+                        // #124: keep the partial block's `arguments` growing as
+                        // deltas arrive, so snapshot-based clients (RPC/ACP IDE
+                        // frontends) render a large tool call as it streams
+                        // instead of a pause then a pop-in. `complete_partial_json`
+                        // best-effort closes the accumulated prefix into valid
+                        // JSON; on an un-completable fragment it returns None and
+                        // we keep the last good value (never wrong data). The
+                        // terminal event still sets the fully-parsed arguments.
+                        if let Some(partial_args) = complete_partial_json(&tc.arguments) {
+                            if let Some(ContentBlock::ToolCall(block)) =
+                                self.partial.content.get_mut(content_index)
+                            {
+                                block.arguments = partial_args;
+                            }
+                        }
 
-                        // Note: We don't update partial.arguments here because it requires valid JSON.
-
-                        // We only update it at the end or if we switched to storing raw string args.
-
-                        // But we MUST emit the delta.
-
+                        // The delta is still emitted for streaming consumers.
                         self.pending_events.push_back(StreamEvent::ToolCallDelta {
                             content_index,
 
@@ -1298,6 +1454,75 @@ mod tests {
     use serde_json::{Value, json};
     use std::collections::HashMap;
     use std::io::{Read, Write};
+
+    /// #124: the partial-JSON completer gives snapshot clients live tool-call
+    /// arguments. Each accumulated prefix must complete to a valid `Value` that
+    /// faithfully reflects the content so far (closing open structure only),
+    /// and an un-completable fragment yields `None` (caller keeps last value).
+    #[test]
+    fn complete_partial_json_streams_tool_call_arguments() {
+        // Growing prefixes of `{"path": "src/lib.rs", "content": "hello"}`.
+        assert_eq!(complete_partial_json(""), None);
+        assert_eq!(complete_partial_json("{"), Some(json!({})));
+        assert_eq!(
+            complete_partial_json(r#"{"path": "src/li"#),
+            Some(json!({"path": "src/li"}))
+        );
+        assert_eq!(
+            complete_partial_json(r#"{"path": "src/lib.rs""#),
+            Some(json!({"path": "src/lib.rs"}))
+        );
+        // Complete member — must be kept, not stripped.
+        assert_eq!(
+            complete_partial_json(r#"{"path": "src/lib.rs""#),
+            Some(json!({"path": "src/lib.rs"}))
+        );
+        // Trailing comma dropped.
+        assert_eq!(
+            complete_partial_json(r#"{"path": "src/lib.rs", "#),
+            Some(json!({"path": "src/lib.rs"}))
+        );
+        // Dangling `"key":` (no value yet) dropped; complete member kept.
+        assert_eq!(
+            complete_partial_json(r#"{"path": "src/lib.rs", "content":"#),
+            Some(json!({"path": "src/lib.rs"}))
+        );
+        // Dangling bare key (no colon yet) dropped.
+        assert_eq!(
+            complete_partial_json(r#"{"path": "src/lib.rs", "content"#),
+            Some(json!({"path": "src/lib.rs"}))
+        );
+        // Complete document round-trips.
+        assert_eq!(
+            complete_partial_json(r#"{"path": "src/lib.rs", "content": "hello"}"#),
+            Some(json!({"path": "src/lib.rs", "content": "hello"}))
+        );
+    }
+
+    #[test]
+    fn complete_partial_json_handles_arrays_escapes_and_unparseable() {
+        // Open array + trailing comma.
+        assert_eq!(
+            complete_partial_json(r#"{"items": [1, 2, "#),
+            Some(json!({"items": [1, 2]}))
+        );
+        assert_eq!(
+            complete_partial_json(r#"{"items": [1, 2"#),
+            Some(json!({"items": [1, 2]}))
+        );
+        // Escaped quote inside an open string is preserved.
+        assert_eq!(
+            complete_partial_json(r#"{"a": "b\"c"#),
+            Some(json!({"a": "b\"c"}))
+        );
+        // Dangling escape backslash is dropped before closing.
+        assert_eq!(
+            complete_partial_json(r#"{"a": "bc\"#),
+            Some(json!({"a": "bc"}))
+        );
+        // A partially-typed bare literal can't be closed safely → None.
+        assert_eq!(complete_partial_json(r#"{"a": tr"#), None);
+    }
     use std::net::TcpListener;
     use std::path::PathBuf;
     use std::sync::mpsc;
