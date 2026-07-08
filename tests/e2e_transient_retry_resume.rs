@@ -33,8 +33,8 @@ use pi::tools::ToolRegistry;
 use serde_json::json;
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 fn tool_names() -> [&'static str; 7] {
     ["read", "write", "edit", "bash", "grep", "find", "ls"]
@@ -268,9 +268,9 @@ fn run_case(mode: FailMode) -> DriverOutcome {
         let provider = Arc::clone(&provider);
         let tool_starts = Arc::clone(&tool_starts);
         async move {
-            let session = Arc::new(asupersync::sync::Mutex::new(Session::create_with_dir(Some(
-                cwd.clone(),
-            ))));
+            let session = Arc::new(asupersync::sync::Mutex::new(Session::create_with_dir(
+                Some(cwd.clone()),
+            )));
             let mut sess =
                 make_agent_session(&cwd, Arc::clone(&provider) as Arc<dyn Provider>, session);
             run_with_retry_driver(&mut sess, prompt_ref(), &provider, &tool_starts).await
