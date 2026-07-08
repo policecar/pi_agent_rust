@@ -6904,30 +6904,17 @@ where
 
                 sleep_with_current_timer(Duration::from_millis(u64::from(delay_ms))).await;
 
-                // Revert the failed user message before retrying to prevent context duplication.
-                let _ = session.revert_last_user_message().await;
-
-                // Re-send the same prompt (matches RPC retry behaviour).
-                current_result = match &input {
-                    PromptInput::Text(text) => {
-                        session
-                            .run_text_with_abort(
-                                text.clone(),
-                                Some(abort_signal.clone()),
-                                make_event_handler(),
-                            )
-                            .await
-                    }
-                    PromptInput::Content(content) => {
-                        session
-                            .run_with_content_with_abort(
-                                content.clone(),
-                                Some(abort_signal.clone()),
-                                make_event_handler(),
-                            )
-                            .await
-                    }
-                };
+                // Resume the turn instead of replaying it: strip only the failed
+                // request's incomplete output (a transient drop leaves a partial
+                // or error assistant), preserving the user prompt and every
+                // completed tool cycle, then continue the loop. This re-issues
+                // only the failed provider request — already-executed tool calls
+                // are not re-run and prior work is not re-billed
+                // (pi_agent_rust#125). Matches RPC retry behaviour.
+                let _ = session.revert_incomplete_response().await;
+                current_result = session
+                    .run_continue_with_abort(Some(abort_signal.clone()), make_event_handler())
+                    .await;
             }
             Ok(msg) => {
                 // Success or non-retryable error or max retries reached.
@@ -6967,31 +6954,17 @@ where
 
                     sleep_with_current_timer(Duration::from_millis(u64::from(delay_ms))).await;
 
-                    // Revert the failed user message before retrying to prevent context
-                    // duplication when the provider fails before emitting an assistant
-                    // message.
-                    let _ = session.revert_last_user_message().await;
-
-                    current_result = match &input {
-                        PromptInput::Text(text) => {
-                            session
-                                .run_text_with_abort(
-                                    text.clone(),
-                                    Some(abort_signal.clone()),
-                                    make_event_handler(),
-                                )
-                                .await
-                        }
-                        PromptInput::Content(content) => {
-                            session
-                                .run_with_content_with_abort(
-                                    content.clone(),
-                                    Some(abort_signal.clone()),
-                                    make_event_handler(),
-                                )
-                                .await
-                        }
-                    };
+                    // Resume the turn instead of replaying it (pi_agent_rust#125):
+                    // strip only the failed request's incomplete output and
+                    // continue from the last completed state. When the provider
+                    // fails before emitting any assistant message there is nothing
+                    // to strip and the resume simply re-issues the request — but
+                    // any already-completed tool cycles from earlier in the turn
+                    // are preserved rather than re-executed.
+                    let _ = session.revert_incomplete_response().await;
+                    current_result = session
+                        .run_continue_with_abort(Some(abort_signal.clone()), make_event_handler())
+                        .await;
                 } else {
                     if retry_count > 0 && is_json {
                         emit_json_event(&AgentEvent::AutoRetryEnd {

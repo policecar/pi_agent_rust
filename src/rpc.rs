@@ -2219,14 +2219,27 @@ async fn run_prompt_with_retry(
             let event_handler =
                 rpc_agent_event_handler(out_tx.clone(), runtime_for_events, extensions);
 
-            if images.is_empty() {
-                guard
-                    .run_text_with_abort(message.clone(), Some(abort_signal), event_handler)
-                    .await
+            if retry_count == 0 {
+                // First attempt: add the user message and run the turn.
+                if images.is_empty() {
+                    guard
+                        .run_text_with_abort(message.clone(), Some(abort_signal), event_handler)
+                        .await
+                } else {
+                    let blocks = build_prompt_content_blocks(&message, &images);
+                    guard
+                        .run_with_content_with_abort(blocks, Some(abort_signal), event_handler)
+                        .await
+                }
             } else {
-                let blocks = build_prompt_content_blocks(&message, &images);
+                // Retry: resume the turn from the last completed state instead of
+                // replaying it from the user message. The incomplete output of the
+                // failed request was stripped via `revert_incomplete_response`
+                // below; every completed tool cycle stays on the path, so the
+                // retry re-issues only the failed provider request — no tool
+                // re-execution, no re-billing of prior work (pi_agent_rust#125).
                 guard
-                    .run_with_content_with_abort(blocks, Some(abort_signal), event_handler)
+                    .run_continue_with_abort(Some(abort_signal), event_handler)
                     .await
             }
         };
@@ -2340,9 +2353,12 @@ async fn run_prompt_with_retry(
             break;
         }
 
-        // Revert the failed user message before retrying to prevent context duplication.
+        // Strip only the failed request's incomplete output before the resume;
+        // the user prompt and every completed tool cycle stay on the session
+        // path so the retry re-issues only the failed provider request rather
+        // than replaying the whole turn (pi_agent_rust#125).
         if let Ok(mut guard) = OwnedMutexGuard::lock(Arc::clone(&session), &cx).await {
-            let _ = guard.revert_last_user_message().await;
+            let _ = guard.revert_incomplete_response().await;
         }
     }
 

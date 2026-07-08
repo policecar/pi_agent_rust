@@ -3281,6 +3281,59 @@ impl Session {
         reverted_any
     }
 
+    /// Revert only the *incomplete* trailing assistant output of a failed
+    /// request, leaving the user prompt and every completed tool cycle intact.
+    ///
+    /// Unlike [`Self::revert_last_user_message`] (which abandons the whole turn
+    /// back to and including the user message), this walks back from the leaf
+    /// and reverts *only* trailing `Assistant` entries whose `stop_reason` is
+    /// `Error` or `Aborted` — i.e. the partial/error message left behind when a
+    /// transient connection drop kills a mid-turn request. It stops at the first
+    /// entry that is anything else (a `User` prompt, a completed `ToolResult`,
+    /// or a successful `Assistant`). This is the precondition for *resuming* a
+    /// turn (`run_continue`) after a transient failure instead of *replaying* it
+    /// from the user message, which would re-execute already-completed tool
+    /// calls and re-bill prior work (pi_agent_rust#125).
+    ///
+    /// Returns whether any entry was reverted.
+    pub fn revert_incomplete_response(&mut self) -> bool {
+        let mut current_id = self.leaf_id.clone();
+        let mut reverted_any = false;
+
+        while let Some(id) = current_id {
+            let Some(entry) = self.get_entry(&id) else {
+                break;
+            };
+            let is_incomplete_assistant = matches!(
+                entry,
+                SessionEntry::Message(msg_entry)
+                    if matches!(
+                        &msg_entry.message,
+                        SessionMessage::Assistant { message }
+                            if matches!(
+                                message.stop_reason,
+                                StopReason::Error | StopReason::Aborted
+                            )
+                    )
+            );
+            if !is_incomplete_assistant {
+                // Reached the last completed state (user / tool result / success).
+                break;
+            }
+
+            let parent_id = entry.base().parent_id.clone();
+            self.leaf_id.clone_from(&parent_id);
+            self.is_linear = false;
+            reverted_any = true;
+            current_id = parent_id;
+        }
+
+        if reverted_any {
+            self.sync_navigation_state_to_header();
+        }
+        reverted_any
+    }
+
     /// Reset the leaf pointer to root (before any entries).
     ///
     /// After calling this, the next appended entry will become a new root entry
