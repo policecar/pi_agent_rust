@@ -107,6 +107,11 @@ jobs:
     steps:
       - name: Skip unmatched profile
         if: env.SHOULD_RUN != 'true'
+        # Override the job's default working-directory: `pi_agent_rust/` only
+        # exists after the checkout step, which is gated on SHOULD_RUN == 'true'.
+        # For a skipped profile that dir is never created, so cd-ing into it (the
+        # default) fails with "No such file or directory" and reddens the job.
+        working-directory: ${{ github.workspace }}
         run: echo "Skipping ${{ matrix.name }} for event/profile selection"
 
       - name: Free disk space
@@ -216,7 +221,11 @@ jobs:
         run: |
           set -euxo pipefail
           if [[ "${PI_CONFORMANCE_MAX_RETRIES}" -gt 0 ]]; then
-            bash scripts/ci_conformance_retry.sh "${{ matrix.name }}" \
+            # GitHub-hosted runners never have `rch` (the remote-compile helper);
+            # run cargo locally here. Without --no-rch the wrapper defaults to
+            # rch mode and hard-exits 2, which is what has been failing every
+            # nightly conformance run.
+            bash scripts/ci_conformance_retry.sh --no-rch "${{ matrix.name }}" \
               ${{ matrix.test_cmd }} 2>&1 | tee "conformance-${{ matrix.name }}.log"
           else
             ${{ matrix.test_cmd }} 2>&1 | tee "conformance-${{ matrix.name }}.log"
