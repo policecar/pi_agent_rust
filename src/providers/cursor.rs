@@ -167,13 +167,19 @@ mod pb {
                     let end = self.pos.checked_add(8)?;
                     let bytes = self.buf.get(self.pos..end)?;
                     self.pos = end;
-                    Some((field, Field::I64(u64::from_le_bytes(bytes.try_into().ok()?))))
+                    Some((
+                        field,
+                        Field::I64(u64::from_le_bytes(bytes.try_into().ok()?)),
+                    ))
                 }
                 WIRE_I32 => {
                     let end = self.pos.checked_add(4)?;
                     let bytes = self.buf.get(self.pos..end)?;
                     self.pos = end;
-                    Some((field, Field::I32(u32::from_le_bytes(bytes.try_into().ok()?))))
+                    Some((
+                        field,
+                        Field::I32(u32::from_le_bytes(bytes.try_into().ok()?)),
+                    ))
                 }
                 _ => None, // start/end group: not used by agent.v1
             }
@@ -555,17 +561,23 @@ impl StreamState {
         let index = self.partial.content.len();
         match kind {
             BlockKind::Text => {
-                self.partial.content.push(ContentBlock::Text(TextContent::new("")));
-                self.pending
-                    .push_back(StreamEvent::TextStart { content_index: index });
+                self.partial
+                    .content
+                    .push(ContentBlock::Text(TextContent::new("")));
+                self.pending.push_back(StreamEvent::TextStart {
+                    content_index: index,
+                });
             }
             BlockKind::Thinking => {
-                self.partial.content.push(ContentBlock::Thinking(ThinkingContent {
-                    thinking: String::new(),
-                    thinking_signature: None,
-                }));
-                self.pending
-                    .push_back(StreamEvent::ThinkingStart { content_index: index });
+                self.partial
+                    .content
+                    .push(ContentBlock::Thinking(ThinkingContent {
+                        thinking: String::new(),
+                        thinking_signature: None,
+                    }));
+                self.pending.push_back(StreamEvent::ThinkingStart {
+                    content_index: index,
+                });
             }
         }
         self.open_block = Some((index, kind));
@@ -594,7 +606,8 @@ impl StreamState {
                 }
                 self.ensure_started();
                 let index = self.ensure_block(BlockKind::Thinking);
-                if let Some(ContentBlock::Thinking(thinking)) = self.partial.content.get_mut(index) {
+                if let Some(ContentBlock::Thinking(thinking)) = self.partial.content.get_mut(index)
+                {
                     thinking.thinking.push_str(&delta);
                 }
                 self.pending.push_back(StreamEvent::ThinkingDelta {
@@ -838,18 +851,16 @@ impl Provider for CursorProvider {
         let env_token = std::env::var("CURSOR_API_KEY")
             .ok()
             .or_else(|| std::env::var("CURSOR_ACCESS_TOKEN").ok());
-        let token = pick_token(options.api_key.as_deref(), env_token.as_deref()).ok_or_else(
-            || {
+        let token =
+            pick_token(options.api_key.as_deref(), env_token.as_deref()).ok_or_else(|| {
                 Error::provider(
                     &self.provider,
                     "Missing Cursor credentials. Run /login cursor or set CURSOR_API_KEY.",
                 )
-            },
-        )?;
+            })?;
 
-        let user_text = latest_user_text(&context.messages).ok_or_else(|| {
-            Error::provider(&self.provider, "No user message to send to Cursor")
-        })?;
+        let user_text = latest_user_text(&context.messages)
+            .ok_or_else(|| Error::provider(&self.provider, "No user message to send to Cursor"))?;
         let system_prompt = context.system_prompt.as_deref();
         let conversation_id = Uuid::new_v4().to_string();
         let message_id = Uuid::new_v4().to_string();
@@ -913,7 +924,16 @@ mod tests {
 
     #[test]
     fn varint_round_trip() {
-        for value in [0u64, 1, 127, 128, 300, 16_384, u64::from(u32::MAX), u64::MAX] {
+        for value in [
+            0u64,
+            1,
+            127,
+            128,
+            300,
+            16_384,
+            u64::from(u32::MAX),
+            u64::MAX,
+        ] {
             let mut buf = Vec::new();
             pb::write_varint(&mut buf, value);
             let mut reader = pb::Reader::new(&buf);
@@ -1048,7 +1068,10 @@ mod tests {
         let run_request = descend(&bytes, 1).expect("run_request");
         // model_details (3) -> model_id (1)
         let model_details = descend(run_request, 3).expect("model_details");
-        assert_eq!(read_string(model_details, 1).as_deref(), Some("claude-4.5-sonnet"));
+        assert_eq!(
+            read_string(model_details, 1).as_deref(),
+            Some("claude-4.5-sonnet")
+        );
         // conversation_id (5) + custom_system_prompt (8)
         assert_eq!(read_string(run_request, 5).as_deref(), Some("conv-123"));
         assert_eq!(read_string(run_request, 8).as_deref(), Some("You are Pi."));
@@ -1056,7 +1079,10 @@ mod tests {
         let action = descend(run_request, 2).expect("action");
         let uma = descend(action, 1).expect("user_message_action");
         let user_message = descend(uma, 1).expect("user_message");
-        assert_eq!(read_string(user_message, 1).as_deref(), Some("hello cursor"));
+        assert_eq!(
+            read_string(user_message, 1).as_deref(),
+            Some("hello cursor")
+        );
         assert_eq!(read_string(user_message, 2).as_deref(), Some("msg-456"));
     }
 
@@ -1252,7 +1278,10 @@ mod tests {
         assert!(matches!(events[2], StreamEvent::ThinkingDelta { .. }));
         assert!(matches!(
             events[3],
-            StreamEvent::ThinkingEnd { content_index: 0, .. }
+            StreamEvent::ThinkingEnd {
+                content_index: 0,
+                ..
+            }
         ));
         assert!(matches!(
             events[4],
@@ -1261,14 +1290,20 @@ mod tests {
         assert!(matches!(events[5], StreamEvent::TextDelta { .. }));
         assert!(matches!(
             events[6],
-            StreamEvent::TextEnd { content_index: 1, .. }
+            StreamEvent::TextEnd {
+                content_index: 1,
+                ..
+            }
         ));
         assert!(matches!(events[7], StreamEvent::Done { .. }));
     }
 
     #[test]
     fn stream_state_surfaces_end_stream_error() {
-        let events = drive(&[interaction_update(1, "partial")], br#"{"error":{"message":"boom"}}"#);
+        let events = drive(
+            &[interaction_update(1, "partial")],
+            br#"{"error":{"message":"boom"}}"#,
+        );
         match events.last() {
             Some(StreamEvent::Error { reason, error }) => {
                 assert_eq!(*reason, StopReason::Error);
@@ -1282,7 +1317,10 @@ mod tests {
 
     #[test]
     fn pick_token_precedence() {
-        assert_eq!(pick_token(Some("inline"), Some("env")).as_deref(), Some("inline"));
+        assert_eq!(
+            pick_token(Some("inline"), Some("env")).as_deref(),
+            Some("inline")
+        );
         assert_eq!(pick_token(Some("  "), Some("env")).as_deref(), Some("env"));
         assert_eq!(pick_token(None, Some("env")).as_deref(), Some("env"));
         assert_eq!(pick_token(None, None), None);
