@@ -9,8 +9,8 @@ use crate::config::Config;
 use crate::error::{Error, Result};
 use crate::extensions::ExtensionSession;
 use crate::model::{
-    AssistantMessage, ContentBlock, Message, TextContent, ToolResultMessage, UserContent,
-    UserMessage,
+    AssistantMessage, ContentBlock, Message, StopReason, TextContent, ToolResultMessage,
+    UserContent, UserMessage,
 };
 use crate::provider_metadata::{canonical_provider_id, provider_ids_match};
 use crate::session_index::{
