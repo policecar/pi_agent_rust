@@ -4590,7 +4590,10 @@ async fn ingest_bash_rpc_chunk(
                     #[cfg(unix)]
                     if let Some(expected) = expected_inode {
                         use std::os::unix::fs::MetadataExt;
-                        match file.metadata().await {
+                        // asupersync 0.3.6's fs::Metadata no longer exposes the
+                        // inode; re-stat the path with std symlink_metadata
+                        // (does not follow symlinks) for the TOCTOU guard.
+                        match std::fs::symlink_metadata(&path) {
                             Ok(meta) => {
                                 if meta.ino() != expected {
                                     tracing::warn!(
