@@ -628,6 +628,9 @@ impl Connector for HttpConnector {
 }
 
 impl HttpConnector {
+    // The Err payload IS the extension-facing wire format (`HostResultPayload`);
+    // boxing it would churn every hostcall dispatch site for a cold error path.
+    #[allow(clippy::result_large_err)]
     pub async fn dispatch_streaming(
         &self,
         call: &HostCallPayload,

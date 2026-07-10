@@ -2552,8 +2552,7 @@ fn pattern_matches(pattern: &str, candidate: &str) -> bool {
     let normalized_pattern = pattern.replace('\\', "/");
     let candidate = candidate.replace('\\', "/");
     glob::Pattern::new(&normalized_pattern)
-        .ok()
-        .is_some_and(|p| p.matches(&candidate))
+        .is_ok_and(|p| p.matches(&candidate))
 }
 
 fn matches_any_pattern(file_path: &Path, patterns: &[String], base_dir: &Path) -> bool {
@@ -3455,7 +3454,7 @@ fn looks_like_git_url(source: &str) -> bool {
         .any(|host| normalized.starts_with(&format!("{host}/")))
 }
 
-fn looks_like_windows_drive_absolute_path(spec: &str) -> bool {
+const fn looks_like_windows_drive_absolute_path(spec: &str) -> bool {
     let bytes = spec.as_bytes();
     bytes.len() >= 3
         && bytes[0].is_ascii_alphabetic()

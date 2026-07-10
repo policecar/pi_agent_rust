@@ -447,7 +447,7 @@ fn normalize_coverage_path(candidate: &str) -> String {
     normalized
 }
 
-fn looks_like_windows_absolute_path(path: &str) -> bool {
+const fn looks_like_windows_absolute_path(path: &str) -> bool {
     let bytes = path.as_bytes();
     bytes.len() >= 3
         && bytes[0].is_ascii_alphabetic()

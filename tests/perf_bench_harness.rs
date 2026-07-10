@@ -44,8 +44,7 @@ use sysinfo::System;
 
 fn is_quick_mode() -> bool {
     std::env::var("BENCH_QUICK")
-        .ok()
-        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
 fn iterations_override() -> Option<usize> {

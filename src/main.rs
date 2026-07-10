@@ -471,8 +471,7 @@ fn main_impl() -> Result<()> {
         if let Some(pattern) = &cli.list_models {
             let compat_scan_enabled =
                 std::env::var("PI_EXT_COMPAT_SCAN")
-                    .ok()
-                    .is_some_and(|value| {
+                    .is_ok_and(|value| {
                         matches!(
                             value.trim().to_ascii_lowercase().as_str(),
                             "1" | "true" | "yes" | "on"

@@ -99,8 +99,7 @@ fn baseline_dir() -> PathBuf {
 
 fn is_full_mode() -> bool {
     std::env::var("PERF_REGRESSION_FULL")
-        .ok()
-        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
 fn perf_strict_mode_from(raw: Option<&str>) -> bool {

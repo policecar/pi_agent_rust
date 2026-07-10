@@ -84,13 +84,13 @@ fn wrapped_line_segments(line: &str, max_width: usize) -> Vec<&str> {
 }
 
 #[inline]
-fn starts_with_unordered_list_marker(trimmed: &str) -> bool {
+const fn starts_with_unordered_list_marker(trimmed: &str) -> bool {
     let bytes = trimmed.as_bytes();
     bytes.len() >= 2 && matches!(bytes[0], b'-' | b'+' | b'*') && bytes[1].is_ascii_whitespace()
 }
 
 #[inline]
-fn starts_with_ordered_list_marker(trimmed: &str) -> bool {
+const fn starts_with_ordered_list_marker(trimmed: &str) -> bool {
     let bytes = trimmed.as_bytes();
     let mut idx = 0usize;
     while idx < bytes.len() && bytes[idx].is_ascii_digit() {

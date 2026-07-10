@@ -146,8 +146,7 @@ impl TmuxWheelGuard {
     fn install() -> Option<Self> {
         // Respect opt-out env var.
         if std::env::var("PI_TMUX_WHEEL_OVERRIDE")
-            .ok()
-            .is_some_and(|v| v == "0")
+            .is_ok_and(|v| v == "0")
         {
             return None;
         }
@@ -240,7 +239,7 @@ impl TmuxWheelGuard {
         }
     }
 
-    fn next_shell_token_bounds(input: &str, from: usize) -> Option<(usize, usize)> {
+    const fn next_shell_token_bounds(input: &str, from: usize) -> Option<(usize, usize)> {
         let bytes = input.as_bytes();
         let mut idx = from;
         while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
@@ -665,8 +664,7 @@ impl PiApp {
     fn effective_show_hardware_cursor(&self) -> bool {
         self.config.show_hardware_cursor.unwrap_or_else(|| {
             std::env::var("PI_HARDWARE_CURSOR")
-                .ok()
-                .is_some_and(|val| val == "1")
+                .is_ok_and(|val| val == "1")
         })
     }
 
@@ -1661,8 +1659,7 @@ pub async fn run_interactive(
     let should_check_for_updates = config.should_check_for_updates();
     let show_hardware_cursor = config.show_hardware_cursor.unwrap_or_else(|| {
         std::env::var("PI_HARDWARE_CURSOR")
-            .ok()
-            .is_some_and(|val| val == "1")
+            .is_ok_and(|val| val == "1")
     });
     // Mouse capture defaults ON (preserves existing in-app wheel-scroll
     // behaviour). Users on Windows/CMD/Windows Terminal can opt out via
@@ -1672,8 +1669,7 @@ pub async fn run_interactive(
     // the OAuth-flow copy-out problem this solves.
     let disable_mouse_capture = config.disable_mouse_capture.unwrap_or_else(|| {
         std::env::var("PI_NO_MOUSE_CAPTURE")
-            .ok()
-            .is_some_and(|val| val == "1")
+            .is_ok_and(|val| val == "1")
     });
     let mut stdout = std::io::stdout();
     if show_hardware_cursor {

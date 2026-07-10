@@ -7115,7 +7115,7 @@ fn extract_module_exports_object_names(source: &str) -> Vec<String> {
     names.into_iter().collect()
 }
 
-fn is_identifier_boundary(bytes: &[u8], start: usize, len: usize) -> bool {
+const fn is_identifier_boundary(bytes: &[u8], start: usize, len: usize) -> bool {
     let before_ok = start == 0 || !is_js_ident_continue(bytes[start - 1]);
     let end = start + len;
     let after_ok = end >= bytes.len() || !is_js_ident_continue(bytes[end]);

@@ -896,7 +896,7 @@ fn normalize_repo_relative_evidence_path(
     Ok(parts.join("/"))
 }
 
-fn is_windows_absolute_path(path: &str) -> bool {
+const fn is_windows_absolute_path(path: &str) -> bool {
     let bytes = path.as_bytes();
     if bytes.len() < 2 {
         return false;

@@ -61,13 +61,11 @@ pub fn lock_path_for(target: &Path) -> PathBuf {
 /// A future mtime (clock skew) or an unreadable mtime is treated as *fresh*
 /// (i.e. held) so we never steal a lock we cannot prove is abandoned.
 fn is_stale(meta: &fs::Metadata) -> bool {
-    match meta.modified() {
-        Ok(mtime) => SystemTime::now()
+    meta.modified().is_ok_and(|mtime| {
+        SystemTime::now()
             .duration_since(mtime)
-            .map(|age| age > STALE)
-            .unwrap_or(false),
-        Err(_) => false,
-    }
+            .is_ok_and(|age| age > STALE)
+    })
 }
 
 /// Remove whatever occupies the lock path so acquisition can retry.
@@ -116,7 +114,7 @@ impl DirLock {
     ///
     /// Semantics match proper-lockfile: `mkdir` to acquire; on `EEXIST`, reclaim
     /// the lock if its mtime is stale, otherwise wait and retry until `timeout`.
-    pub fn acquire(lock_path: &Path, timeout: Duration) -> io::Result<DirLock> {
+    pub fn acquire(lock_path: &Path, timeout: Duration) -> io::Result<Self> {
         if let Some(parent) = lock_path.parent()
             && !parent.as_os_str().is_empty()
         {
@@ -133,7 +131,7 @@ impl DirLock {
                         use std::os::unix::fs::PermissionsExt as _;
                         let _ = fs::set_permissions(lock_path, fs::Permissions::from_mode(0o700));
                     }
-                    return Ok(DirLock {
+                    return Ok(Self {
                         lock_path: lock_path.to_path_buf(),
                     });
                 }
@@ -169,7 +167,7 @@ impl DirLock {
 
     /// Acquire the directory lock for a `target` file, computing the
     /// `<target>.lock` path with [`lock_path_for`].
-    pub fn acquire_for(target: &Path, timeout: Duration) -> io::Result<DirLock> {
+    pub fn acquire_for(target: &Path, timeout: Duration) -> io::Result<Self> {
         Self::acquire(&lock_path_for(target), timeout)
     }
 }
@@ -183,7 +181,7 @@ fn is_already_exists(e: &io::Error) -> bool {
     }
     #[cfg(unix)]
     {
-        return e.raw_os_error() == Some(ENOTDIR);
+        e.raw_os_error() == Some(ENOTDIR)
     }
     #[cfg(not(unix))]
     {

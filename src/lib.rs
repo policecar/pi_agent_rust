@@ -22,7 +22,14 @@
 // dormant surfaces in extension/session/SDK paths. The no-allow inventory is
 // tracked in bd-63x3v.5.1; keep this crate-wide guard until the remaining
 // subsystems are narrowed in their own patches.
-#![allow(dead_code, clippy::unused_async)]
+// `unused_async_trait_impl` is the nightly-2026-07-05 successor of
+// `unused_async` for async-trait impl fns (new lint name, so the existing
+// allow does not cover it); same rationale as above.
+#![allow(
+    dead_code,
+    clippy::unused_async,
+    clippy::unused_async_trait_impl
+)]
 #![cfg_attr(
     test,
     allow(

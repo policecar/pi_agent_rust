@@ -1005,7 +1005,7 @@ mod tests {
         // must be reported as an error rather than making FrameBuffer grow without
         // bound waiting for bytes that will never arrive.
         let mut header = vec![0u8]; // flags
-        let over = (MAX_CONNECT_FRAME_LEN as u32) + 1;
+        let over = u32::try_from(MAX_CONNECT_FRAME_LEN).expect("cap fits in u32") + 1;
         header.extend_from_slice(&over.to_be_bytes());
         let mut fb = FrameBuffer::default();
         fb.push(&header);
@@ -1031,7 +1031,7 @@ mod tests {
     // ── request encoding ────────────────────────────────────────────────
 
     /// Walk into a nested length-delimited field by number.
-    fn descend<'a>(bytes: &'a [u8], field: u32) -> Option<&'a [u8]> {
+    fn descend(bytes: &[u8], field: u32) -> Option<&[u8]> {
         let mut reader = pb::Reader::new(bytes);
         while let Some((f, value)) = reader.next_field() {
             if f == field {
