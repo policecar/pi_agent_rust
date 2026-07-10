@@ -1985,6 +1985,14 @@ impl Agent {
         // Track whether we've already emitted `MessageStart` for this streaming response.
         // Avoids cloning the full message on every event just to re-emit a redundant start.
         let mut sent_start = false;
+        // #126: raw accumulated tool-call argument fragments, keyed by content
+        // index, for THIS streaming response. Providers keep their own partial's
+        // `arguments` growing (#124), but the partial that RPC/ACP clients
+        // actually receive is rebuilt here from `StreamEvent`s — so the
+        // accumulation and best-effort JSON completion must happen here too,
+        // uniformly for every provider.
+        let mut tool_call_raw_args: std::collections::HashMap<usize, String> =
+            std::collections::HashMap::new();
 
         'stream: loop {
             if checkpoint_cx.checkpoint().is_err() {
@@ -2463,19 +2471,42 @@ impl Agent {
                         .rev()
                         .find(|m| matches!(m, Message::Assistant(_)))
                     {
-                        if msg_arc.content.get(content_index).is_none()
-                            && content_index == msg_arc.content.len()
                         {
                             let msg = Arc::make_mut(msg_arc);
-                            msg.content.push(ContentBlock::ToolCall(ToolCall {
-                                id: String::new(),
-                                name: String::new(),
-                                arguments: serde_json::Value::Null,
-                                thought_signature: None,
-                            }));
+                            if msg.content.get(content_index).is_none()
+                                && content_index == msg.content.len()
+                            {
+                                msg.content.push(ContentBlock::ToolCall(ToolCall {
+                                    id: String::new(),
+                                    name: String::new(),
+                                    arguments: serde_json::Value::Null,
+                                    thought_signature: None,
+                                }));
+                            }
+                            // #126: grow this partial's `arguments` as deltas
+                            // arrive so snapshot-based clients (RPC/ACP IDE
+                            // frontends) render a large tool call streaming in,
+                            // like text, instead of pause-then-pop-in. The #124
+                            // provider-side update mutates the provider's OWN
+                            // partial, which is not the one emitted to clients —
+                            // this one is, so the accumulated prefix must be
+                            // completed here. On an un-completable fragment,
+                            // `complete_partial_json` returns `None` and we keep
+                            // the last good value (never wrong data). The
+                            // terminal `ToolCallEnd` still sets the fully-parsed
+                            // arguments.
+                            let raw = tool_call_raw_args.entry(content_index).or_default();
+                            raw.push_str(&delta);
+                            if let Some(partial_args) =
+                                crate::providers::openai::complete_partial_json(raw)
+                            {
+                                if let Some(ContentBlock::ToolCall(tc)) =
+                                    msg.content.get_mut(content_index)
+                                {
+                                    tc.arguments = partial_args;
+                                }
+                            }
                         }
-                        // No mutation needed for ToolCallDelta – args stay Null until ToolCallEnd.
-                        // Just share the current Arc (O(1) refcount bump, zero deep copies).
                         let shared = Arc::clone(msg_arc);
                         if !sent_start {
                             on_event(AgentEvent::MessageStart {

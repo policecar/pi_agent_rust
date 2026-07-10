@@ -598,7 +598,12 @@ struct ToolCallState {
 /// parsed, so the caller keeps the last good value. The result is therefore
 /// always either a valid `Value` that is a faithful completion of the prefix,
 /// or `None`; it can never surface wrong data.
-fn complete_partial_json(input: &str) -> Option<serde_json::Value> {
+///
+/// Shared with the agent loop (#126): the agent rebuilds the partial message
+/// that RPC/ACP clients actually receive from `StreamEvent`s, so the same
+/// completion must be applied there (for every provider), not only inside this
+/// provider's internal partial.
+pub(crate) fn complete_partial_json(input: &str) -> Option<serde_json::Value> {
     let s = input.trim();
     if s.is_empty() {
         return None;
