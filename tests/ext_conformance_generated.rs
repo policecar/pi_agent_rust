@@ -4558,10 +4558,10 @@ fn conformance_health_delta() {
         PathBuf::from,
     );
 
-    let fail_on_regression = std::env::var("PI_HEALTH_FAIL_ON_REGRESSION")
-        .is_ok_and(|v| v == "true" || v == "1");
-    let update_baseline = std::env::var("PI_HEALTH_UPDATE_BASELINE")
-        .is_ok_and(|v| v == "true" || v == "1");
+    let fail_on_regression =
+        std::env::var("PI_HEALTH_FAIL_ON_REGRESSION").is_ok_and(|v| v == "true" || v == "1");
+    let update_baseline =
+        std::env::var("PI_HEALTH_UPDATE_BASELINE").is_ok_and(|v| v == "true" || v == "1");
 
     let baseline_json: serde_json::Value = if baseline_path.exists() {
         let data = std::fs::read_to_string(&baseline_path).expect("Failed to read baseline");

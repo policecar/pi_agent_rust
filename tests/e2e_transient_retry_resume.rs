@@ -1,5 +1,5 @@
 //! E2E: auto-retry on a transient connection error must RESUME the turn, not
-//! replay it from the user message (pi_agent_rust#125).
+//! replay it from the user message (`pi_agent_rust#125`).
 //!
 //! When a transient connection drop kills a mid-turn provider request — after
 //! one or more tool calls have already executed — the retry must re-issue only
@@ -36,7 +36,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-fn tool_names() -> [&'static str; 7] {
+const fn tool_names() -> [&'static str; 7] {
     ["read", "write", "edit", "bash", "grep", "find", "ls"]
 }
 
@@ -251,10 +251,10 @@ fn run_case(mode: FailMode) -> DriverOutcome {
     let tmp = std::env::temp_dir().join(format!(
         "pi_retry_resume_{}_{}",
         std::process::id(),
-        matches!(mode, FailMode::MidStream) as u8
+        u8::from(matches!(mode, FailMode::MidStream))
     ));
     std::fs::create_dir_all(&tmp).unwrap();
-    let cwd = tmp.clone();
+    let cwd = tmp;
 
     let provider = Arc::new(StepThenTransientProvider {
         tool_call_emissions: AtomicUsize::new(0),

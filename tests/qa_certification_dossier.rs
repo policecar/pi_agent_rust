@@ -1237,7 +1237,7 @@ fn certification_dossier() {
             "tests/non_mock_compliance_gate.rs (19 tests pass)".to_string(),
         ],
         quantified_residuals: vec![
-            format!("3 recording doubles tracked for migration (bd-m9rk)"),
+            "3 recording doubles tracked for migration (bd-m9rk)".to_string(),
             format!(
                 "{inv_high} high-risk entries in inventory (mostly extension_dispatcher inline stubs)"
             ),

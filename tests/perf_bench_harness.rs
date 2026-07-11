@@ -43,8 +43,7 @@ use sysinfo::System;
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 fn is_quick_mode() -> bool {
-    std::env::var("BENCH_QUICK")
-        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    std::env::var("BENCH_QUICK").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
 fn iterations_override() -> Option<usize> {

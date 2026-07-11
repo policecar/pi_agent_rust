@@ -6,6 +6,7 @@ use pi::http::client::Client;
 use pi::vcr::{VcrMode, VcrRecorder};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -140,7 +141,7 @@ async fn run_refresh_scenario(
     auth.set(
         "anthropic",
         AuthCredential::OAuth {
-            extra: Default::default(),
+            extra: HashMap::default(),
             access_token: old_access.clone(),
             refresh_token: old_refresh.clone(),
             expires: near_expiry,
@@ -439,7 +440,7 @@ fn auth_oauth_refresh_race_condition_vcr() {
         auth.set(
             "anthropic",
             AuthCredential::OAuth {
-                extra: Default::default(),
+                extra: HashMap::default(),
                 access_token: "race-old-access".to_string(),
                 refresh_token: "refresh-success".to_string(),
                 expires: chrono::Utc::now().timestamp_millis() + 5 * 60 * 1000,

@@ -919,7 +919,7 @@ fn test_file_reference_path_edge_cases() -> std::result::Result<(), Box<dyn std:
         "pi".to_string(),
         format!("@{}", file_with_dots.display()), // Path with ..
         format!("@{}", file_absolute.display()),  // Absolute path
-        format!("@./relative.txt"),               // Relative path
+        "@./relative.txt".to_string(),            // Relative path
         "@~/home/file.txt".to_string(),           // Tilde path (literal)
         "analyze".to_string(),
     ])

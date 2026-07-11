@@ -145,9 +145,7 @@ impl TmuxWheelGuard {
     /// - `tmux` binary is not available or returns errors
     fn install() -> Option<Self> {
         // Respect opt-out env var.
-        if std::env::var("PI_TMUX_WHEEL_OVERRIDE")
-            .is_ok_and(|v| v == "0")
-        {
+        if std::env::var("PI_TMUX_WHEEL_OVERRIDE").is_ok_and(|v| v == "0") {
             return None;
         }
 
@@ -662,10 +660,9 @@ impl PiApp {
     }
 
     fn effective_show_hardware_cursor(&self) -> bool {
-        self.config.show_hardware_cursor.unwrap_or_else(|| {
-            std::env::var("PI_HARDWARE_CURSOR")
-                .is_ok_and(|val| val == "1")
-        })
+        self.config
+            .show_hardware_cursor
+            .unwrap_or_else(|| std::env::var("PI_HARDWARE_CURSOR").is_ok_and(|val| val == "1"))
     }
 
     fn effective_default_permissive(&self) -> bool {
@@ -1657,20 +1654,18 @@ pub async fn run_interactive(
     runtime_handle: RuntimeHandle,
 ) -> anyhow::Result<()> {
     let should_check_for_updates = config.should_check_for_updates();
-    let show_hardware_cursor = config.show_hardware_cursor.unwrap_or_else(|| {
-        std::env::var("PI_HARDWARE_CURSOR")
-            .is_ok_and(|val| val == "1")
-    });
+    let show_hardware_cursor = config
+        .show_hardware_cursor
+        .unwrap_or_else(|| std::env::var("PI_HARDWARE_CURSOR").is_ok_and(|val| val == "1"));
     // Mouse capture defaults ON (preserves existing in-app wheel-scroll
     // behaviour). Users on Windows/CMD/Windows Terminal can opt out via
     // `--no-mouse-capture`, `disable_mouse_capture: true` in settings, or
     // `PI_NO_MOUSE_CAPTURE=1` env var to restore terminal-native click-to-
     // select / right-click-paste / Shift-Insert. See pi_agent_rust#78 for
     // the OAuth-flow copy-out problem this solves.
-    let disable_mouse_capture = config.disable_mouse_capture.unwrap_or_else(|| {
-        std::env::var("PI_NO_MOUSE_CAPTURE")
-            .is_ok_and(|val| val == "1")
-    });
+    let disable_mouse_capture = config
+        .disable_mouse_capture
+        .unwrap_or_else(|| std::env::var("PI_NO_MOUSE_CAPTURE").is_ok_and(|val| val == "1"));
     let mut stdout = std::io::stdout();
     if show_hardware_cursor {
         let _ = crossterm::execute!(stdout, cursor::Show);

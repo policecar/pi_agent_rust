@@ -2551,8 +2551,7 @@ fn normalize_exact_pattern(pattern: &str) -> &str {
 fn pattern_matches(pattern: &str, candidate: &str) -> bool {
     let normalized_pattern = pattern.replace('\\', "/");
     let candidate = candidate.replace('\\', "/");
-    glob::Pattern::new(&normalized_pattern)
-        .is_ok_and(|p| p.matches(&candidate))
+    glob::Pattern::new(&normalized_pattern).is_ok_and(|p| p.matches(&candidate))
 }
 
 fn matches_any_pattern(file_path: &Path, patterns: &[String], base_dir: &Path) -> bool {

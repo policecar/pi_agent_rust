@@ -1310,6 +1310,7 @@ fn error_recovery() {
 #[derive(Debug)]
 struct StreamingToolCallProvider {
     fragments: &'static [&'static str],
+    stream_calls: AtomicUsize,
 }
 
 impl StreamingToolCallProvider {
@@ -1338,6 +1339,7 @@ impl Provider for StreamingToolCallProvider {
         _context: &Context<'_>,
         _options: &StreamOptions,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>> {
+        let call_index = self.stream_calls.fetch_add(1, Ordering::SeqCst);
         let empty_partial = AssistantMessage {
             content: Vec::new(),
             api: self.api().to_string(),
@@ -1349,14 +1351,33 @@ impl Provider for StreamingToolCallProvider {
             timestamp: 0,
         };
         let tool_call = ToolCall {
-            id: "bash-stream-1".to_string(),
-            name: "bash".to_string(),
+            id: "read-stream-1".to_string(),
+            name: "read".to_string(),
             arguments: self.full_arguments(),
             thought_signature: None,
         };
+        // The agent loop executes the tool call and asks for a follow-up
+        // turn; end the run with plain text so the scenario stays single-tool.
+        if call_index > 0 {
+            let done_message = AssistantMessage {
+                content: vec![ContentBlock::Text(TextContent::new("done streaming"))],
+                stop_reason: StopReason::Stop,
+                ..empty_partial.clone()
+            };
+            return Ok(Box::pin(futures::stream::iter(vec![
+                Ok(StreamEvent::Start {
+                    partial: empty_partial,
+                }),
+                Ok(StreamEvent::Done {
+                    reason: StopReason::Stop,
+                    message: done_message,
+                }),
+            ])));
+        }
+
         let final_message = AssistantMessage {
             content: vec![ContentBlock::ToolCall(tool_call.clone())],
-            stop_reason: StopReason::Stop,
+            stop_reason: StopReason::ToolUse,
             ..empty_partial.clone()
         };
 
@@ -1377,14 +1398,14 @@ impl Provider for StreamingToolCallProvider {
             tool_call,
         }));
         events.push(Ok(StreamEvent::Done {
-            reason: StopReason::Stop,
+            reason: StopReason::ToolUse,
             message: final_message,
         }));
         Ok(Box::pin(futures::stream::iter(events)))
     }
 }
 
-/// #126 E2E at the RPC/ACP boundary: the fix for #124 updated the OpenAI
+/// #126 E2E at the RPC/ACP boundary: the fix for #124 updated the `OpenAI`
 /// provider's INTERNAL partial, but RPC/ACP clients consume the partial the
 /// agent loop rebuilds from `StreamEvent`s — which stayed `Null` on every
 /// `ToolCallDelta`. This test drives the REAL `AgentSession` loop with a
@@ -1394,30 +1415,32 @@ impl Provider for StreamingToolCallProvider {
 /// partials carry progressively-growing tool-call `arguments` mid-stream —
 /// not `Null` until `toolcall_end`.
 #[test]
+#[allow(clippy::too_many_lines)]
 fn rpc_partial_tool_call_arguments_grow_during_stream() {
-    let test_name = "e2e_agent_loop_rpc_partial_tool_call_arguments";
-    let harness = TestHarness::new(test_name);
-    let cwd = harness.temp_dir().to_path_buf();
-
     // Fragment boundaries chosen to exercise every completion mode:
     // mid-string, mid-object after a complete member, dangling `"key` with no
     // value yet, and the final fully-valid document.
     const FRAGMENTS: &[&str] = &[
-        "{\"command\": \"mkdir",
-        " -p /workspace/de",
-        "mo\", \"timeout",
+        "{\"path\": \"streamed",
+        "/demo-fi",
+        "le.txt\", \"line",
         "\": 30}",
     ];
+    let test_name = "e2e_agent_loop_rpc_partial_tool_call_arguments";
+    let harness = TestHarness::new(test_name);
+    let cwd = harness.temp_dir().to_path_buf();
+
     let expected_progression: [serde_json::Value; 4] = [
-        json!({"command": "mkdir"}),
-        json!({"command": "mkdir -p /workspace/de"}),
-        json!({"command": "mkdir -p /workspace/demo"}),
-        json!({"command": "mkdir -p /workspace/demo", "timeout": 30}),
+        json!({"path": "streamed"}),
+        json!({"path": "streamed/demo-fi"}),
+        json!({"path": "streamed/demo-file.txt"}),
+        json!({"path": "streamed/demo-file.txt", "line": 30}),
     ];
 
     let serialized_events = run_async(async move {
         let provider: Arc<dyn Provider> = Arc::new(StreamingToolCallProvider {
             fragments: FRAGMENTS,
+            stream_calls: AtomicUsize::new(0),
         });
         let tools = ToolRegistry::new(&tool_names(), &cwd, None);
         let config = AgentConfig {

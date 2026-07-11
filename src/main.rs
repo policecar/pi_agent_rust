@@ -469,14 +469,12 @@ fn main_impl() -> Result<()> {
     // we must boot the normal startup path so the compat ledger can be emitted deterministically.
     if cli.command.is_none() {
         if let Some(pattern) = &cli.list_models {
-            let compat_scan_enabled =
-                std::env::var("PI_EXT_COMPAT_SCAN")
-                    .is_ok_and(|value| {
-                        matches!(
-                            value.trim().to_ascii_lowercase().as_str(),
-                            "1" | "true" | "yes" | "on"
-                        )
-                    });
+            let compat_scan_enabled = std::env::var("PI_EXT_COMPAT_SCAN").is_ok_and(|value| {
+                matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            });
             let has_cli_extensions = !cli.extension.is_empty();
 
             if !compat_scan_enabled && !has_cli_extensions {
