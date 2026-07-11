@@ -46,6 +46,37 @@ Repository: <https://github.com/Dicklesworthstone/pi_agent_rust>
   [#111](https://github.com/Dicklesworthstone/pi_agent_rust/issues/111) /
   [#106](https://github.com/Dicklesworthstone/pi_agent_rust/issues/106).
 
+## [v0.1.22] — 2026-07-10
+
+First version published to crates.io since `0.1.18` (the `v0.1.19`–`v0.1.21`
+tags never reached crates.io because the Publish workflow was missing the
+`CARGO_REGISTRY_TOKEN` secret; the secret is now configured — see
+[#127](https://github.com/Dicklesworthstone/pi_agent_rust/issues/127)).
+
+### Bug Fixes
+
+- **Streaming tool-call arguments now reach RPC/ACP clients** — the #124 fix
+  grew the tool-call `arguments` on the provider's internal partial, but the
+  partial message that `--mode rpc` / ACP clients actually receive is rebuilt
+  in the agent loop, which left `arguments` as `null` on every
+  `toolcall_delta` until the terminal event. The agent loop now accumulates
+  the raw argument deltas per content index and applies the same best-effort
+  partial-JSON completion, for every provider, so snapshot-based IDE
+  frontends render large tool calls streaming in live. Verified by an
+  end-to-end test that serializes agent events exactly as the RPC surface
+  does. Fixes
+  [#126](https://github.com/Dicklesworthstone/pi_agent_rust/issues/126).
+- **Transient provider failures resume the turn instead of replaying it from
+  the user message** — avoids re-executing tool calls that already ran.
+  Fixes [#125](https://github.com/Dicklesworthstone/pi_agent_rust/issues/125).
+
+### Maintenance
+
+- Migrated to published **asupersync 0.3.6** (crates.io) and bumped the
+  pinned toolchain to `nightly-2026-07-05` (required by `sysinfo 0.39`'s
+  `cfg_select!`), with a mechanical clippy sweep for the newer nightly's
+  strengthened lints.
+
 ## [v0.1.20] — 2026-06-13 — Tag-only
 
 ### Bug Fixes
