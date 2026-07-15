@@ -624,7 +624,7 @@ fn agent_release_profile_guidance_matches_cargo_and_readme() {
         "AGENTS.md must not describe jemalloc as enabled by default"
     );
     assert!(
-        agents.contains("<22 MiB") && readme.contains("22.0 MiB"),
+        agents.contains("<24 MiB") && readme.contains("24.0 MiB"),
         "AGENTS.md and README.md must agree on the release binary size budget"
     );
 }
