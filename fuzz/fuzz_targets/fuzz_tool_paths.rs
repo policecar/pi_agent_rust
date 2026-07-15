@@ -48,7 +48,14 @@ fuzz_target!(|data: &[u8]| {
         assert!(resolved.is_absolute());
         assert!(normalized_once.is_absolute());
     } else if !is_tilde {
-        assert!(resolved.starts_with(&cwd));
+        // A relative, non-tilde path is joined onto the absolute `cwd` and
+        // normalized, so the result is always absolute. It is NOT necessarily
+        // contained under `cwd`: a leading `..` (e.g. "..", "../x", "a/../..")
+        // legitimately climbs above `cwd`, which the tool layer allows and
+        // handles explicitly (see `resolve_read_path`'s `!within_cwd` branch).
+        // Asserting containment here was a wrong invariant that any `..`-input
+        // trivially violated.
+        assert!(resolved.is_absolute());
     }
 
     // Also exercise prefixed relative wrapping commonly used by tools.
