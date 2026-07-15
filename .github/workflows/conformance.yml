@@ -205,6 +205,23 @@ jobs:
         working-directory: pi_agent_rust/legacy_pi_mono_code/pi-mono
         run: npm ci
 
+      - name: Build pi-mono TS oracle (coding-agent)
+        if: env.SHOULD_RUN == 'true'
+        working-directory: pi_agent_rust/legacy_pi_mono_code/pi-mono
+        # The differential oracle (tests/ext_conformance/ts_oracle/load_extension.ts)
+        # imports packages/coding-agent/dist/core/extensions/loader.js, which only
+        # exists after a build. `npm ci` installs deps but never builds, so without
+        # this every diff_* test aborts with "Cannot find module .../loader.js".
+        # Build coding-agent and its workspace deps in the same order the root
+        # `build` script uses; mom/web-ui/pods are not needed by the oracle.
+        run: |
+          set -euxo pipefail
+          npm run build --workspace @mariozechner/pi-tui
+          npm run build --workspace @mariozechner/pi-ai
+          npm run build --workspace @mariozechner/pi-agent-core
+          npm run build --workspace @mariozechner/pi-coding-agent
+          test -f packages/coding-agent/dist/core/extensions/loader.js
+
       - name: Symlink bun for conformance tests
         if: env.SHOULD_RUN == 'true'
         run: |
