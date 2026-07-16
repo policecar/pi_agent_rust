@@ -5883,6 +5883,13 @@ fn compile_module_source(
     Ok(prefix_import_meta_url(name, &compiled))
 }
 
+/// Bump whenever a transform applied by [`compile_module_source`] changes.
+///
+/// The source file metadata can remain unchanged across a Pi upgrade while the
+/// transformed output changes. Versioning the key prevents a newer binary from
+/// reusing stale compiled JavaScript emitted by an older compiler pipeline.
+const COMPILED_MODULE_CACHE_VERSION: u8 = 3;
+
 fn module_cache_key(
     static_virtual_modules: &HashMap<String, String>,
     dynamic_virtual_modules: &HashMap<String, String>,
@@ -5897,7 +5904,10 @@ fn module_cache_key(
         hasher.update(name.as_bytes());
         hasher.update(b"\0");
         hasher.update(source.as_bytes());
-        return Some(format!("v:{:x}", hasher.finalize()));
+        return Some(format!(
+            "v{COMPILED_MODULE_CACHE_VERSION}:v:{:x}",
+            hasher.finalize()
+        ));
     }
 
     let path = Path::new(name);
@@ -5912,7 +5922,10 @@ fn module_cache_key(
         .and_then(|ts| ts.duration_since(UNIX_EPOCH).ok())
         .map_or(0, |duration| duration.as_nanos());
 
-    Some(format!("f:{name}:{}:{modified_nanos}", metadata.len()))
+    Some(format!(
+        "v{COMPILED_MODULE_CACHE_VERSION}:f:{name}:{}:{modified_nanos}",
+        metadata.len()
+    ))
 }
 
 // ============================================================================
@@ -6939,6 +6952,25 @@ fn extract_static_require_specifiers(source: &str) -> Vec<String> {
     out
 }
 
+/// Return whether a CommonJS dependency is a platform-specific native binding.
+///
+/// These imports are conventionally protected by platform checks or
+/// `try`/`catch` fallbacks. Hoisting them into unconditional ESM imports would
+/// eagerly resolve bindings for every platform before the guard can run.
+fn is_native_addon_require(specifier: &str) -> bool {
+    let path = Path::new(specifier);
+    let extension = path.extension().and_then(std::ffi::OsStr::to_str);
+    let is_node_addon = extension.is_some_and(|ext| ext.eq_ignore_ascii_case("node"));
+    let is_wasi_cjs = extension.is_some_and(|ext| ext.eq_ignore_ascii_case("cjs"))
+        && path
+            .file_stem()
+            .and_then(|stem| Path::new(stem).extension())
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("wasi"));
+
+    is_node_addon || is_wasi_cjs || specifier.starts_with("@napi-rs/")
+}
+
 /// Detect if a JavaScript source uses CommonJS patterns (`require(...)` or
 /// `module.exports`) and transform it into an ESM-compatible wrapper.
 ///
@@ -6974,7 +7006,10 @@ fn maybe_cjs_to_esm(source: &str) -> String {
     let has_export_default = source.contains("export default");
 
     // Extract all require() specifiers
-    let specifiers = extract_static_require_specifiers(source);
+    let specifiers = extract_static_require_specifiers(source)
+        .into_iter()
+        .filter(|specifier| !is_native_addon_require(specifier))
+        .collect::<Vec<_>>();
 
     if specifiers.is_empty()
         && !has_module_exports
@@ -7495,59 +7530,64 @@ fn transpile_typescript_module(source: &str, name: &str) -> std::result::Result<
 /// per-call hostcalls are needed.
 #[allow(clippy::too_many_lines)]
 fn build_node_os_module() -> String {
+    fn js_string(value: &str) -> String {
+        serde_json::to_string(value).expect("serialize node:os string")
+    }
+
     // Map Rust target constants to Node.js conventions.
-    let node_platform = match std::env::consts::OS {
+    let node_platform = js_string(match std::env::consts::OS {
         "macos" => "darwin",
         "windows" => "win32",
         other => other, // "linux", "freebsd", etc.
-    };
-    let node_arch = match std::env::consts::ARCH {
+    });
+    let node_arch = js_string(match std::env::consts::ARCH {
         "x86_64" => "x64",
         "aarch64" => "arm64",
         "x86" => "ia32",
         "arm" => "arm",
         other => other,
-    };
-    let node_type = match std::env::consts::OS {
+    });
+    let node_type = js_string(match std::env::consts::OS {
         "linux" => "Linux",
         "macos" => "Darwin",
         "windows" => "Windows_NT",
         other => other,
-    };
-    // Escape backslashes for safe JS string interpolation (Windows paths).
-    let tmpdir = std::env::temp_dir()
-        .display()
-        .to_string()
-        .replace('\\', "\\\\");
-    let homedir = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .unwrap_or_else(|_| "/home/unknown".to_string())
-        .replace('\\', "\\\\");
+    });
+    let tmpdir = js_string(&std::env::temp_dir().display().to_string());
+    let homedir = js_string(
+        &std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| "/home/unknown".to_string()),
+    );
     // Read hostname from /etc/hostname (Linux) or fall back to env/default.
-    let hostname = std::fs::read_to_string("/etc/hostname")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("HOSTNAME").ok())
-        .or_else(|| std::env::var("COMPUTERNAME").ok())
-        .unwrap_or_else(|| "localhost".to_string());
+    let hostname = js_string(
+        &std::fs::read_to_string("/etc/hostname")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .or_else(|| std::env::var("HOSTNAME").ok())
+            .or_else(|| std::env::var("COMPUTERNAME").ok())
+            .unwrap_or_else(|| "localhost".to_string()),
+    );
     let num_cpus = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
-    let eol = if cfg!(windows) { "\\r\\n" } else { "\\n" };
-    let dev_null = if cfg!(windows) {
-        "\\\\\\\\.\\\\NUL"
+    let eol = js_string(if cfg!(windows) { "\r\n" } else { "\n" });
+    let dev_null = js_string(if cfg!(windows) {
+        r"\\.\NUL"
     } else {
         "/dev/null"
-    };
-    let username = std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "unknown".to_string());
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+    });
+    let username = js_string(
+        &std::env::var("USER")
+            .or_else(|_| std::env::var("USERNAME"))
+            .unwrap_or_else(|_| "unknown".to_string()),
+    );
+    let shell = js_string(&std::env::var("SHELL").unwrap_or_else(|_| {
         if cfg!(windows) {
             "cmd.exe".to_string()
         } else {
             "/bin/sh".to_string()
         }
-    });
+    }));
     // Read uid/gid from /proc/self/status on Linux, fall back to defaults.
     let (uid, gid) = read_proc_uid_gid().unwrap_or((1000, 1000));
 
@@ -7556,18 +7596,18 @@ fn build_node_os_module() -> String {
 
     format!(
         r#"
-const _platform = "{node_platform}";
-const _arch = "{node_arch}";
-const _type = "{node_type}";
-const _tmpdir = "{tmpdir}";
-const _homedir = "{homedir}";
-const _hostname = "{hostname}";
-const _eol = "{eol}";
-const _devNull = "{dev_null}";
+const _platform = {node_platform};
+const _arch = {node_arch};
+const _type = {node_type};
+const _tmpdir = {tmpdir};
+const _homedir = {homedir};
+const _hostname = {hostname};
+const _eol = {eol};
+const _devNull = {dev_null};
 const _uid = {uid};
 const _gid = {gid};
-const _username = "{username}";
-const _shell = "{shell}";
+const _username = {username};
+const _shell = {shell};
 const _numCpus = {num_cpus};
 const _cpus = [];
 for (let i = 0; i < _numCpus; i++) _cpus.push({{ model: "cpu", speed: 2400, times: {{ user: 0, nice: 0, sys: 0, idle: 0, irq: 0 }} }});
@@ -7683,9 +7723,216 @@ export const Type = {
   Record: (keySchema, valueSchema, opts = {}) => ({ type: "object", additionalProperties: valueSchema, ...opts }),
   Ref: (ref, opts = {}) => ({ $ref: ref, ...opts }),
   Intersect: (schemas, opts = {}) => ({ allOf: schemas, ...opts }),
+  Unsafe: (schema = {}) => schema,
 };
 export default { Type };
 "#
+        .trim()
+        .to_string(),
+    );
+
+    modules.insert(
+        "typebox/compile".to_string(),
+        r##"
+function pointer(path, key) {
+  const segment = String(key).replace(/~/g, "~0").replace(/\//g, "~1");
+  return `${path}/${segment}`;
+}
+
+function pushError(errors, instancePath, message) {
+  errors.push({ instancePath, message });
+  return false;
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function matchesType(type, value) {
+  switch (type) {
+    case "null": return value === null;
+    case "boolean": return typeof value === "boolean";
+    case "string": return typeof value === "string";
+    case "number": return typeof value === "number" && Number.isFinite(value);
+    case "integer": return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value);
+    case "array": return Array.isArray(value);
+    case "object": return isRecord(value);
+    default: return true;
+  }
+}
+
+function validate(schema, value, instancePath, errors, rootSchema) {
+  if (schema === true) return true;
+  if (schema === false) return pushError(errors, instancePath, "must not match this schema");
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
+    return pushError(errors, instancePath, "has an invalid schema");
+  }
+
+  if (Object.prototype.hasOwnProperty.call(schema, "const") && !Object.is(value, schema.const)) {
+    return pushError(errors, instancePath, `must equal ${JSON.stringify(schema.const)}`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.some((candidate) => Object.is(candidate, value))) {
+    return pushError(errors, instancePath, "must be one of the allowed values");
+  }
+
+  if (Array.isArray(schema.anyOf)) {
+    const matched = schema.anyOf.some((branch) => {
+      const branchErrors = [];
+      return validate(branch, value, instancePath, branchErrors, rootSchema);
+    });
+    if (!matched) return pushError(errors, instancePath, "must match at least one schema");
+  }
+  if (Array.isArray(schema.oneOf)) {
+    let matches = 0;
+    for (const branch of schema.oneOf) {
+      const branchErrors = [];
+      if (validate(branch, value, instancePath, branchErrors, rootSchema)) matches += 1;
+    }
+    if (matches !== 1) return pushError(errors, instancePath, "must match exactly one schema");
+  }
+  if (Array.isArray(schema.allOf)) {
+    let valid = true;
+    for (const branch of schema.allOf) {
+      if (!validate(branch, value, instancePath, errors, rootSchema)) valid = false;
+    }
+    if (!valid) return false;
+  }
+  if (schema.not !== undefined) {
+    const branchErrors = [];
+    if (validate(schema.not, value, instancePath, branchErrors, rootSchema)) {
+      return pushError(errors, instancePath, "must not match the excluded schema");
+    }
+  }
+
+  if (typeof schema.$ref === "string" && schema.$ref.startsWith("#/$defs/")) {
+    const key = schema.$ref.slice("#/$defs/".length).replace(/~1/g, "/").replace(/~0/g, "~");
+    const referenced = rootSchema && rootSchema.$defs && rootSchema.$defs[key];
+    if (!referenced) return pushError(errors, instancePath, `references unknown schema ${schema.$ref}`);
+    return validate(referenced, value, instancePath, errors, rootSchema);
+  }
+
+  if (schema.type !== undefined) {
+    const allowedTypes = Array.isArray(schema.type) ? schema.type : [schema.type];
+    if (!allowedTypes.some((type) => matchesType(type, value))) {
+      return pushError(errors, instancePath, `must be ${allowedTypes.join(" or ")}`);
+    }
+  }
+
+  let valid = true;
+  if (typeof value === "string") {
+    if (Number.isInteger(schema.minLength) && value.length < schema.minLength) {
+      valid = pushError(errors, instancePath, `must have at least ${schema.minLength} characters`) && valid;
+    }
+    if (Number.isInteger(schema.maxLength) && value.length > schema.maxLength) {
+      valid = pushError(errors, instancePath, `must have at most ${schema.maxLength} characters`) && valid;
+    }
+    if (typeof schema.pattern === "string") {
+      try {
+        if (!(new RegExp(schema.pattern)).test(value)) {
+          valid = pushError(errors, instancePath, `must match pattern ${schema.pattern}`) && valid;
+        }
+      } catch {
+        valid = pushError(errors, instancePath, "uses an invalid regular expression") && valid;
+      }
+    }
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (typeof schema.minimum === "number" && value < schema.minimum) {
+      valid = pushError(errors, instancePath, `must be >= ${schema.minimum}`) && valid;
+    }
+    if (typeof schema.maximum === "number" && value > schema.maximum) {
+      valid = pushError(errors, instancePath, `must be <= ${schema.maximum}`) && valid;
+    }
+    if (typeof schema.exclusiveMinimum === "number" && value <= schema.exclusiveMinimum) {
+      valid = pushError(errors, instancePath, `must be > ${schema.exclusiveMinimum}`) && valid;
+    }
+    if (typeof schema.exclusiveMaximum === "number" && value >= schema.exclusiveMaximum) {
+      valid = pushError(errors, instancePath, `must be < ${schema.exclusiveMaximum}`) && valid;
+    }
+  }
+
+  if (Array.isArray(value)) {
+    if (Number.isInteger(schema.minItems) && value.length < schema.minItems) {
+      valid = pushError(errors, instancePath, `must contain at least ${schema.minItems} items`) && valid;
+    }
+    if (Number.isInteger(schema.maxItems) && value.length > schema.maxItems) {
+      valid = pushError(errors, instancePath, `must contain at most ${schema.maxItems} items`) && valid;
+    }
+    if (Array.isArray(schema.items)) {
+      for (let index = 0; index < schema.items.length && index < value.length; index += 1) {
+        if (!validate(schema.items[index], value[index], pointer(instancePath, index), errors, rootSchema)) valid = false;
+      }
+    } else if (schema.items && typeof schema.items === "object") {
+      for (let index = 0; index < value.length; index += 1) {
+        if (!validate(schema.items, value[index], pointer(instancePath, index), errors, rootSchema)) valid = false;
+      }
+    }
+  }
+
+  if (isRecord(value)) {
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    if (Array.isArray(schema.required)) {
+      for (const key of schema.required) {
+        if (typeof key === "string" && !Object.prototype.hasOwnProperty.call(value, key)) {
+          valid = pushError(errors, pointer(instancePath, key), "is required") && valid;
+        }
+      }
+    }
+    for (const [key, propertySchema] of Object.entries(properties)) {
+      if (Object.prototype.hasOwnProperty.call(value, key)
+          && !validate(propertySchema, value[key], pointer(instancePath, key), errors, rootSchema)) {
+        valid = false;
+      }
+    }
+    for (const [key, propertyValue] of Object.entries(value)) {
+      if (Object.prototype.hasOwnProperty.call(properties, key)) continue;
+      if (schema.additionalProperties === false) {
+        valid = pushError(errors, pointer(instancePath, key), "is not allowed") && valid;
+      } else if (schema.additionalProperties && typeof schema.additionalProperties === "object"
+          && !validate(schema.additionalProperties, propertyValue, pointer(instancePath, key), errors, rootSchema)) {
+        valid = false;
+      }
+    }
+  }
+
+  return valid;
+}
+
+export class Validator {
+  constructor(...args) {
+    this.context = args.length > 1 ? args[0] : {};
+    this.schema = args.length > 1 ? args[1] : args[0];
+    if (this.schema !== true && this.schema !== false
+        && (!this.schema || typeof this.schema !== "object" || Array.isArray(this.schema))) {
+      throw new TypeError("Compile expects a JSON Schema object or boolean schema");
+    }
+  }
+  Check(value) {
+    return validate(this.schema, value, "", [], this.schema);
+  }
+  Errors(value) {
+    const errors = [];
+    validate(this.schema, value, "", errors, this.schema);
+    return errors;
+  }
+  Context() { return this.context; }
+  Type() { return this.schema; }
+  IsAccelerated() { return false; }
+  Code() { return ""; }
+  Parse(value) {
+    if (this.Check(value)) return value;
+    const first = this.Errors(value)[0];
+    throw new TypeError(first ? `${first.instancePath || "root"}: ${first.message}` : "schema validation failed");
+  }
+}
+
+export function Compile(...args) {
+  return new Validator(...args);
+}
+
+export default Compile;
+"##
         .trim()
         .to_string(),
     );
@@ -8205,6 +8452,101 @@ export class Spacer {
 
 export function visibleWidth(str) {
   return String(str ?? "").length;
+}
+
+let _cellDimensions = { widthPx: 9, heightPx: 18 };
+let _terminalCapabilities = { images: null, trueColor: false, hyperlinks: false };
+let _nextImageId = 1;
+
+export function getCellDimensions() {
+  return { ..._cellDimensions };
+}
+
+export function setCellDimensions(dimensions) {
+  const widthPx = Number(dimensions?.widthPx);
+  const heightPx = Number(dimensions?.heightPx);
+  if (Number.isFinite(widthPx) && widthPx > 0 && Number.isFinite(heightPx) && heightPx > 0) {
+    _cellDimensions = { widthPx, heightPx };
+  }
+}
+
+export function detectCapabilities() {
+  return { ..._terminalCapabilities };
+}
+
+export function getCapabilities() {
+  return { ..._terminalCapabilities };
+}
+
+export function setCapabilities(capabilities) {
+  _terminalCapabilities = {
+    images: capabilities?.images ?? null,
+    trueColor: Boolean(capabilities?.trueColor),
+    hyperlinks: Boolean(capabilities?.hyperlinks),
+  };
+}
+
+export function resetCapabilitiesCache() {}
+
+export function allocateImageId() {
+  const imageId = _nextImageId;
+  _nextImageId += 1;
+  return imageId;
+}
+
+export function calculateImageRows(imageDimensions, targetWidthCells, cellDimensions = getCellDimensions()) {
+  const imageWidth = Number(imageDimensions?.widthPx);
+  const imageHeight = Number(imageDimensions?.heightPx);
+  const widthCells = Math.max(1, Number(targetWidthCells) || 1);
+  const cellWidth = Math.max(1, Number(cellDimensions?.widthPx) || 9);
+  const cellHeight = Math.max(1, Number(cellDimensions?.heightPx) || 18);
+  if (!Number.isFinite(imageWidth) || imageWidth <= 0 || !Number.isFinite(imageHeight) || imageHeight <= 0) return 1;
+  return Math.max(1, Math.ceil((imageHeight * widthCells * cellWidth) / (imageWidth * cellHeight)));
+}
+
+export function getPngDimensions(_base64Data) { return null; }
+export function getJpegDimensions(_base64Data) { return null; }
+export function getGifDimensions(_base64Data) { return null; }
+export function getWebpDimensions(_base64Data) { return null; }
+
+export function getImageDimensions(base64Data, mimeType) {
+  if (mimeType === "image/png") return getPngDimensions(base64Data);
+  if (mimeType === "image/jpeg") return getJpegDimensions(base64Data);
+  if (mimeType === "image/gif") return getGifDimensions(base64Data);
+  if (mimeType === "image/webp") return getWebpDimensions(base64Data);
+  return null;
+}
+
+export function encodeKitty(base64Data, _options = {}) {
+  return `\x1b_Ga=T,f=100,q=2;${String(base64Data ?? "")}\x1b\\`;
+}
+
+export function encodeITerm2(base64Data, _options = {}) {
+  return `\x1b]1337;File=inline=1:${String(base64Data ?? "")}\x07`;
+}
+
+export function deleteKittyImage(imageId) {
+  return `\x1b_Ga=d,d=I,i=${Number(imageId) || 0},q=2\x1b\\`;
+}
+
+export function deleteAllKittyImages() {
+  return "\x1b_Ga=d,d=A,q=2\x1b\\";
+}
+
+export function renderImage(_base64Data, _imageDimensions, _options = {}) {
+  return null;
+}
+
+export function hyperlink(text, url) {
+  return `\x1b]8;;${String(url ?? "")}\x1b\\${String(text ?? "")}\x1b]8;;\x1b\\`;
+}
+
+export function imageFallback(mimeType, dimensions, filename) {
+  const parts = [];
+  if (filename) parts.push(String(filename));
+  parts.push(`[${String(mimeType ?? "image")}]`);
+  if (dimensions?.widthPx && dimensions?.heightPx) parts.push(`${dimensions.widthPx}x${dimensions.heightPx}`);
+  return `[Image: ${parts.join(" ")}]`;
 }
 
 export function wrapTextWithAnsi(text, _width) {
@@ -8750,22 +9092,32 @@ export function getAgentDir() {
   return home ? `${home}/.pi/agent` : "/home/unknown/.pi/agent";
 }
 
-// Stub: keyHint returns a keyboard shortcut hint string for UI display
-export function keyHint(action, fallback = "") {
-  // Map action names to default key bindings
-  const keyMap = {
-    expandTools: "Ctrl+E",
-    copy: "Ctrl+C",
-    paste: "Ctrl+V",
-    save: "Ctrl+S",
-    quit: "Ctrl+Q",
-    help: "?",
-  };
-  return keyMap[action] || fallback || action;
+// Canonical upstream action IDs used by extension-facing key hints. Keep the
+// values in upstream's display form so package UI text matches TypeScript Pi.
+const __piKeyText = {
+  "app.tools.expand": "ctrl+o",
+  expandTools: "ctrl+o",
+  copy: "ctrl+c",
+  paste: "ctrl+v",
+  save: "ctrl+s",
+  quit: "ctrl+q",
+  help: "?",
+};
+
+export function keyText(action) {
+  return __piKeyText[String(action ?? "")] || "";
 }
 
-export function rawKeyHint(action, fallback = "") {
-  return keyHint(action, fallback);
+export function keyHint(action, description = "") {
+  const key = keyText(action);
+  const label = String(description ?? "");
+  return key && label ? `${key} ${label}` : key || label;
+}
+
+export function rawKeyHint(key, description = "") {
+  const keyLabel = String(key ?? "");
+  const label = String(description ?? "");
+  return keyLabel && label ? `${keyLabel} ${label}` : keyLabel || label;
 }
 
 // Stub: compact performs conversation compaction via LLM
@@ -8936,6 +9288,7 @@ export default {
   createEditTool,
   copyToClipboard,
   getAgentDir,
+  keyText,
   keyHint,
   rawKeyHint,
   compact,
@@ -15406,6 +15759,27 @@ export default { PythonIndexer };
         .trim()
         .to_string(),
     );
+
+    // Current Pi packages use the @earendil-works scope, while the original
+    // compatibility modules were published under @mariozechner. Both scopes
+    // intentionally resolve to the same implementation so mixed-version
+    // extension graphs cannot drift by package name.
+    for (alias, target) in [
+        (
+            "@earendil-works/pi-coding-agent",
+            "@mariozechner/pi-coding-agent",
+        ),
+        ("@earendil-works/pi-tui", "@mariozechner/pi-tui"),
+        ("@earendil-works/pi-ai", "@mariozechner/pi-ai"),
+        ("@earendil-works/pi-ai/compat", "@mariozechner/pi-ai"),
+        ("@earendil-works/pi-agent-core", "@mariozechner/pi-ai"),
+        ("@mariozechner/pi-agent-core", "@mariozechner/pi-ai"),
+        ("typebox", "@sinclair/typebox"),
+    ] {
+        if let Some(source) = modules.get(target).cloned() {
+            modules.insert(alias.to_string(), source);
+        }
+    }
 
     modules
 }
@@ -22729,6 +23103,28 @@ module.exports = { fs, generated };
     }
 
     #[test]
+    fn maybe_cjs_to_esm_keeps_platform_native_addon_requires_lazy() {
+        let source = r#"
+try {
+  module.exports = require("./image.android-arm64.node");
+} catch (_) {}
+try {
+  module.exports = require("@napi-rs/image-android-arm64");
+} catch (_) {}
+try {
+  module.exports = require("./image.wasi.cjs");
+} catch (_) {}
+module.exports = require("path");
+"#;
+
+        let rewritten = maybe_cjs_to_esm(source);
+        assert!(rewritten.contains(r#"from "path";"#));
+        assert!(!rewritten.contains(r#"from "./image.android-arm64.node";"#));
+        assert!(!rewritten.contains(r#"from "@napi-rs/image-android-arm64";"#));
+        assert!(!rewritten.contains(r#"from "./image.wasi.cjs";"#));
+    }
+
+    #[test]
     fn maybe_cjs_to_esm_synthesizes_named_exports_from_module_exports_object() {
         let source = r"
 function buildListItemContentBlock() {}
@@ -23232,6 +23628,25 @@ import { isIPv4 as netIsIpv4 } from "node:net";
             .expect("virtual key should exist");
 
         assert_ne!(key_before, key_after);
+    }
+
+    #[test]
+    fn module_cache_key_includes_compiler_schema_version() {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let module_path = temp_dir.path().join("module.js");
+        std::fs::write(&module_path, "export const x = 1;\n").expect("write module");
+
+        let key = module_cache_key(
+            &HashMap::new(),
+            &HashMap::new(),
+            module_path.to_string_lossy().as_ref(),
+        )
+        .expect("file cache key");
+
+        assert!(
+            key.starts_with(&format!("v{COMPILED_MODULE_CACHE_VERSION}:f:")),
+            "cache key must change when the compiler schema changes: {key}"
+        );
     }
 
     #[test]
@@ -26667,6 +27082,135 @@ export const bundled = globalThis.__doomWadFinderProbe.bundled;
                 get_global_json(&runtime, "bare_events_ok").await,
                 serde_json::json!(true)
             );
+        });
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn pijs_pi_subagents_0_34_0_import_contract_and_validation_semantics() {
+        // Contract pinned to pi-subagents@0.34.0, npm integrity
+        // sha512-JGgSYaieZ/2QtsW6BwSV1SX6zMz+YpV0JXUjSTtgphpk+z5OOJVJ4D/tWnCxIURXKcgsam+1vQkQgQ5fhrasFA==.
+        futures::executor::block_on(async {
+            let runtime = PiJsRuntime::with_clock(DeterministicClock::new(0))
+                .await
+                .expect("create runtime");
+
+            runtime
+                .eval(
+                    r#"
+                    globalThis.piSubagentsContract = { done: false, error: "" };
+                    Promise.all([
+                      import("@earendil-works/pi-coding-agent"),
+                      import("@earendil-works/pi-tui"),
+                      import("@earendil-works/pi-ai"),
+                      import("@earendil-works/pi-agent-core"),
+                      import("typebox"),
+                      import("typebox/compile"),
+                    ]).then(([agent, tui, ai, agentCore, typebox, compiler]) => {
+                      const { Type } = typebox;
+                      const Task = Type.Object({
+                        agent: Type.String(),
+                        task: Type.String(),
+                      }, { additionalProperties: false });
+                      const Params = Type.Object({
+                        agent: Type.Optional(Type.String()),
+                        tasks: Type.Optional(Type.Array(Task, { minItems: 1 })),
+                        concurrency: Type.Optional(Type.Integer({ minimum: 1 })),
+                        config: Type.Optional(Type.Unsafe({
+                          anyOf: [
+                            { type: "object", additionalProperties: true },
+                            { type: "string" },
+                          ],
+                        })),
+                      }, { additionalProperties: false });
+                      const validator = compiler.Compile(Params);
+
+                      const structured = compiler.Compile({
+                        type: "object",
+                        required: ["items"],
+                        additionalProperties: false,
+                        properties: {
+                          items: {
+                            type: "array",
+                            minItems: 1,
+                            items: {
+                              type: "object",
+                              required: ["name"],
+                              additionalProperties: false,
+                              properties: { name: { type: "string", minLength: 1 } },
+                            },
+                          },
+                        },
+                      });
+
+                      tui.setCellDimensions({ widthPx: 10, heightPx: 20 });
+                      const errors = validator.Errors({ concurrency: 0, extra: true });
+                      globalThis.piSubagentsContract = {
+                        done: true,
+                        error: "",
+                        packageVersion: "0.34.0",
+                        keyText: agent.keyText("app.tools.expand"),
+                        markdownTheme: typeof agent.getMarkdownTheme(),
+                        aiExport: typeof ai.StringEnum,
+                        agentCoreExport: typeof agentCore.StringEnum,
+                        validSingle: validator.Check({ agent: "scout" }),
+                        validParallel: validator.Check({
+                          tasks: [{ agent: "reviewer", task: "audit" }],
+                          concurrency: 2,
+                          config: "{}",
+                        }),
+                        validUnsafeObject: validator.Check({ config: { mode: "custom" } }),
+                        invalidMinimum: validator.Check({ concurrency: 0 }),
+                        invalidNestedRequired: validator.Check({ tasks: [{ agent: "reviewer" }] }),
+                        invalidAdditional: validator.Check({ agent: "scout", unexpected: true }),
+                        invalidUnsafeUnion: validator.Check({ config: false }),
+                        errorPaths: errors.map((entry) => entry.instancePath),
+                        structuredValid: structured.Check({ items: [{ name: "one" }] }),
+                        structuredInvalid: structured.Check({ items: [{ name: "" }], extra: true }),
+                        cellDimensions: tui.getCellDimensions(),
+                        imageApi: [
+                          "allocateImageId", "calculateImageRows", "deleteAllKittyImages",
+                          "deleteKittyImage", "detectCapabilities", "encodeITerm2", "encodeKitty",
+                          "getCapabilities", "getImageDimensions", "getJpegDimensions",
+                          "getPngDimensions", "getGifDimensions", "getWebpDimensions", "hyperlink",
+                          "imageFallback", "renderImage", "resetCapabilitiesCache", "setCapabilities",
+                        ].every((name) => typeof tui[name] === "function"),
+                      };
+                    }).catch((error) => {
+                      globalThis.piSubagentsContract.done = true;
+                      globalThis.piSubagentsContract.error = String(error?.message || error || "");
+                    });
+                    "#,
+                )
+                .await
+                .expect("evaluate pinned pi-subagents import contract");
+
+            let result = get_global_json(&runtime, "piSubagentsContract").await;
+            assert_eq!(result["done"], serde_json::json!(true));
+            assert_eq!(result["error"], serde_json::json!(""));
+            assert_eq!(result["packageVersion"], serde_json::json!("0.34.0"));
+            assert_eq!(result["keyText"], serde_json::json!("ctrl+o"));
+            assert_eq!(result["markdownTheme"], serde_json::json!("object"));
+            assert_eq!(result["aiExport"], serde_json::json!("function"));
+            assert_eq!(result["agentCoreExport"], serde_json::json!("function"));
+            assert_eq!(result["validSingle"], serde_json::json!(true));
+            assert_eq!(result["validParallel"], serde_json::json!(true));
+            assert_eq!(result["validUnsafeObject"], serde_json::json!(true));
+            assert_eq!(result["invalidMinimum"], serde_json::json!(false));
+            assert_eq!(result["invalidNestedRequired"], serde_json::json!(false));
+            assert_eq!(result["invalidAdditional"], serde_json::json!(false));
+            assert_eq!(result["invalidUnsafeUnion"], serde_json::json!(false));
+            assert_eq!(
+                result["errorPaths"],
+                serde_json::json!(["/concurrency", "/extra"])
+            );
+            assert_eq!(result["structuredValid"], serde_json::json!(true));
+            assert_eq!(result["structuredInvalid"], serde_json::json!(false));
+            assert_eq!(
+                result["cellDimensions"],
+                serde_json::json!({ "widthPx": 10, "heightPx": 20 })
+            );
+            assert_eq!(result["imageApi"], serde_json::json!(true));
         });
     }
 
