@@ -885,12 +885,16 @@ where
                     },
                 );
                 self.partial.content.push(ContentBlock::ToolCall(ToolCall {
-                    id,
-                    name,
+                    id: id.clone(),
+                    name: name.clone(),
                     arguments: serde_json::Value::Null,
                     thought_signature: None,
                 }));
-                StreamEvent::ToolCallStart { content_index }
+                StreamEvent::ToolCallStart {
+                    content_index,
+                    id,
+                    name,
+                }
             }
             AnthropicContentBlock::RedactedThinking { data } => {
                 // Redacted thinking arrives in a single `content_block_start` —

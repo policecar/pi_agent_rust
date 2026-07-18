@@ -968,8 +968,20 @@ where
                         thought_signature: None,
                     }));
 
-                    self.pending_events
-                        .push_back(StreamEvent::ToolCallStart { content_index });
+                    // #129: the opening chunk carries the tool-call id and
+                    // (usually) the function name — surface them on the start
+                    // event so agent-side partials are correlatable from the
+                    // first delta. The accumulation below remains the source
+                    // of truth for the provider-side partial.
+                    self.pending_events.push_back(StreamEvent::ToolCallStart {
+                        content_index,
+                        id: tc_delta.id.clone().unwrap_or_default(),
+                        name: tc_delta
+                            .function
+                            .as_ref()
+                            .and_then(|f| f.name.clone())
+                            .unwrap_or_default(),
+                    });
 
                     self.tool_calls.len() - 1
                 };

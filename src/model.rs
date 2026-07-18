@@ -272,8 +272,16 @@ pub enum StreamEvent {
         content: String,
     },
 
+    /// A tool-call content block opened. `id`/`name` carry whatever the
+    /// provider already knows at this point (most providers send both on the
+    /// opening chunk); empty strings mean "not known yet" and the terminal
+    /// [`StreamEvent::ToolCallEnd`] still carries the authoritative values.
+    /// Populating them here lets snapshot clients (RPC/ACP) correlate the
+    /// growing partial with the later tool-execution events (#129).
     ToolCallStart {
         content_index: usize,
+        id: String,
+        name: String,
     },
     ToolCallDelta {
         content_index: usize,

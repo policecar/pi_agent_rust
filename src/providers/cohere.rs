@@ -482,15 +482,18 @@ where
                     thought_signature: None,
                 }));
 
+                self.pending_events.push_back(StreamEvent::ToolCallStart {
+                    content_index,
+                    id: tc.id.clone(),
+                    name: tc.function.name.clone(),
+                });
+
                 self.active_tool_call = Some(ToolCallAccum {
                     content_index,
                     id: tc.id,
                     name: tc.function.name,
                     arguments: tc.function.arguments.clone(),
                 });
-
-                self.pending_events
-                    .push_back(StreamEvent::ToolCallStart { content_index });
                 if !tc.function.arguments.is_empty() {
                     self.pending_events.push_back(StreamEvent::ToolCallDelta {
                         content_index,

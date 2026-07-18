@@ -2426,7 +2426,11 @@ impl Agent {
                         });
                     }
                 }
-                StreamEvent::ToolCallStart { content_index, .. } => {
+                StreamEvent::ToolCallStart {
+                    content_index,
+                    id,
+                    name,
+                } => {
                     self.seed_partial_message_if_missing(&mut added_partial);
                     if let Some(Message::Assistant(msg_arc)) = self
                         .messages
@@ -2435,13 +2439,25 @@ impl Agent {
                         .find(|m| matches!(m, Message::Assistant(_)))
                     {
                         let msg = Arc::make_mut(msg_arc);
+                        // #129: seed `id`/`name` from the start event so every
+                        // emitted partial carries the correlation key from the
+                        // first `toolcall_delta`, not only at `toolcall_end`.
                         if content_index == msg.content.len() {
                             msg.content.push(ContentBlock::ToolCall(ToolCall {
-                                id: String::new(),
-                                name: String::new(),
+                                id,
+                                name,
                                 arguments: serde_json::Value::Null,
                                 thought_signature: None,
                             }));
+                        } else if let Some(ContentBlock::ToolCall(tc)) =
+                            msg.content.get_mut(content_index)
+                        {
+                            if tc.id.is_empty() {
+                                tc.id = id;
+                            }
+                            if tc.name.is_empty() {
+                                tc.name = name;
+                            }
                         }
                         let shared = Arc::clone(msg_arc);
                         if !sent_start {
