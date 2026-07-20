@@ -1818,8 +1818,8 @@ strip = true         # Remove symbol tables
 ```
 
 Binary size is explicitly budgeted in CI via `binary_size_release`, with a target
-threshold of `22.0 MiB` (the harness computes bytes / 1024 / 1024). Default
-release builds keep heavyweight extras opt-in and currently measure `21.12 MiB`
+threshold of `24.0 MiB` (the harness computes bytes / 1024 / 1024). Default
+release builds keep heavyweight extras opt-in and currently measure `22.55 MiB`
 for `pi` with the standard Cargo `release` profile. Use `--features full` when
 you need the image, clipboard, wasm, jemalloc, and syntax-highlighting extras in
 one build.
