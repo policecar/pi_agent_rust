@@ -554,9 +554,18 @@ where
                                 thought_signature: None,
                             }));
 
-                        // Emit ToolCallStart
-                        self.pending_events
-                            .push_back(StreamEvent::ToolCallStart { content_index });
+                        // Emit ToolCallStart (#129: carry the id/name the
+                        // opening chunk already provides so agent-side
+                        // partials are correlatable from the first delta).
+                        self.pending_events.push_back(StreamEvent::ToolCallStart {
+                            content_index,
+                            id: tc.id.clone().unwrap_or_default(),
+                            name: tc
+                                .function
+                                .as_ref()
+                                .and_then(|f| f.name.clone())
+                                .unwrap_or_default(),
+                        });
                         self.tool_calls.len() - 1
                     };
 

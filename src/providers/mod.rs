@@ -623,8 +623,23 @@ impl ExtensionStreamSimpleProvider {
                 content_index,
                 content,
             },
-            AssistantMessageEvent::ToolCallStart { content_index, .. } => {
-                StreamEvent::ToolCallStart { content_index }
+            AssistantMessageEvent::ToolCallStart {
+                content_index,
+                partial,
+            } => {
+                // #129: recover the tool-call id/name from the partial so the
+                // reconstructed stream stays correlatable from the start.
+                let (id, name) = match partial.content.get(content_index) {
+                    Some(crate::model::ContentBlock::ToolCall(tc)) => {
+                        (tc.id.clone(), tc.name.clone())
+                    }
+                    _ => (String::new(), String::new()),
+                };
+                StreamEvent::ToolCallStart {
+                    content_index,
+                    id,
+                    name,
+                }
             }
             AssistantMessageEvent::ToolCallDelta {
                 content_index,

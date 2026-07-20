@@ -957,6 +957,12 @@ where
                         thought_signature: None,
                     }));
 
+                    self.pending_events.push_back(StreamEvent::ToolCallStart {
+                        content_index,
+                        id: call_id.clone(),
+                        name: name.clone(),
+                    });
+
                     self.tool_calls_by_item_id.insert(
                         id,
                         ToolCallState {
@@ -966,9 +972,6 @@ where
                             arguments: buffered_arguments.clone(),
                         },
                     );
-
-                    self.pending_events
-                        .push_back(StreamEvent::ToolCallStart { content_index });
 
                     if !buffered_arguments.is_empty() {
                         self.pending_events.push_back(StreamEvent::ToolCallDelta {
@@ -1086,6 +1089,8 @@ where
         if synthesized_start {
             self.pending_events.push_back(StreamEvent::ToolCallStart {
                 content_index: tc.content_index,
+                id: tc.call_id.clone(),
+                name: tc.name.clone(),
             });
         }
 

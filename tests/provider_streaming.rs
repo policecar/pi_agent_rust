@@ -1086,7 +1086,11 @@ mod backpressure_tests {
                 content_index: 0,
                 content: expected_text.clone(),
             }),
-            event(StreamEvent::ToolCallStart { content_index: 1 }),
+            event(StreamEvent::ToolCallStart {
+                content_index: 1,
+                id: tool_call.id.clone(),
+                name: tool_call.name.clone(),
+            }),
             event(StreamEvent::ToolCallDelta {
                 content_index: 1,
                 delta: "{\"query\":\"".to_string(),

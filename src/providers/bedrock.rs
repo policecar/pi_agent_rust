@@ -334,7 +334,11 @@ impl BedrockProvider {
                 ContentBlock::ToolCall(tool_call) => {
                     let delta = serde_json::to_string(&tool_call.arguments)
                         .unwrap_or_else(|_| "{}".to_string());
-                    events.push(Ok(StreamEvent::ToolCallStart { content_index }));
+                    events.push(Ok(StreamEvent::ToolCallStart {
+                        content_index,
+                        id: tool_call.id.clone(),
+                        name: tool_call.name.clone(),
+                    }));
                     events.push(Ok(StreamEvent::ToolCallDelta {
                         content_index,
                         delta,

@@ -1385,7 +1385,11 @@ impl Provider for StreamingToolCallProvider {
             Ok(StreamEvent::Start {
                 partial: empty_partial,
             }),
-            Ok(StreamEvent::ToolCallStart { content_index: 0 }),
+            Ok(StreamEvent::ToolCallStart {
+                content_index: 0,
+                id: tool_call.id.clone(),
+                name: tool_call.name.clone(),
+            }),
         ];
         for fragment in self.fragments {
             events.push(Ok(StreamEvent::ToolCallDelta {
@@ -1528,6 +1532,28 @@ fn rpc_partial_tool_call_arguments_grow_during_stream() {
                 args, expected,
                 "delta {idx}: {label} arguments should be the best-effort \
                  completion of the accumulated fragment prefix"
+            );
+        }
+
+        // #129: the correlation key must be present on EVERY mid-stream
+        // partial, not only at toolcall_end — snapshot clients key the
+        // growing preview by tool-call id.
+        for (label, block) in [
+            ("message", &update["message"]["content"][0]),
+            (
+                "assistantMessageEvent.partial",
+                &update["assistantMessageEvent"]["partial"]["content"][0],
+            ),
+        ] {
+            assert_eq!(
+                block["id"], "read-stream-1",
+                "delta {idx}: {label} tool-call id must be populated mid-stream \
+                 (the #129 regression: id stayed \"\" until toolcall_end)"
+            );
+            assert_eq!(
+                block["name"], "read",
+                "delta {idx}: {label} tool-call name must be populated mid-stream \
+                 (the #129 regression: name stayed \"\" until toolcall_end)"
             );
         }
     }
