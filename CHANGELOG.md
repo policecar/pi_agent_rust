@@ -14,6 +14,16 @@ Repository: <https://github.com/Dicklesworthstone/pi_agent_rust>
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **`StreamEvent::ToolCallStart` gained `id` and `name` fields** (#129), so this
+  release bumps the version to **0.2.0**. The exhaustive public enum variant now
+  carries the tool-call `id`/`name` on the partial start event (letting RPC/ACP
+  snapshot clients correlate the growing partial with later tool-execution
+  events); any exhaustive match or struct-literal construction of that variant
+  must be updated. `cargo-semver-checks` flags the field addition as requiring a
+  new major (for `0.x`, minor) version.
+
 ### Features
 
 - **Newer z.ai (GLM) and MiniMax models in the registry** — the model catalog
