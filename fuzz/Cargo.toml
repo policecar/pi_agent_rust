@@ -21,9 +21,13 @@ serde = { version = "1", features = ["derive"] }
 [workspace]
 members = ["."]
 
-# Pin asupersync to the same git revision used by the main workspace
-[patch.crates-io]
-asupersync = { git = "https://github.com/Dicklesworthstone/asupersync.git", rev = "673cf66" }
+# Keep asupersync aligned with the version the main workspace ships (see the
+# root Cargo.lock). asupersync >= 0.3.9 marks `MutexGuard` as `!Send` (a
+# deliberate soundness fix), which the lib's spawned session/bash futures are
+# not yet structured for; the main workspace pins the last version where those
+# futures compile, and the fuzz workspace must resolve to the same version so it
+# exercises the code the product actually builds. The concrete pin lives in
+# fuzz/Cargo.lock; this comment records the constraint.
 
 [build-dependencies]
 vergen-gix = { version = "=9.1.0" }
