@@ -6,7 +6,6 @@
       "antigravity-image-gen/antigravity-image-gen.ts",
       "bash-spawn-hook/bash-spawn-hook.ts",
       "bookmark/bookmark.ts",
-      "claude-rules/claude-rules.ts",
       "confirm-destructive/confirm-destructive.ts",
       "custom-compaction/custom-compaction.ts",
       "custom-footer/custom-footer.ts",
@@ -17,12 +16,13 @@
       "event-bus/event-bus.ts",
       "file-trigger/file-trigger.ts",
       "handoff/handoff.ts",
-      "hello/hello.ts"
+      "hello/hello.ts",
+      "input-transform/input-transform.ts"
     ],
     "rss_interval_secs": 5
   },
-  "correlation_id": "bd-2zcs5.71-darkgoose-20260510T0058Z",
-  "generated_at": "2026-05-10T01:22:30Z",
+  "correlation_id": "weekly-34126145813",
+  "generated_at": "2026-09-07T13:19:53Z",
   "pass": true,
   "results": {
     "error_count": 0,
@@ -30,16 +30,16 @@
     "extensions_loaded": 15,
     "latency": {
       "ok": true,
-      "p99_first_us": 399,
-      "p99_last_us": 368,
+      "p99_first_us": 304,
+      "p99_last_us": 335,
       "summary": {
         "count": 1500,
-        "max": 1142,
-        "mean": 161,
-        "min": 67,
-        "p50": 128,
-        "p95": 308,
-        "p99": 396
+        "max": 428,
+        "mean": 205,
+        "min": 130,
+        "p50": 189,
+        "p95": 297,
+        "p99": 340
       }
     },
     "reactor": {
@@ -223,13 +223,13 @@
       ]
     },
     "rss": {
-      "growth_pct": 0.0025331030512377663,
-      "initial_kb": 35573760,
-      "max_kb": 35663872,
+      "growth_pct": 0.008816120906801008,
+      "initial_kb": 32522240,
+      "max_kb": 32808960,
       "ok": true
     },
     "sample_errors": []
   },
-  "run_id": "bd-2zcs5.71-darkgoose-20260510T0058Z",
+  "run_id": "weekly-34126145813",
   "schema": "pi.ext.stress_triage.v1"
 }
