@@ -295,14 +295,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+      # A 30-minute run grows the corpus to a very large number of tiny files,
+      # and upload-artifact@v4 then dies with "Maximum call stack size
+      # exceeded", failing the job after fuzzing succeeded. Upload one tarball.
+      - name: Pack corpus snapshot (nightly)
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -d "fuzz/corpus/${{ matrix.target }}" ]; then
+            tar -czf "fuzz/reports/${{ matrix.target }}_corpus.tar.gz" \
+              -C fuzz/corpus "${{ matrix.target }}"
+          fi
+
       - name: Upload corpus snapshot (nightly)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
-          path: pi_agent_rust/fuzz/corpus/${{ matrix.target }}/
+          path: pi_agent_rust/fuzz/reports/${{ matrix.target }}_corpus.tar.gz
           if-no-files-found: ignore
           retention-days: 14
+          # Already gzip-compressed.
+          compression-level: 0
 
   fuzz-coverage-dashboard:
     name: fuzz-coverage-dashboard
