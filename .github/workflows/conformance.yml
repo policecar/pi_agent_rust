@@ -214,10 +214,18 @@ jobs:
         # this every diff_* test aborts with "Cannot find module .../loader.js".
         # Build coding-agent and its workspace deps in the same order the root
         # `build` script uses; mom/web-ui/pods are not needed by the oracle.
+        #
+        # pi-ai is compiled directly instead of via its `build` script: that
+        # script first runs `generate-models`, which re-fetches live model
+        # catalogs (models.dev, OpenRouter, Vercel) and overwrites the committed
+        # models.generated.ts. Whenever upstream delists a model the legacy
+        # sources still reference, tsgo fails and the job goes red for reasons
+        # unrelated to this repo. Building against the committed file keeps the
+        # oracle build hermetic.
         run: |
           set -euxo pipefail
           npm run build --workspace @mariozechner/pi-tui
-          npm run build --workspace @mariozechner/pi-ai
+          (cd packages/ai && npx tsgo -p tsconfig.build.json)
           npm run build --workspace @mariozechner/pi-agent-core
           npm run build --workspace @mariozechner/pi-coding-agent
           test -f packages/coding-agent/dist/core/extensions/loader.js
