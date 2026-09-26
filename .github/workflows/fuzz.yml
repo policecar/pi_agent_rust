@@ -349,11 +349,31 @@ jobs:
             fuzz-coverage-${{ runner.os }}-
             fuzz-nightly-${{ runner.os }}-
 
+      # `cargo fuzz coverage` only replays an existing corpus (it never
+      # generates inputs) and fuzz/corpus/ is gitignored, so without this the
+      # corpus is empty and the step fails. Reuse the corpus the fuzz-nightly
+      # job caches for this target (from its previous run).
+      - name: Restore nightly corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: pi_agent_rust/fuzz/corpus/${{ env.FUZZ_TARGET }}
+          key: fuzz-corpus-${{ env.FUZZ_TARGET }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ env.FUZZ_TARGET }}-
+
       - name: Build fuzz coverage dashboard
         run: |
           set -euo pipefail
           cd fuzz
           mkdir -p "corpus/${FUZZ_TARGET}" "coverage/dashboard/html" reports
+
+          # No cached corpus yet (first run or cache evicted): seed from the
+          # committed regression inputs, which tests/fuzz_regression.rs already
+          # replays without crashing.
+          if [ -z "$(find "corpus/${FUZZ_TARGET}" -type f -print -quit)" ]; then
+            echo "no cached corpus for ${FUZZ_TARGET}; seeding from regression/" >&2
+            cp regression/"${FUZZ_TARGET}"/*.bin "corpus/${FUZZ_TARGET}/"
+          fi
 
           start_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           start_ns="$(date +%s%N)"
