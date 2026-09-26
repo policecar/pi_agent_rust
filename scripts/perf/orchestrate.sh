@@ -533,7 +533,7 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
 
   # Build only the test targets the selected suites run. A bare
   # `cargo test --no-run` builds every integration test in tests/ (300+)
-  # under the LTO'd perf profile, which exhausts memory on 16 GB CI runners.
+  # under the LTO'd perf profile: far more time and memory than the suites need.
   declare -a build_test_args=()
   build_test_count=0
   for suite in "${SELECTED_SUITES[@]}"; do
