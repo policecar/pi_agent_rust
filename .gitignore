@@ -218,8 +218,11 @@ src/bin/test_time.rs
 /fix_tools_write.rs
 
 # ACFS ephemeral patterns (auto-generated agent artifacts)
+# `core`/`core.*` target crash-dump files; never ignore directories named
+# `core` (e.g. legacy_pi_mono_code/pi-mono/packages/coding-agent/src/core/).
 core
 core.*
+!core/
 cline.mcp.json
 codex.mcp.json
 cursor.mcp.json
@@ -273,3 +276,8 @@ storage.sqlite3-wal.corrupt-*
 /ubs.txt
 /ubs_findings.jsonl
 /ubs_findings.txt
+
+# The vendored pi-mono snapshot (see its PINNED_COMMIT) must be committed
+# verbatim; the generic patterns above would otherwise drop source dirs from it.
+!legacy_pi_mono_code/pi-mono/**/artifacts/
+!legacy_pi_mono_code/pi-mono/.pi/
