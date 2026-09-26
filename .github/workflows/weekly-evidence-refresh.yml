@@ -71,6 +71,12 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Run performance evidence refresh
+        env:
+          # Under the perf profile (opt-level 3, codegen-units=1) a single
+          # asupersync compile peaks near 12 GB, and `cargo test` builds deps
+          # twice (panic=abort and unwind). Parallel jobs get OOM-killed on the
+          # 16 GB runner; one job at a time peaks at ~12.6 GB.
+          CARGO_BUILD_JOBS: "1"
         run: |
           set -euxo pipefail
           ./scripts/perf/orchestrate.sh --profile ci --no-rch --bundle 2>&1 | tee tests/evidence_refresh/perf-refresh.log

@@ -531,9 +531,22 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
   log_phase "Phase 2: Build (profile=$CARGO_PROFILE)"
   build_start=$(epoch_ms)
 
-  # Build test binaries
-  log_step "Building test binaries..."
-  if "${CARGO_RUNNER_ARGS[@]}" test --no-run --profile "$CARGO_PROFILE" 2>"$OUTPUT_DIR/logs/build_tests.log"; then
+  # Build only the test targets the selected suites run. A bare
+  # `cargo test --no-run` builds every integration test in tests/ (300+)
+  # under the LTO'd perf profile: far more time and memory than the suites need.
+  declare -a build_test_args=()
+  build_test_count=0
+  for suite in "${SELECTED_SUITES[@]}"; do
+    if [[ -n "${SUITE_TARGETS[$suite]+x}" ]]; then
+      build_test_args+=(--test "${SUITE_TARGETS[$suite]}")
+      build_test_count=$((build_test_count + 1))
+    fi
+  done
+
+  log_step "Building test binaries ($build_test_count targets)..."
+  if [[ "$build_test_count" -eq 0 ]]; then
+    log_ok "No test suites selected; skipping test binary build"
+  elif "${CARGO_RUNNER_ARGS[@]}" test --no-run --profile "$CARGO_PROFILE" "${build_test_args[@]}" 2>"$OUTPUT_DIR/logs/build_tests.log"; then
     log_ok "Test binaries built"
   else
     log_warn "Test binary build had warnings (see logs/build_tests.log)"
